@@ -1,0 +1,18 @@
+.env
+
+# 制作产物（按路径约定应写在技能目录之外，各入口脚本有机械守卫，
+# 这里只兜底防手滑；名单与本技能真实产物名一一对应）
+audio_output/
+narration-source.json
+narration_timing.json
+timeline.html
+.courseware-cache/
+
+# Python 运行时
+__pycache__/
+*.pyc
+.venv/
+
+# 渲染中间物
+*.mp4
+*.wav
