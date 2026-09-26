@@ -22,22 +22,10 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _script_utils import (decode_text_blob,  # noqa: E402
-                           guard_not_in_skill_dir, setup_stdio, write_text_atomic)
+from _script_utils import (guard_not_in_skill_dir, read_text,  # noqa: E402
+                           setup_stdio, write_text_atomic)
 from _contracts import (check_degraded_status, inline_json,  # noqa: E402
                         require_schema_version)
-
-
-def _read(path: Path) -> str:
-    try:
-        blob = path.read_bytes()
-    except OSError as e:
-        raise SystemExit(f"[error] 无法读取文件：{path}（{e}）")
-    text = decode_text_blob(blob)
-    if text is None:
-        raise SystemExit(f"[error] 无法读取文件：{path}（不是可识别的文本编码，"
-                         f"尝试过 utf-8 / utf-16 / gb18030；请用 UTF-8 重新保存）")
-    return text
 
 
 def _timeline_json(raw: str, path: Path) -> dict:
@@ -84,9 +72,9 @@ def _timing_manifest(raw: str, path: Path) -> dict:
     for i, scene in enumerate(scenes, 1):
         if not isinstance(scene, dict):
             raise SystemExit(f"[error] narration_timing.json scenes[{i}] 必须是对象")
-        sid = scene.get("step_id") or scene.get("scene_id")
+        sid = scene.get("step_id")
         if not isinstance(sid, str) or not sid.strip():
-            raise SystemExit(f"[error] narration_timing.json scenes[{i}] 缺少 step_id/scene_id")
+            raise SystemExit(f"[error] narration_timing.json scenes[{i}] 缺少 step_id")
         sentences = scene.get("sentences")
         if not isinstance(sentences, list) or not sentences:
             raise SystemExit(f"[error] narration_timing.json 场景 {sid} 缺少非空 sentences")
@@ -117,7 +105,7 @@ def _validate_timing_alignment(timeline: dict, manifest: dict) -> None:
         if not isinstance(timeline_scene, dict):
             raise SystemExit(f"[error] 时间轴 scenes[{i}] 必须是对象")
         timeline_id = timeline_scene.get("step_id")
-        manifest_id = manifest_scene.get("step_id") or manifest_scene.get("scene_id")
+        manifest_id = manifest_scene.get("step_id")
         if timeline_id != manifest_id:
             raise SystemExit(
                 f"[error] 第 {i} 个场景的 step_id 不一致："
@@ -241,8 +229,8 @@ def main() -> int:
         if existing:
             raise SystemExit("[error] 输出已存在；如确认覆盖请加 --force：\n" + "\n".join(f"  · {p}" for p in existing))
 
-    timeline = _timeline_json(_read(timeline_path), timeline_path)
-    manifest = _timing_manifest(_read(timing_manifest), timing_manifest)
+    timeline = _timeline_json(read_text(timeline_path), timeline_path)
+    manifest = _timing_manifest(read_text(timing_manifest), timing_manifest)
     # 组装是"静音占位页面"出厂前的最后一道关口：build_timeline 拒收的 degraded
     # manifest 若绕开它直接送到这里，页面会带着无声句子照常交付。
     try:
@@ -252,7 +240,7 @@ def main() -> int:
     if warn:
         print(f"[warn] {warn}", file=sys.stderr)
     _validate_timing_alignment(timeline, manifest)
-    page = _replace_audio_src(_embed_timeline(_read(template), timeline))
+    page = _replace_audio_src(_embed_timeline(read_text(template), timeline))
     # 资源先落盘、页面最后写：页面是 audio/runtime 的"总清单"，反过来写时
     # 任何一步复制失败都会留下一份引用缺失资源的坏页面。
     _copy_atomic(audio, audio_out)

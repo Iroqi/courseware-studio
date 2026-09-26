@@ -25,14 +25,10 @@ DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1"
 _ENV_CACHE = {}  # path -> 解析结果（.env 在单次 CLI 进程内稳定，缓存避免每次调用重复 3 编码探测）
 
 
-def _candidate_project_envs(project_dir=None, source_path=None):
-    """返回项目级 .env 候选，优先离 source 最近的项目根目录。
+def _candidate_project_envs(source_path=None):
+    """返回项目级 .env 候选，从 source 所在目录向上、到当前工作目录边界即停。
 
-    优先级：
-      1. project_dir/.env（Create 明确传入的项目目录）
-      2. source_path 所在目录向上，到当前工作目录边界即停（不越过 cwd）
-      3. 当前工作目录/.env
-
+    候选顺序：source_path 所在目录及其在 cwd 之内的祖先，最后 cwd 本身。
     向上爬升的停止边界：起点自身永远作为候选（它是调用方明确指定的位置）；
     祖先目录只有仍在 cwd 之内才是候选，且家目录永远不算项目候选（用户级
     密钥由 _USER_ENV_PATH 专管，否则 ~/.env 会以项目优先级压过
@@ -52,8 +48,6 @@ def _candidate_project_envs(project_dir=None, source_path=None):
             candidates.append(env_path)
 
     roots = []
-    if project_dir:
-        roots.append(os.path.abspath(project_dir))
     if source_path:
         roots.append(os.path.dirname(os.path.abspath(source_path)))
     roots.append(os.path.abspath(os.getcwd()))
@@ -82,9 +76,9 @@ def _candidate_project_envs(project_dir=None, source_path=None):
     return candidates
 
 
-def find_project_env(project_dir=None, source_path=None):
+def find_project_env(source_path=None):
     """返回第一个存在的项目级 .env 路径，否则 None。"""
-    for path in _candidate_project_envs(project_dir=project_dir, source_path=source_path):
+    for path in _candidate_project_envs(source_path=source_path):
         if os.path.isfile(path):
             return path
     return None
@@ -145,7 +139,7 @@ def _parse_env_file_raw(path):
     return result
 
 
-def load_env(project_dir=None, source_path=None):
+def load_env(source_path=None):
     """按优先级合并项目级、用户级与进程环境变量。
 
     对最终密钥解析而言，``get_key`` 使用 CLI > os.environ > project .env > user .env。
@@ -154,7 +148,7 @@ def load_env(project_dir=None, source_path=None):
     merged = {}
     user_env = _parse_env_file(_USER_ENV_PATH)
     merged.update(user_env)
-    project_env_path = find_project_env(project_dir=project_dir, source_path=source_path)
+    project_env_path = find_project_env(source_path=source_path)
     if project_env_path:
         merged.update(_parse_env_file(project_env_path))
     for k, v in os.environ.items():
@@ -163,7 +157,7 @@ def load_env(project_dir=None, source_path=None):
     return merged
 
 
-def get_key(name, cli_value=None, project_dir=None, source_path=None):
+def get_key(name, cli_value=None, source_path=None):
     """获取单个密钥。
 
     优先级：CLI > os.environ > project .env > 用户级 .env。
@@ -173,7 +167,7 @@ def get_key(name, cli_value=None, project_dir=None, source_path=None):
     val = os.environ.get(name)
     if val:
         return val
-    project_env_path = find_project_env(project_dir=project_dir, source_path=source_path)
+    project_env_path = find_project_env(source_path=source_path)
     if project_env_path:
         val = _parse_env_file(project_env_path).get(name)
         if val:
@@ -183,9 +177,9 @@ def get_key(name, cli_value=None, project_dir=None, source_path=None):
 
 
 def resolve_model_config(cli_model, cli_base_url, model_env_name, default_model,
-                         project_dir=None, source_path=None):
+                         source_path=None):
     """按 CLI > 环境变量 > 项目 .env > 用户 .env > 默认值解析模型配置。"""
-    env = load_env(project_dir=project_dir, source_path=source_path)
+    env = load_env(source_path=source_path)
     model = cli_model or env.get(model_env_name) or default_model
     base_url = cli_base_url or env.get("MIMO_BASE_URL") or DEFAULT_BASE_URL
     return model, base_url

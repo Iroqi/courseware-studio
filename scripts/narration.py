@@ -5,7 +5,7 @@
 页面结构、配色、布局、是否播放、怎么播放都由 Agent 在自己的 HTML 里决定——
 本脚本不规定页面长什么样，也不持有任何"页面应该长这样"的假设。
 
-输入（旁白脚本，独立于 Lesson IR，不经任何上游编译）：
+输入（旁白脚本，由 Agent 手写这一份即可）：
 
     普通段落：
     {
@@ -114,13 +114,11 @@ def _collect_dialogue_sentences(dialogue, speakers, seg_index, seg_title):
     return sents, turns
 
 
-def _collect_blocks(source, default_speed=None):
+def _collect_blocks(source, default_speed):
     """把结构化 source 组装成 Block 列表（opening / segments / closing）。"""
     blocks: List[Block] = []
-    # opening/closing 不传显式覆盖时跟随全局 --speed（build_parts 传进来的
-    # default_speed），而不是钉死 1.0：整稿调语速时开场/收尾不该掉队。
-    # 没有全局语速可用时兜底为 DEFAULT_SPEED（与正文同速）。
-    oc_fallback = (default_speed if default_speed is not None else DEFAULT_SPEED)
+    # opening/closing 不传显式覆盖时跟随全局 --speed（default_speed），而不是钉死
+    # 1.0：整稿调语速时开场/收尾不该掉队。
 
     def _extra(seg, fallback_speed):
         extra = {}
@@ -139,7 +137,7 @@ def _collect_blocks(source, default_speed=None):
             title=opening_title(source),
             tagline=(source.get("opening_tagline") or "").strip(),
             sentences=split_sentences(opening_text),
-            extra={"speed": source.get("opening_speed", oc_fallback)},
+            extra={"speed": source.get("opening_speed", default_speed)},
         ))
 
     raw_segments = source.get("segments", [])
@@ -177,12 +175,12 @@ def _collect_blocks(source, default_speed=None):
             title=closing_title(source),
             tagline=(source.get("closing_tagline") or "").strip(),
             sentences=split_sentences(closing_text),
-            extra={"speed": source.get("closing_speed", oc_fallback)},
+            extra={"speed": source.get("closing_speed", default_speed)},
         ))
     return blocks
 
 
-def build_parts(source, default_speed=None):
+def build_parts(source, default_speed):
     """把结构化 source 转成 (sentences, segments)，供 main 使用。
 
     每段**独立**分句（不拼接成整篇再重分句）——结构化输入下每段是独立字符串，
@@ -467,10 +465,9 @@ def _resume_decision(out_path, ffmpeg_path, text, voice_id, voice_style, model,
 # ===================================================================
 def _build_parser():
     parser = argparse.ArgumentParser(description="courseware-studio TTS 能力（旁白 → 音频 + 时间轴）")
-    parser.add_argument("--source", default=None,
+    parser.add_argument("--source", required=True,
                         help="旁白脚本 JSON（{title, segments:[{id,title,text}]}）。"
-                             "逐段独立分句，直接产出带段落分组的时间轴。"
-                             "Agent 手写这一份脚本即可，无需任何上游编译。")
+                             "逐段独立分句，直接产出带段落分组的时间轴，Agent 手写即可。")
     parser.add_argument("-o", "--output", default=None, help="输出目录")
     parser.add_argument("--api-key", default=None,
                         help="MiMo TTS API key。建议不传、由 .env 提供 MIMO_API_KEY："
@@ -530,7 +527,7 @@ def _validate_args(parser, args):
         except ValueError as e:
             parser.error(str(e))
     # inf 能过 float()（argparse 认 "inf"），timeout=inf 会让挂死的请求永远吊住线程池。
-    if args.api_timeout is not None and args.api_timeout <= 0:
+    if args.api_timeout <= 0:
         parser.error(f"--api-timeout 必须大于 0（收到 {args.api_timeout:g}）")
     if args.workers < 1:
         parser.error(f"--workers 至少为 1（收到 {args.workers}）")
@@ -540,7 +537,7 @@ def _validate_args(parser, args):
         parser.error(f"--workers 最多 32（收到 {args.workers}）：并发过高只会触发限流风暴")
     # gap 乘在整稿所有句间切换上：上限拦截基本是笔误的超大值（TTS 已烧完
     # 才在 concat 处产出半小时静音的话，浪费的是真金白银）。
-    if args.gap is not None and args.gap > MAX_GAP_SECONDS:
+    if args.gap > MAX_GAP_SECONDS:
         parser.error(f"--gap 过大（{args.gap:g}s > {MAX_GAP_SECONDS:g}s）："
                      "句间静音会按整稿句数累积，长稿下几十秒的 gap 直接毁掉节奏")
     if args.cache_dir and not args.resume:
@@ -810,7 +807,6 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
         sid = str(seg.get("id"))
         scenes.append({
             "step_id": sid,          # 与 interactive_runtime.js 的场景键一致
-            "scene_id": sid,
             "title": seg.get("title", ""),
             "tagline": seg.get("tagline", ""),
             "start": round(start, 3),
@@ -827,7 +823,6 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
         "status": "degraded" if (silence_fallback_count or dropped_count) else "ok",
         "title": source_data.get("title") or "",
         "total_duration": round(total_dur, 3),
-        "gap": args.gap,
         "voice_id": args.voice_id,
         # 只保留文件名：消费方按约定在同一目录下查找。
         "audio": _audio_ref(combined_path),
@@ -1032,8 +1027,6 @@ def main():
 
     if not args.output and not args.dry_run:
         parser.error("缺少 -o/--output（--dry-run 不需要）")
-    if not args.source:
-        parser.error("缺少 --source")
     # 产物路径守卫：--dry-run 承诺不写文件，不需要拦
     if not args.dry_run:
         guard_not_in_skill_dir(("-o/--output", os.path.abspath(args.output)))

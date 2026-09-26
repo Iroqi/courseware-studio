@@ -128,7 +128,7 @@ def build(timing, content):
     for index, sc in enumerate(raw, 1):
         if not isinstance(sc, dict):
             raise SystemExit(f"[error] scenes[{index}] 必须是对象")
-        sid = str(sc.get("step_id") or sc.get("scene_id") or "").strip()
+        sid = str(sc.get("step_id") or "").strip()
         if not sid:
             raise SystemExit(f"[error] scenes[{index}] 缺少 step_id")
         if sid in seen_ids:
@@ -267,20 +267,13 @@ def main():
         total = float(require_finite_number(td, "total_duration", nonnegative=True))
     except ValueError as exc:
         raise SystemExit(f"[error] {exc}")
-    # --bare 是机器接口：stdout 必须只有 JSON。诊断信息统一走 stderr。
-    if args.bare:
-        report(scenes, total, stream=sys.stderr)
-        if args.output:
-            write_text_atomic(args.output, text)   # 原子写：半截时间轴块比没有更坏
-            print(f"[out] {args.output}  ({len(text)} chars)", file=sys.stderr)
-        else:
-            print(text)
-        return
-
-    report(scenes, total)
+    # --bare 是机器接口：stdout 必须只有 JSON，诊断统一走 stderr；非 bare 时
+    # 两者都走 stdout。JSON 文本永远进 stdout（或 -o 文件）。
+    diag = sys.stderr if args.bare else sys.stdout
+    report(scenes, total, stream=diag)
     if args.output:
-        write_text_atomic(args.output, text)
-        print(f"[out] {args.output}  ({len(text)} chars)")
+        write_text_atomic(args.output, text)   # 原子写：半截时间轴块比没有更坏
+        print(f"[out] {args.output}  ({len(text)} chars)", file=diag)
     else:
         print(text)
 

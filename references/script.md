@@ -101,10 +101,14 @@ audio/combined.wav
 audio/narration_timing.json
 ```
 
-`narration_timing.json` 的 `schema_version` 为 `1`；页面内联后仍保留这个版本号。
+`narration_timing.json` 是时间轴的唯一入口形态：对象，顶层显式 `schema_version: 1`；
+`scenes[]` 每场带 `step_id/start/duration/end` 与 `sentences[{start,duration,text}]`。
+外部（其它 skill / 外部 TTS）产出的 timing 先归一成这个形状再进 `build_timeline.py`。
+页面内联后仍保留这个版本号。
 组装成品时，`build_page.py` 会要求 manifest 含非空 `scenes`，与 `build_timeline.py` 同一道门
 拒收 `status` 非 `ok` 的降级 manifest（确要交付静音占位版才加 `--allow-degraded`），并核对它与
-内联时间轴的场景顺序、句子文本、起止时间和句数；不要把不同批次的音频与 timing 混用。
+内联时间轴的场景顺序、句子文本、起止时间和句数；已有输出文件要显式 `--force`
+才覆盖；不要把不同批次的音频与 timing 混用。
 
 未使用 `--resume` 时，句子音频只保存在临时工作目录，结束后清理；使用 `--resume` 时，缓存默认写在输出目录同级的 `.courseware-cache/<输出目录名>/sentences/`（输出目录名为 `audio` 时即 `.courseware-cache/audio/sentences/`），也可通过 `--cache-dir` 指定。无论哪种模式，`audio/` 交付目录只包含 `combined.wav` 与 `narration_timing.json`，不要把缓存目录当成成品模板。
 
@@ -117,7 +121,8 @@ audio/narration_timing.json
 未来可以由其它 TTS / 其它 skill 提供同样的数据，而不修改页面层。
 
 常用开关：`--dry-run`、`--resume`、`--clean-output`、`--speed`、`--gap`（句间静音，默认 0.4s，上限
-10s——超过直接拒绝，别指望用它做长停顿）、段级 `speed` / `voice_id` / `voice_style`、`--on-fail silence`。
+10s——超过直接拒绝，别指望用它做长停顿）、段级 `speed` / `voice_id` / `voice_style`、`--on-fail silence`；
+其余开关（`--workers`、`--api-timeout`、`--model`、`--base-url`、`--bgm-volume` 等）见 `--help`。
 `voice_id` 会对着内置音色表校验（段落与 `speakers` 都查），写错立即失败并列出可用音色。
 
 语速优先级：`segments[].speed` > 全局 `--speed`；`opening_speed` / `closing_speed`（顶层键）单独覆盖开场与收尾，缺省时它们**跟随全局 `--speed`**（不钉死 1.0）。要"开场略慢"就写一个小于当前语速的值。
@@ -198,5 +203,4 @@ python scripts/build_timeline.py \
 - [ ] 复用已有输出目录时，确认只保留 `combined.wav` / `narration_timing.json`，或生成前显式使用 `--clean-output`；
 - [ ] `synth_failed` 默认视为交付失败；只有明确要保留降级成片时才放行——
       开关在下游 `build_timeline.py` / `build_page.py` / `check_gates.py` 各一道
-      （narration.py 没有这个参数）；
-- [ ] 运行 `check_gates.py` 检查最终字幕、时间轴、renderer、门禁与 JS。
+      （narration.py 没有这个参数）。

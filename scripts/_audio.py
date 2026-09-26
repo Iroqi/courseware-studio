@@ -409,12 +409,7 @@ def get_ffmpeg():
 
 
 def parse_duration(stderr_text):
-    """从 `ffmpeg -i` 的 stderr 解析 `Duration: HH:MM:SS.xx`，返回秒数。
-
-    调用方包括 `_audio.measure_duration` 与页面媒体探测；
-    解析逻辑只在这里维护，避免多个调用方各自复制同一份正则。
-    解析失败返回 None。
-    """
+    """从 `ffmpeg -i` 的 stderr 解析 `Duration: HH:MM:SS.xx`，返回秒数；失败返回 None。"""
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr_text or "")
     if not m:
         return None

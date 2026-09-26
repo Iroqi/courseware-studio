@@ -3,7 +3,8 @@
 两类，都不依赖 TTS / 网络 / 并发：
 
 1. 文本处理：`split_sentences`（中文断句，TTS 分句复用）、
-   `decode_text_blob`（文件编码探测链，_env / build_page / check_gates 共用）。
+   `decode_text_blob`（文件编码探测链，_env / build_page / check_gates 共用）、
+   `read_text`（探测链 + 硬失败的整文件读取，组装 / 检查 / 导出共用）。
 2. 落盘与进程原语：`write_json_atomic`（先写 .tmp → fsync → os.replace）、
    `setup_stdio`（Windows 重定向场景强制 UTF-8）、`guard_not_in_skill_dir`
    （产物不得落进技能目录的守卫）、`is_inside`。
@@ -13,6 +14,7 @@ import os
 import re
 import sys
 import tempfile
+from pathlib import Path
 
 # 技能目录（scripts/ 的上一级）：制作产物一律不得落在这里——产物写在用户项目
 # 目录，混进技能目录会污染仓库、多次制作串台。放在共享模块是因为各入口都要拦
@@ -127,6 +129,24 @@ def decode_text_blob(blob):
             continue
         return text
     return None
+
+
+def read_text(path):
+    """硬失败口径的文件读取：字节 → decode_text_blob 探测链，坏编码即退出。
+
+    组装、检查、导出三方读同一份页面/JSON，编码判定必须一字不差地一致——
+    "同一份文件在组装处能读、在检查处报坏"是最难查的漂移，这里收口成一份。
+    """
+    p = Path(path)
+    try:
+        blob = p.read_bytes()
+    except OSError as e:
+        raise SystemExit(f"[error] 无法读取文件：{p}（{e}）")
+    text = decode_text_blob(blob)
+    if text is None:
+        raise SystemExit(f"[error] 无法识别文件编码（尝试过 utf-8 / utf-16 / gb18030），"
+                         f"请用 UTF-8 重新保存后重试：{p}")
+    return text
 
 
 # 页面里的 charset 声明只有两种规范写法，各自精确匹配，绝不碰 content 里恰好

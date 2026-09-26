@@ -38,23 +38,13 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _contracts import require_finite_number  # noqa: E402
-from _script_utils import (decode_text_blob,  # noqa: E402
-                           normalize_meta_charset, setup_stdio)
+from _script_utils import (normalize_meta_charset, read_text,  # noqa: E402
+                           setup_stdio)
 
 
 _CAP_LEN_MIN = 10
 _CAP_SIM_MIN = 0.75
 _CAP_PUNCT = set("，。！？、：；“”‘’「」『』·→—…（）() .,!?;:\"'…")
-
-
-def _read(path: Path) -> str:
-    # 探测链（含 BOM/NUL 守卫与 gb18030 兜底）是纯文件读取原语，不是闸门判断，
-    # 全仓一份即可；"QA 用自己的眼睛"针对的是校验逻辑，不含这里。
-    text = decode_text_blob(path.read_bytes())
-    if text is None:
-        raise SystemExit('[error] 无法识别页面编码（尝试过 UTF-8 / UTF-16 / GB18030），'
-                         f'请另存为 UTF-8 后重试：{path}')
-    return text
 
 
 def _cap_norm(text: str) -> str:
@@ -418,9 +408,9 @@ def _timing_manifest_errors(page_dir: Path, timeline: dict[str, Any]) -> list[st
     if not path.is_file():
         return [f'缺少 narration_timing.json：{path.as_posix()}']
     try:
-        # 与 build_page 共用 _script_utils.decode_text_blob 的探测链：UTF-16/GBK 的
+        # 与 build_page 共用 _script_utils.read_text 的探测链：UTF-16/GBK 的
         # manifest 能过组装却在这里被判"不是合法 JSON"= 口径分裂的假失败。
-        data = json.loads(_read(path))
+        data = json.loads(read_text(path))
     except (SystemExit, OSError, UnicodeError, json.JSONDecodeError) as exc:
         return [f'narration_timing.json 无法读取或不是合法 JSON：{exc}']
     errors: list[str] = []
@@ -440,7 +430,7 @@ def _timing_manifest_errors(page_dir: Path, timeline: dict[str, Any]) -> list[st
         if not isinstance(manifest_scene, dict) or not isinstance(timeline_scene, dict):
             errors.append(f'第 {i} 个场景在 manifest/时间轴中必须是对象')
             continue
-        msid = manifest_scene.get('step_id') or manifest_scene.get('scene_id')
+        msid = manifest_scene.get('step_id')
         tsid = timeline_scene.get('step_id')
         if msid != tsid:
             errors.append(f'第 {i} 个场景 step_id 不一致：manifest={msid!r}，时间轴={tsid!r}')
@@ -1039,7 +1029,7 @@ PROBE_DRIVER = r'''
     const host = q('#gate-host');
     const sceneId = (host && host.dataset.stepId) || '';
     if (!sceneId) report.failures.push('门禁缺少 gate-host.dataset.stepId');
-    // 门禁期间播放器行与画布播放层必须 inert（SKILL.md 交付检查项）：只设
+    // 门禁期间播放器行与画布播放层必须 inert（layout.md §5）：只设
     // pointer-events 挡不住 Tab/Enter。closest 让祖先级 inert 也豁免（inert
     // 沿树级联生效），不可见（display:none/hidden → offsetParent 为 null）
     // 同样豁免：键盘本来就够不到。元素不存在则跳过，别替页面发明 id。
@@ -1292,7 +1282,7 @@ def _find_chrome() -> str | None:
 
 
 def _build_probe(page: Path, out: Path) -> None:
-    src = _read(page)
+    src = read_text(page)
     # 探针副本按 UTF-8 落盘：源页若是 GB18030/UTF-16 读进来的，不重写声明的话
     # 浏览器仍按原编码解 UTF-8 字节——中文全成乱码，冒烟整轮失真。
     src = normalize_meta_charset(src)
@@ -1330,7 +1320,7 @@ def _build_probe(page: Path, out: Path) -> None:
         candidate = (page.parent / rel).resolve()
         if not candidate.exists():
             raise FileNotFoundError(f'页面引用的 runtime 不存在：{candidate}')
-        runtime = _read(candidate)
+        runtime = read_text(candidate)
         # probe 永远 inline 页面实际使用的 runtime，避免临时目录改变相对 src 后悄悄变成 404。
         # 与 gate_scenes_json 同一口径防 `</script`：runtime 源码里（哪怕字符串/注释里）
         # 出现字面 `</script` 会截断 inline 块，浏览器冒烟整轮失真。JS 字符串/正则里
@@ -1523,7 +1513,7 @@ def main() -> int:
         print(f'[error] 找不到页面：{page}')
         return 2
 
-    src = _read(page)
+    src = read_text(page)
     # 主音频引用合法性与文件存在性都在 static_check 里报（含页面目录）：
     # 早退会吞掉同页其它静态错误，存在性检查也不能当任意路径探针用。
     static = static_check(src, allow_degraded=args.allow_degraded, page_dir=page.parent)

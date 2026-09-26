@@ -36,13 +36,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _audio import get_ffmpeg, measure_duration, quote_ffpath  # noqa: E402
 from _script_utils import (guard_not_in_skill_dir, normalize_meta_charset,  # noqa: E402
-                           setup_stdio, write_text_atomic)
+                           read_text, setup_stdio, write_text_atomic)
 from check_gates import (  # noqa: E402
     ChromeLaunchError,
     _browser_preflight,
     _find_chrome,
     _html_comment_ranges,
-    _read as _read_page,
     _rmtree_retry,
     _run_chrome,
     _timeline_from_html,
@@ -267,8 +266,6 @@ def _frame_plan(sentences: list[tuple[float, float, int]], wav_dur: float) -> li
     first visual to t=0. The final duration is measured against the real audio
     length, so the plan always covers [0, wav_dur].
     """
-    if not sentences:
-        return []
     if not math.isfinite(wav_dur) or wav_dur <= 0:
         raise ValueError('wav_dur 必须是正的有限数值')
     previous_start = -math.inf
@@ -333,7 +330,7 @@ def main() -> int:
         page_dir = page.parent
     if not html_path.exists():
         raise _fail(f'找不到页面：{html_path}')
-    src = _read_page(html_path)
+    src = read_text(html_path)
 
     out = Path(args.output) if args.output else page_dir.parent / f'{page_dir.name}.mp4'
     guard_not_in_skill_dir(('-o/--output', os.path.abspath(out)),
