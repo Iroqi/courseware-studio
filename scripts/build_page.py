@@ -24,8 +24,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _script_utils import (guard_not_in_skill_dir, read_text,  # noqa: E402
                            setup_stdio, write_text_atomic)
-from _contracts import (check_degraded_status, inline_json,  # noqa: E402
+from _contracts import (TIMING_EPS, check_degraded_status, inline_json,  # noqa: E402
                         require_schema_version)
+
+# runtime 恒取 skill 自带的一份（runtime.md §6：复制到输出目录、references/ 不放
+# 副本），页面只依赖统一的 data-locked 契约，不提供替换内核的入口。
+RUNTIME_SRC = Path(__file__).resolve().parent / "interactive_runtime.js"
 
 
 def _timeline_json(raw: str, path: Path) -> dict:
@@ -87,7 +91,7 @@ def _close_number(a, b) -> bool:
     if isinstance(a, bool) or isinstance(b, bool):
         return False
     try:
-        return math.isfinite(float(a)) and math.isfinite(float(b)) and abs(float(a) - float(b)) <= 0.02
+        return math.isfinite(float(a)) and math.isfinite(float(b)) and abs(float(a) - float(b)) <= TIMING_EPS
     except (TypeError, ValueError, OverflowError):
         return False
 
@@ -191,11 +195,6 @@ def main() -> int:
     parser.add_argument("--audio", required=True, help="最终旁白 WAV；会复制为 output/../audio/combined.wav")
     parser.add_argument("--timing", required=True, help="narration_timing.json；会复制到 output/../audio/")
     parser.add_argument("-o", "--output", required=True, help="输出 index.html 路径")
-    parser.add_argument(
-        "--runtime",
-        default=str(Path(__file__).resolve().parent / "interactive_runtime.js"),
-        help="交互 runtime，默认使用 skill 自带版本",
-    )
     parser.add_argument("--force", action="store_true", help="允许覆盖已有 index.html/runtime/audio")
     parser.add_argument("--allow-degraded", action="store_true",
                         help="允许 narration_timing.json 处于 degraded 状态（默认拒绝，与 build_timeline.py 同一道门）")
@@ -206,7 +205,6 @@ def main() -> int:
     timeline_path = Path(args.timeline).resolve()
     audio = Path(args.audio).resolve()
     timing_manifest = Path(args.timing).resolve()
-    runtime = Path(args.runtime).resolve()
     output = Path(args.output).resolve()
     page_dir = output.parent
     audio_out = page_dir / "audio" / "combined.wav"
@@ -221,7 +219,7 @@ def main() -> int:
         tip="请把课件输出到技能目录之外的项目目录。",
     )
     for p, label in ((template, "模板"), (timeline_path, "时间轴"), (audio, "音频"),
-                     (timing_manifest, "narration_timing.json"), (runtime, "runtime")):
+                     (timing_manifest, "narration_timing.json"), (RUNTIME_SRC, "runtime")):
         if not p.is_file():
             raise SystemExit(f"[error] {label}不存在：{p}")
     if not args.force:
@@ -245,7 +243,7 @@ def main() -> int:
     # 任何一步复制失败都会留下一份引用缺失资源的坏页面。
     _copy_atomic(audio, audio_out)
     _copy_atomic(timing_manifest, timing_out)
-    _copy_atomic(runtime, runtime_out)
+    _copy_atomic(RUNTIME_SRC, runtime_out)
     write_text_atomic(str(output), page)
     print(f"[done] page     {output}")
     print(f"[done] audio    {audio_out}")

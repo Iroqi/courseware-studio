@@ -70,10 +70,9 @@
       configError(kind||'unknown', id+' 不支持的 interaction type');
     }
   }
-  // 门禁答对的唯一放行信号：correct===true 时写 data-locked='1'（页面用
-  // MutationObserver 观察它，不要轮询）。本运行时不记录作答、不计算掌握度。
+  // 放行信号契约见 runtime.md §3；这里补一句页面侧的：用 MutationObserver 观察
+  // data-locked，不要轮询。
   function finish(el,msg,opts){
-    opts=opts||{};
     const fb=el.querySelector('.interaction-feedback');
     if(fb){
       ensureLive(fb);   // 页面动态重建反馈区时也能补上播报属性
@@ -100,7 +99,7 @@
   // 点选式（点条目 → 点筐）是那条兜底的路。
   // 无 PointerEvent 的旧环境用鼠标事件（这一路不支持触屏）。原生 DnD 那条路已删：
   // 鼠标适配器覆盖同样的环境，还多一个"点"的手势，严格更优。
-  const GEST = (typeof window !== 'undefined' && window.PointerEvent)
+  const GEST = (window.PointerEvent)
     ? { down:'pointerdown', move:'pointermove', up:'pointerup', cancel:'pointercancel' }
     : { down:'mousedown',   move:'mousemove',   up:'mouseup',   cancel:null };
 
@@ -157,7 +156,7 @@
       if(!item.hasAttribute('aria-pressed')) item.setAttribute('aria-pressed', '0');
       item.addEventListener(GEST.down, e => {
         if(e.button !== undefined && e.button !== 0) return;
-        if(o.enabled && !o.enabled()) return;
+        if(!o.enabled()) return;
         e.preventDefault();   // 拦掉原生文本选区/拖拽，ghost 跟手
         // preventDefault 顺手压掉了默认的聚焦行为，而键盘重排（↑/↓）要求条目
         // 在拖完之后仍是焦点——不补这一脚，鼠标拖一次再想按方向键就失灵了。
@@ -172,7 +171,7 @@
         clone.classList.add('drag-ghost');
         clone.style.cssText = 'position:fixed;left:'+r.left+'px;top:'+r.top+'px;width:'+r.width
           +'px;margin:0;z-index:9999;opacity:.97;pointer-events:none;';
-        (document.body || item.ownerDocument.body).appendChild(clone);
+        document.body.appendChild(clone);
         item.classList.add('drag-src');
         const move = ev => {
           if(!isMyPointer(ev)) return;
@@ -196,8 +195,8 @@
           if(clone.parentNode) clone.parentNode.removeChild(clone);
           // 手势被浏览器收走（触屏竖滑滚动、系统弹窗）时会发 pointercancel：
           // 那一下不是用户意图，不能当成点选，否则滚个页面就选中一条。
-          if(!moved){ if(o.onTap && !cancelled) o.onTap(item); }   // 没动 = 点选
-          else if(o.onDrop) o.onDrop(item);
+          if(!moved && !cancelled) o.onTap(item);   // 没动 = 点选
+          else if(moved) o.onDrop(item);
         };
         const cancel = ev => { if(!isMyPointer(ev)) return; cancelled = true; end(ev); };
         document.addEventListener(GEST.move, move);
@@ -211,11 +210,9 @@
       // （sequence）额外支持 ArrowUp/Down 移动当前项——拖拽对手指方便，
       // 键盘用户不该完全没有重排的路。
       item.addEventListener('keydown', e => {
-        if(o.enabled && !o.enabled()) return;
+        if(!o.enabled()) return;
         if(isActivateKey(e)){
-          if(!o.onTap){ e.preventDefault(); return; }   // 无点选语义的条目：
-                                                         // 拦掉空格的默认滚动，别让"没反应"变成"跳页"
-          e.preventDefault();
+          e.preventDefault();   // 拦掉空格的默认滚动，别让"没反应"变成"跳页"
           o.onTap(item);
         } else if(o.keyboardReorder && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){
           e.preventDefault();
@@ -228,7 +225,7 @@
           if(e.key === 'ArrowUp') holder.insertBefore(item, sibs[j]);
           else holder.insertBefore(item, sibs[j].nextSibling);
           item.focus();
-          if(o.onDrop) o.onDrop(item);
+          o.onDrop(item);
         }
       });
     });

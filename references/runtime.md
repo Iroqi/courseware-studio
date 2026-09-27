@@ -23,6 +23,10 @@
 
 ## 2. 五种交互
 
+拖拽手势有两处内建兜底：窗口失焦（Alt-Tab / 系统弹窗）时 `up` 永不到达，按取消
+处理，ghost 与监听器当场清掉；触屏上只跟随按下那根指针，第二根手指的 move/up
+不劫持本次手势。
+
 ### `choice`
 
 ```html
@@ -74,10 +78,9 @@
 原位条目加 `.drag-src` 类，页面 CSS 靠这两个类出样式）与**键盘 ↑/↓**（聚焦条目后直接
 换位，提交键照常点选）。Enter/空格等价于点选那一下。重排后 runtime 会按当前顺序重写
 `.sequence-item .s-idx` 的文本（位次号跟位置不跟条目）——页面用这个类名放序号即可，
-换名会静默失去位次更新。注意 `.sequence-item` 与
-`.bucket-item` 的 `touch-action: pan-y` 是**页面 CSS 的义务**（模板已给；runtime 不
-设样式）：手指竖滑优先还给页面滚动（门禁卡片要滚得动），被浏览器取消的手势不会误判
-成点选——触屏用户靠点选作答，不靠拖。
+换名会静默失去位次更新。`.sequence-item` 与 `.bucket-item` 的 `touch-action: pan-y`
+是**页面 CSS 的义务**（runtime 不设样式；理由见 `template.html` 拖拽态的 CSS 注释）
+——触屏用户靠点选作答，不靠拖。
 
 ### `bucket`
 
@@ -121,8 +124,8 @@
 ```
 
 点「看参考答案」→ 答案填进 `.recall-answer` 并解除 `hidden` → 立即
-`finish(correct:true)` 放行。**没有判错分支**：机器核不了口头复述，硬做判定
-只会把门禁退化成摆设。`data-locked` 在 recall 处的语义比判定题型更弱一档
+`finish(correct:true)` 放行。**没有判错分支**：口头复述没有可靠的机器判定，硬做
+判定只会把门禁退化成摆设。`data-locked` 在 recall 处的语义比判定题型更弱一档
 （口径见 interactions.md §1）。
 契约校验只保证展示通路完整（`prompt`/`answer` 非空 + 两个 DOM 钩子都在），
 空壳 recall 会在配置校验处 fail-closed。
@@ -164,7 +167,8 @@ el.dataset.locked = '1';
 - 写反馈节点 `.interaction-feedback`：`textContent`、解除 `hidden`、换
   `.is-correct` / `.is-wrong` 类——**错答也走这条路**（并写 `data-completed="0"`），
   所以这是重开时最容易残留的一条：上一轮的"再想一步"会挂在题面下方；
-- hotspot：命中的可点区写 `data-hotspot-state="hit"`；bucket：全部条目写 `data-bucket-state="hit"`、选中态残留在 `data-picked` / `aria-pressed`；recall：`.recall-answer` 被解除 `hidden` 并填入参考答案（重开时页面自己藏回去，runtime 不管回收）。
+- hotspot：命中的可点区写 `data-hotspot-state="hit"`（点错的区写 `"miss"`，同一处
+  不再重复反馈）；bucket：全部条目写 `data-bucket-state="hit"`、选中态残留在 `data-picked` / `aria-pressed`；recall：`.recall-answer` 被解除 `hidden` 并填入参考答案（重开时页面自己藏回去，runtime 不管回收）。
 
 同一张卡复用时，页面在**重新打开**这道题前要把这些洗掉（清 dataset、
 去 `.is-completed` 类、藏回 badge（若放了）、**收反馈区**（文本清空 + `hidden` +
@@ -195,7 +199,9 @@ runtime 会严格校验题型契约（校验失败会先把其余块接完，再
 
 `choice` / `hotspot`：配置与 DOM 的 id 集合必须完全一致，且恰好一个 `correct:true`。
 
-`sequence`：`correct_order` 必须存在、id 唯一，并完整覆盖全部 `.sequence-item`。
+`sequence`：`correct_order` 必须存在、id 唯一，并完整覆盖全部 `.sequence-item`；
+条目必须全部放在单个 `.sequence-list` 容器内——校验与作答都以它为准，散在容器外
+的条目会被当场抛错（否则"过校验却永远判不出"）。
 
 `bucket`：`answer` 必须完整覆盖全部 `.bucket-item`，并且值只能引用现有 `data-bucket-id`。
 
@@ -233,7 +239,8 @@ tick
 
 runtime 不应重新实现其中任何一层。这是主循环四件套；门禁控制器
 （`openGate` / `closeGate` / `clearGateCards`）与字幕出口 `capShow` 同样归页面
-所有（见 §3 与 §7）。
+所有（控制器要洗的重开状态见 §3，页面要留的钩子见 §7，字幕显示契约见
+stage.md §4）。
 
 ## 7. QA 契约（`check_gates.py` 浏览器冒烟依赖）
 
@@ -266,9 +273,9 @@ runtime 不应重新实现其中任何一层。这是主循环四件套；门禁
 
 它是**课件交付检查器**（通用 QA，不是给某份课件单独维护的 SelfTest），四类检查：
 
-1. **时间轴 / 字幕**：schema version、时间合法、句子不重叠、字幕节点与 `#stage` 舞台钩子存在；浏览器中逐句验证字幕精确等于时间轴原文、**真的可见**（沿祖先链查 `opacity` / `visibility` / `hidden`），并校验空档（换场与场景内句间）保留上一句字幕；
+1. **时间轴 / 字幕**：schema version、时间合法、句子不重叠、字幕节点与 `#stage` 舞台钩子存在、`audio/` 交付目录无残留（只允许 `combined.wav` 与 `narration_timing.json`）；浏览器中逐句验证字幕精确等于时间轴原文、**真的可见**（沿祖先链查 `opacity` / `visibility` / `hidden`），并校验空档（换场与场景内句间）保留上一句字幕；
 2. **画面文字复述**：renderer 里名为 `txt()` / `badge()` 的写字函数（按函数名匹配）、`textContent` / `innerHTML` / `createTextNode` 直接赋值的字符串字面量，以及页面静态 SVG `<text>`（整页收集、跨幕比对），与旁白高度相似时提示"双字幕"（口径详见 stage.md 纪律 3）；
-3. **门禁 / JS**：真实浏览器里自动走错答 → 正确答（recall 不判定，只走对照放行这一条路，且不算"错误路径未构造"警告），检查句子边界、`data-locked`、继续按钮；门禁检测**活动驱动**（真弹出就会被测，不依赖 `GATES` 字面量），配了却从未弹出的门禁会被报出；门禁打开期间若页面存在 `#rack` / `#veilplay` 但未设 `inert`，判失败（键盘绕过义务见 layout.md §5，仅此浏览器模式、仅元素存在时断言）；逐句检查 `__coursewareRenderTrace`；
+3. **门禁 / JS**：真实浏览器里自动走错答 → 正确答（recall 不判定，只走对照放行这一条路，且不算"错误路径未构造"警告），检查句子边界、`data-locked`、继续按钮；门禁检测**活动驱动**（真弹出就会被测，不依赖 `GATES` 字面量），配了却从未弹出的门禁会被报出；门禁打开期间若页面存在 `#rack` / `#veilplay` 且**它当前可达**（可见、且祖先链上没有 `inert`），未设 `inert` 判失败——不可见或祖先已 inert 时键盘本就够不到，豁免（键盘绕过义务见 layout.md §5，仅此浏览器模式断言）；逐句检查 `__coursewareRenderTrace`；
 4. **JS 错误**：探针注入 `<head>` 最前，页面**加载期**抛出的错误（早于任何业务脚本，含 runtime 契约错误）也进报告。
 
-模式：`--no-browser` 只做静态检查（时间轴、字幕挂点、`#stage`、manifest 与 runtime 文件、renderer 计时纪律——`RENDER` 引用的具名函数与内联匿名体里不得用 `setTimeout`/`setInterval` 排程，解析已剥离字符串 / 注释防误报；renderer 里的 `requestAnimationFrame` 不判错但进警告，"一次性补间"的例外没法机械证明，警告行就是人工确认入口——音频路径、gate 对应场景；>3 道门禁给警告）；静态通过后默认继续**浏览器冒烟**（动态配置契约与手势绑定只能在这一环验证），有可用 Chrome / Edge 才冒烟，冒烟不可用时明确提示；`--require-browser` 让冒烟未执行时返回失败（适合 CI，与 `--no-browser` 互斥）；`--keep` 保留冒烟用的探针注入副本供排查；默认不接受 `synth_failed` 降级句，保留降级成片需显式 `--allow-degraded`。
+模式：`--no-browser` 只做静态检查（时间轴、字幕挂点、`#stage`、manifest 与 runtime 文件及对内联时间轴的一致性、`audio/` 交付目录残留、renderer 计时纪律——`RENDER` 引用的具名函数与内联匿名体里不得用 `setTimeout`/`setInterval` 排程，解析已剥离字符串 / 注释防误报；renderer 里的 `requestAnimationFrame` 不判错但进警告，"一次性补间"的例外没法机械证明，警告行就是人工确认入口——音频路径、gate 对应场景；>3 道门禁给警告）；静态通过后默认继续**浏览器冒烟**（动态配置契约与手势绑定只能在这一环验证），有可用 Chrome / Edge 才冒烟，冒烟不可用时明确提示；`--require-browser` 让冒烟未执行时返回失败（适合 CI，与 `--no-browser` 互斥）；`--keep` 保留冒烟用的探针注入副本供排查；默认不接受 `synth_failed` 降级句，保留降级成片需显式 `--allow-degraded`。

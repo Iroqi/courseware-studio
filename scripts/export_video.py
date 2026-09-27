@@ -35,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _audio import get_ffmpeg, measure_duration, quote_ffpath  # noqa: E402
+from _contracts import TIMING_EPS  # noqa: E402
 from _script_utils import (guard_not_in_skill_dir, normalize_meta_charset,  # noqa: E402
                            read_text, setup_stdio, write_text_atomic)
 from check_gates import (  # noqa: E402
@@ -201,7 +202,7 @@ def _replace_shot_audio(src: str, audio: Path) -> str:
     if not tag:
         raise _fail('截图页缺少 #main-audio，无法让画面与 --audio 使用同一时钟')
     # 找不到 </audio> 就退到开标签末尾（不动块内）：退到全文末尾会把后文里
-    # 每个 <source>（BGM 试听等）都改写成旁白。闭合标签也认注释（真闭合前的
+    # 每个 <source>（页面若挂了多档音源）都改写成旁白。闭合标签也认注释（真闭合前的
     # ghost `</audio>` 不会截短块）。
     block = src[tag.start():end]
     audio_tag_end = block.find('>')
@@ -248,14 +249,6 @@ def _build_shot_page(src: str, out_path: Path, page_dir: Path, audio: Path) -> N
     i = head.end()
     out = src[:i] + insert + src[i:body_close.start()] + \
         SNIPPET % {'pad': STAGE_PAD} + src[body_close.end():]
-    # 注入顺序由构造保证：flag 紧跟 <head>，截图脚本紧贴 </body> 前——
-    # 只 sanity 一件事：flag 与 seek 脚本都在、且 flag 在前，否则 SNIPPET 读不到旗。
-    _flag_i = out.find('__coursewareShotMode')
-    # rfind：截图脚本恒在 </body> 前（注入点最后一个脚本），页面前部若恰好
-    # 写了同款字符串不会把自检带偏。
-    _snip_i = out.rfind('addEventListener(\'load\', seek)')
-    if _flag_i < 0 or _snip_i < 0 or _flag_i > _snip_i:
-        raise _fail('截图脚本注入顺序错误（flag 缺失或晚于 seek 脚本），中止以免产出静默错误的成片')
     out_path.write_text(normalize_meta_charset(out), encoding='utf-8')
 
 
@@ -271,15 +264,13 @@ def _frame_plan(sentences: list[tuple[float, float, int]], wav_dur: float) -> li
     previous_start = -math.inf
     previous_end = -math.inf
     for start, dur, _ in sentences:
-        if not (math.isfinite(start) and math.isfinite(dur)):
-            raise ValueError('句子时间必须是有限数值')
-        if start < 0 or dur <= 0:
-            raise ValueError('句子 start 必须非负、duration 必须为正')
+        # start/duration 的有限性与非负性由 _timeline_sentences 在页面边界统一拦下；
+        # 这里只核句与句之间的关系——帧计划依赖单调、不重叠、不出音频时长。
         if start < previous_start:
             raise ValueError('句子时间必须按 start 递增')
-        # 0.02 重叠容差与 build_timeline/check_gates 的句间校验同口径：
+        # 重叠容差与 build_timeline/check_gates 的句间校验共用 _contracts.TIMING_EPS：
         # 更严的 0.001 会让过了检查的页面在导出这一步硬失败。
-        if start < previous_end - 0.02:
+        if start < previous_end - TIMING_EPS:
             raise ValueError('句子时间区间不能重叠')
         if start + dur > wav_dur + 0.05:
             raise ValueError('句子结束点超过旁白音频时长')

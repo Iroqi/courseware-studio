@@ -12,10 +12,6 @@
 """
 import json
 import math
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 # ── 时间轴制品契约（单一来源）──────────────────────────────────────
@@ -25,7 +21,8 @@ SCHEMA_VERSION = 1
 def require_schema_version(payload, label):
     """时间轴类 JSON 必须显式带 schema_version == SCHEMA_VERSION 的唯一实现。
 
-    缺 key 不默认按 1 处理：SKILL.md §2 要求外部产出的 timing 先归一并标版本号。
+    缺 key 不默认按 1 处理：外部产出的 timing 归一形状见 script.md §3
+    （顶层显式 `schema_version: 1`，SKILL.md §2 只要求先归一）。
     bool 是 int 子类，JSON true 会因 True == 1 混过版本门，必须显式排除。
     违规抛 ValueError（label 进错误消息），由调用方决定怎么报。
     """
@@ -46,7 +43,7 @@ def check_degraded_status(manifest, allow_degraded, label):
     """
     status = manifest.get("status")
     if status is None:
-        # 外部归一成的 timing（SKILL.md §2）按契约没有 status 字段——认它继续；
+        # 外部归一成的 timing（script.md §3 的字段表）按契约没有 status 字段——认它继续；
         # narration.py 的内部 manifest 恒写 status，缺了要出声。
         return (f"{label} 没有 status 字段：按外部 timing 处理；"
                 "若它来自 narration.py，请核对是否被截断或改写")
@@ -134,18 +131,16 @@ DEFAULT_SPEED = 1.0
 
 # 静音兜底时长估算用的启发式语速（字/秒）。
 DEFAULT_CHARS_PER_SEC = 4.3
-# 与 narration.py 的 --gap 默认值保持一致（不一致会让估算相对实测系统性偏移）。
+# 句间静音默认值：narration.py 的 --gap 直接取它，这里是唯一来源。
 DEFAULT_GAP = 0.4
 
-
-def estimate_sentence_seconds(sentence, chars_per_sec, speed):
-    """单句预计时长（秒）：字数 / 语速 / 倍速（TTS 失败时估静音占位时长用）。"""
-    return len(sentence) / chars_per_sec / max(speed, 0.01)
+# ── 时间轴浮点容差（单一来源）──────────────────────────────────────
+# 组装 / 检查 / 导出三方共用量时间轴必须用同一把尺：各处手抄数字必漂移——
+# 更严的一侧造出"过得了检查却炸在导出"，更松的一侧让坏时间轴溜进成片。
+TIMING_EPS = 0.02        # 句间 / 场景间重叠容差 + manifest↔内联字段逐值比对
+SCENE_ALIGN_MAX = 0.12   # |start+duration−end| 与句子越出场景界的容忍
+TAIL_DRIFT_MAX = 0.25    # 末句结束点与 scene.end 的最大差
 
 
 # ── Voice registry ───────────────────────────────────────────────
 VOICE_IDS = ["冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean"]
-
-
-def list_voice_ids():
-    return list(VOICE_IDS)

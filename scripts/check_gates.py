@@ -11,11 +11,12 @@
 它不是 SelfTest，也不维护第二套播放引擎。页面自己的 audio.currentTime / tick()
 仍是唯一时间源；本脚本只观察页面并主动推进 currentTime。
 
-用法：
+用法（详见 references/runtime.md §8）：
     python scripts/check_gates.py <页面目录或 index.html>
     python scripts/check_gates.py <页面目录或 index.html> --no-browser
     python scripts/check_gates.py <页面目录或 index.html> --require-browser   # CI 严格模式
-    python scripts/check_gates.py <页面目录或 index.html> --keep
+    python scripts/check_gates.py <页面目录或 index.html> --keep               # 保留探针副本排查
+    # 默认拒收 synth_failed 降级句；确要交付降级成片才加 --allow-degraded
 """
 
 from __future__ import annotations
@@ -37,7 +38,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _contracts import require_finite_number  # noqa: E402
+from _contracts import (SCHEMA_VERSION, SCENE_ALIGN_MAX, TAIL_DRIFT_MAX,  # noqa: E402
+                        TIMING_EPS, require_finite_number)
 from _script_utils import (normalize_meta_charset, read_text,  # noqa: E402
                            setup_stdio)
 
@@ -380,9 +382,9 @@ def _timeline_from_html(src: str) -> tuple[dict[str, Any] | None, str | None]:
         # schema_version 的时间轴），宽松一侧会造出"过检页面炸组装"的口径分裂。
         # bool 是 int 子类：JSON true 会因 True == 1 混过版本门。
         version = data.get('schema_version')
-        if isinstance(version, bool) or version != 1:
+        if isinstance(version, bool) or version != SCHEMA_VERSION:
             if first_err is None:
-                first_err = '#lesson-timeline 必须带显式 schema_version: 1（请用 build_timeline.py 重新生成）'
+                first_err = f'#lesson-timeline 必须带显式 schema_version: {SCHEMA_VERSION}（请用 build_timeline.py 重新生成）'
             continue
         if not isinstance(data.get('scenes'), list) or not data['scenes']:
             if first_err is None:
@@ -417,8 +419,8 @@ def _timing_manifest_errors(page_dir: Path, timeline: dict[str, Any]) -> list[st
     # bool 是 int 子类：JSON true 会因 True == 1 混过版本门。与
     # build_page._timing_manifest / _timeline_from_html 同一口径。
     version = data.get('schema_version') if isinstance(data, dict) else None
-    if not isinstance(data, dict) or isinstance(version, bool) or version != 1:
-        return ['narration_timing.json 必须是 schema_version=1 的对象']
+    if not isinstance(data, dict) or isinstance(version, bool) or version != SCHEMA_VERSION:
+        return [f'narration_timing.json 必须是 schema_version={SCHEMA_VERSION} 的对象']
     manifest_scenes = data.get('scenes')
     timeline_scenes = timeline.get('scenes')
     if not isinstance(manifest_scenes, list) or not manifest_scenes:
@@ -441,7 +443,7 @@ def _timing_manifest_errors(page_dir: Path, timeline: dict[str, Any]) -> list[st
             continue
         for field in ('start', 'duration', 'end'):
             mv, tv = manifest_scene.get(field), runtime.get(field)
-            if not (_finite_number(mv) and _finite_number(tv)) or abs(float(mv) - float(tv)) > 0.02:
+            if not (_finite_number(mv) and _finite_number(tv)) or abs(float(mv) - float(tv)) > TIMING_EPS:
                 errors.append(f'{tsid}: {field} 与 manifest 不一致')
         mn = manifest_scene.get('sentences')
         tn = runtime.get('narration')
@@ -460,7 +462,7 @@ def _timing_manifest_errors(page_dir: Path, timeline: dict[str, Any]) -> list[st
                 errors.append(f'{tsid}#{j}: 文本与 manifest 不一致')
             for field in ('start', 'duration'):
                 mv, tv = ms.get(field), ts.get(field)
-                if not (_finite_number(mv) and _finite_number(tv)) or abs(float(mv) - float(tv)) > 0.02:
+                if not (_finite_number(mv) and _finite_number(tv)) or abs(float(mv) - float(tv)) > TIMING_EPS:
                     errors.append(f'{tsid}#{j}: {field} 与 manifest 不一致')
     return errors
 
@@ -576,8 +578,8 @@ RUNTIME_REF_RE = re.compile(
 )
 
 
-def static_check(src: str, *, allow_degraded: bool = False,
-                 page_dir: Path | None = None) -> dict[str, Any]:
+def static_check(src: str, *, allow_degraded: bool,
+                 page_dir: Path) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     stats: dict[str, Any] = {"scenes": 0, "sentences": 0}
@@ -586,13 +588,15 @@ def static_check(src: str, *, allow_degraded: bool = False,
     timeline, timeline_err = _timeline_from_html(src)
     if timeline_err:
         errors.append(timeline_err)
-        return {"ok": False, "errors": errors, "warnings": warnings, "stats": stats, "timeline": None}
+        return {"errors": errors, "warnings": warnings, "stats": stats}
 
     scenes = timeline["scenes"]
     stats["scenes"] = len(scenes)
     # 契约存在性检查跑在 stripped_html 上：HTML 注释（本轮起被空白化）里的
     # 假钩子 / 残稿 audio 标签不再算实现，也不再被误当成正品解析。
-    if not re.search(r'<audio\b[^>]*\bid=["\']main-audio["\']', stripped_html, re.I):
+    # 一次搜索两用：既判 #main-audio 在不在，也拿整段标签给下面解析 src。
+    audio_tag = re.search(r'<audio\b[^>]*\bid=["\']main-audio["\'][^>]*>', stripped_html, re.I)
+    if not audio_tag:
         errors.append('找不到 #main-audio')
     if not re.search(r'(?:id=["\']cap-text["\'][^>]*data-courseware-caption(?![\w-])|data-courseware-caption(?![\w-])[^>]*id=["\']cap-text["\'])', stripped_html, re.I):
         errors.append('找不到带 data-courseware-caption 的 #cap-text')
@@ -608,7 +612,6 @@ def static_check(src: str, *, allow_degraded: bool = False,
         errors.append('页面缺少 __coursewareRenderTrace：无法验证每个句子是否真正驱动了 renderer')
     if not re.search(r'window\.__coursewareResetRenderTrace\s*=\s*(?:function|\(|(?!(?:null|undefined|true|false)\b)[\w$])', stripped_html):
         errors.append('页面缺少 __coursewareResetRenderTrace：无法安全重置逐句 renderer QA 状态')
-    audio_tag = re.search(r'<audio\b[^>]*\bid=["\']main-audio["\'][^>]*>', stripped_html, re.I)
     if audio_tag:
         # src 允许写在 <audio> 属性上或内嵌 <source> 子标签上，两种形态归一处理。
         ref: str | None = None
@@ -635,9 +638,9 @@ def static_check(src: str, *, allow_degraded: bool = False,
                     errors.append('主音频必须相对页面目录引用 audio/combined.wav；不接受绝对路径或越出页面目录')
                 elif norm_path != 'audio/combined.wav':
                     errors.append('最终音频必须精确引用 audio/combined.wav（可带 ./ 前缀）；不要引用其它文件或同名文件')
-                elif page_dir is not None and not (page_dir / 'audio' / 'combined.wav').is_file():
+                elif not (page_dir / 'audio' / 'combined.wav').is_file():
                     errors.append(f'主音频文件不存在：{(page_dir / "audio" / "combined.wav").as_posix()}')
-                elif page_dir is not None:
+                else:
                     audio_dir = page_dir / 'audio'
                     allowed = {'combined.wav', 'narration_timing.json'}
                     extras = sorted(
@@ -648,17 +651,16 @@ def static_check(src: str, *, allow_degraded: bool = False,
                         errors.append('audio/ 目录含交付残留（只允许 combined.wav 与 narration_timing.json）：'
                                       + '、'.join(extras))
 
-    if page_dir is not None:
-        errors.extend(_timing_manifest_errors(page_dir, timeline))
-        runtime_ref = RUNTIME_REF_RE.search(stripped_html)
-        if not runtime_ref:
-            errors.append('页面缺少 interactive_runtime.js 引用')
-        else:
-            ref = runtime_ref.group(1).split('?', 1)[0]
-            if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', ref) or ref.startswith('//'):
-                errors.append('interactive_runtime.js 必须是页面目录内的本地相对文件')
-            elif not (page_dir / ref).resolve().is_file():
-                errors.append(f'页面引用的 runtime 不存在：{(page_dir / ref).resolve()}')
+    errors.extend(_timing_manifest_errors(page_dir, timeline))
+    runtime_ref = RUNTIME_REF_RE.search(stripped_html)
+    if not runtime_ref:
+        errors.append('页面缺少 interactive_runtime.js 引用')
+    else:
+        ref = runtime_ref.group(1).split('?', 1)[0]
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', ref) or ref.startswith('//'):
+            errors.append('interactive_runtime.js 必须是页面目录内的本地相对文件')
+        elif not (page_dir / ref).resolve().is_file():
+            errors.append(f'页面引用的 runtime 不存在：{(page_dir / ref).resolve()}')
 
     seen_ids: set[str] = set()
     prev_start: float | None = None
@@ -692,13 +694,13 @@ def static_check(src: str, *, allow_degraded: bool = False,
             errors.append(f'{sid}: runtime.duration 必须 > 0')
         if end < start:
             errors.append(f'{sid}: runtime.end 小于 start')
-        if abs((start + duration) - end) > 0.12:
+        if abs((start + duration) - end) > SCENE_ALIGN_MAX:
             warnings.append(f'{sid}: start + duration 与 end 相差 {abs(start + duration - end):.3f}s')
-        if prev_start is not None and start < prev_start - 0.02:
-            # 0.02 容差与 build_timeline.build 的"场景起点没有按时间递增"同口径：
-            # 裸比较会拦下 builder 亲手放行的浮点抖动，造出"过组装必红检查"。
+        if prev_start is not None and start < prev_start - TIMING_EPS:
+            # TIMING_EPS 与 build_timeline.build 共用一把尺（_contracts）：裸比较
+            # 会拦下 builder 亲手放行的浮点抖动，造出"过组装必红检查"。
             errors.append(f'{sid}: 场景起点没有按时间递增')
-        if prev_end is not None and start < prev_end - 0.02:
+        if prev_end is not None and start < prev_end - TIMING_EPS:
             errors.append(f'{sid}: 场景与上一场重叠 {prev_end - start:.3f}s')
         prev_start, prev_end = start, end
 
@@ -729,19 +731,20 @@ def static_check(src: str, *, allow_degraded: bool = False,
                 errors.append(f'{sid}#{ni}: start 必须是非负数字')
             if s_dur <= 0:
                 errors.append(f'{sid}#{ni}: duration 必须 > 0')
-            if s_start < start - 0.12 or s_end > end + 0.12:
+            if s_start < start - SCENE_ALIGN_MAX or s_end > end + SCENE_ALIGN_MAX:
                 errors.append(f'{sid}#{ni}: 旁白区间超出场景 [{start:.3f}, {end:.3f}]')
-            if last_sent_end is not None and s_start < last_sent_end - 0.02:
+            if last_sent_end is not None and s_start < last_sent_end - TIMING_EPS:
                 errors.append(f'{sid}#{ni}: 与上一句旁白重叠 {last_sent_end - s_start:.3f}s')
             last_sent_end = s_end
             stats["sentences"] += 1
             all_sentences.append((sid, ni, {**sentence, "start": s_start, "duration": s_dur, "end": s_end}))
 
-        # 末句可能正是上面 continue 掉的坏条目：这里再 float() 就是二次崩溃，先验后用。
-        last = narration[-1] if narration else None
+        # 空 narration 在上面的守卫处已 continue；末句可能正是那里 continue 掉的
+        # 坏条目：这里再 float() 就是二次崩溃，先验后用。
+        last = narration[-1]
         if (isinstance(last, dict) and _finite_number(last.get('start'))
                 and _finite_number(last.get('duration'))
-                and abs((float(last['start']) + float(last['duration'])) - end) > 0.25):
+                and abs((float(last['start']) + float(last['duration'])) - end) > TAIL_DRIFT_MAX):
             warnings.append(f'{sid}: 最后一句旁白结束点与 scene.end 相差较大')
 
     # 降级痕迹认"解析后的时间轴句子"，不扫整页源码：页面 JS/注释里出现同名字符串
@@ -813,7 +816,7 @@ def static_check(src: str, *, allow_degraded: bool = False,
                 warnings.append(f'{scene_id}: 画面文字与旁白高度相似（{ratio:.0%}）：“{literal}”')
                 break
 
-    return {"ok": not errors, "errors": errors, "warnings": warnings, "stats": stats, "timeline": timeline}
+    return {"errors": errors, "warnings": warnings, "stats": stats}
 
 
 PROBE_STUB = r'''
@@ -1426,8 +1429,8 @@ def _browser_preflight(chrome: str) -> list[str] | None:
             _rmtree_retry(root)
     return None
 
-def browser_check(page: Path, keep: bool = False,
-                  scene_count: int = 0) -> tuple[dict[str, Any] | None, str]:
+def browser_check(page: Path, keep: bool,
+                  scene_count: int) -> tuple[dict[str, Any] | None, str]:
     chrome = _find_chrome()
     if not chrome:
         return None, '未找到可用 Chrome/Edge'

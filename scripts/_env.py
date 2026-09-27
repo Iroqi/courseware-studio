@@ -14,8 +14,38 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _script_utils import (decode_text_blob,  # noqa: E402
-                           is_inside, strip_env_comment)
+from _script_utils import decode_text_blob, is_inside  # noqa: E402
+
+
+def _strip_env_comment(value):
+    """剥掉 .env 值里的行内注释与成对引号（引号感知）。
+
+    规则（对齐 dotenv 的常见行为）：
+      · 值以引号开头：取到配对的闭合引号为止——"sk-a#b" 里的 # 是值的一部分，
+        闭合引号之后的任意内容按注释丢弃；没有闭合引号时保守地保留引号后的
+        全部正文（宁可把注释当值，也不要把密钥截断一半）。
+      · 值不带引号：首个"空白 + #"（或值直接以 # 开头）处截断；
+        紧贴的非空白 #（如锚点、abc#def）视为值的一部分。
+    """
+    s = value
+    if s[:1] in ('"', "'"):
+        q = s[0]
+        i = 1
+        while i < len(s):
+            if s[i] == "\\":
+                i += 2
+                continue
+            if s[i] == q:
+                return s[1:i]
+            i += 1
+        return s[1:]
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] == "#" and (i == 0 or s[i - 1].isspace()):
+            break
+        i += 1
+    return s[:i].rstrip()
 
 
 # 用户级 .env 路径
@@ -132,8 +162,8 @@ def _parse_env_file_raw(path):
             v = v.strip()
             # 引号感知地剥行内注释与成对引号（"sk-xxx" / sk-xxx # 注释）：
             # 原样读入会把引号或注释一起带给 OpenAI SDK，得到 401 且
-            # 报错不指向真正原因。规则见 _script_utils.strip_env_comment。
-            v = strip_env_comment(v)
+            # 报错不指向真正原因。
+            v = _strip_env_comment(v)
             if k:
                 result[k] = v
     return result
@@ -142,38 +172,25 @@ def _parse_env_file_raw(path):
 def load_env(source_path=None):
     """按优先级合并项目级、用户级与进程环境变量。
 
-    对最终密钥解析而言，``get_key`` 使用 CLI > os.environ > project .env > user .env。
-    这里主要用于模型/非敏感配置的统一解析。
+    合并顺序即优先级：os.environ > 项目 .env > 用户 .env（后者覆盖前者）。
+    CLI 显式值在最外层由 ``cli or load_env(...).get(name)`` 补足，构成
+    CLI > os.environ > 项目 .env > 用户 .env 的完整链。
     """
     merged = {}
-    user_env = _parse_env_file(_USER_ENV_PATH)
-    merged.update(user_env)
-    project_env_path = find_project_env(source_path=source_path)
-    if project_env_path:
-        merged.update(_parse_env_file(project_env_path))
-    for k, v in os.environ.items():
-        if v:
-            merged[k] = v
+    for src in (_parse_env_file(_USER_ENV_PATH),
+                _parse_env_file(find_project_env(source_path=source_path) or ""),
+                os.environ):
+        for k, v in src.items():
+            # 空值不参与合并：项目 .env 里留空的占位行不该遮住用户级有效配置，
+            # 逐层"空=没配、继续向下找"的语义与 get_key 的短路链一致。
+            if v:
+                merged[k] = v
     return merged
 
 
 def get_key(name, cli_value=None, source_path=None):
-    """获取单个密钥。
-
-    优先级：CLI > os.environ > project .env > 用户级 .env。
-    """
-    if cli_value:
-        return cli_value
-    val = os.environ.get(name)
-    if val:
-        return val
-    project_env_path = find_project_env(source_path=source_path)
-    if project_env_path:
-        val = _parse_env_file(project_env_path).get(name)
-        if val:
-            return val
-    user_env = _parse_env_file(_USER_ENV_PATH)
-    return user_env.get(name) or None
+    """获取单个密钥：CLI > load_env 合并链。"""
+    return cli_value or load_env(source_path=source_path).get(name) or None
 
 
 def resolve_model_config(cli_model, cli_base_url, model_env_name, default_model,

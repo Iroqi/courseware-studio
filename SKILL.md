@@ -17,9 +17,9 @@ description: 把讲稿或已有旁白做成一页会讲话的课件：单页 HTM
 
 ### 时间轴只有一个时钟
 
-页面的 `audio.currentTime` 是唯一播放时钟。`tick()` 找当前句 → 句子变化时才调
-`RENDER[scene](index)` → 从同一句 `narration[i].text` 写字幕 → 更新章节头、
-进度条与门禁锚点。
+页面的 `audio.currentTime` 是唯一播放时钟：`tick()` 只在句子变化时调
+`RENDER[scene](index)`，字幕与章节头跟着这个分支走；进度条逐拍刷新，
+门禁锚点独立 `syncGate()`（主循环四件套见 `references/runtime.md` §6）。
 
 `interactive_runtime.js` 不参与时间轴：只管交互手势与 `data-locked` 放行信号。
 QA 依赖的渲染轨迹钩子契约见 `references/runtime.md` §7。
@@ -27,7 +27,8 @@ QA 依赖的渲染轨迹钩子契约见 `references/runtime.md` §7。
 ### 字幕只有一个来源
 
 字幕必须来自 `scene.runtime.narration[i].text`；页面、渲染器、门禁题面都不要
-复制旁白正文。
+复制旁白正文。空档（换场与句间）不清空、停在上一句——这条机器会拦，写法见
+`references/stage.md` §4。
 
 ### 门禁是唯一的证据通道
 
@@ -65,7 +66,7 @@ MiMo API key；只用已有音频时不需要 TTS 依赖。脚本会把讲稿上
 | 1 | 讲稿 | `narration-source.json` |
 | 2 | 旁白脚本 | `audio/combined.wav` + `audio/narration_timing.json` |
 | 3 | timing + source | `<script id="lesson-timeline">…</script>` |
-| 4 | 时间轴 + 页面范本 + 音频 | `index.html` + `audio/` + `interactive_runtime.js`（`build_page.py` 组装） |
+| 4 | 时间轴 + 页面范本 + 音频 | `index.html` + `audio/`（combined + timing）+ `interactive_runtime.js`（`build_page.py` 组装） |
 | 5 | 成品页面 | `check_gates.py` 检查报告 |
 | 6（可选） | 成品页面 + 旁白音频 | `<课件目录名>.mp4` 线性视频（`export_video.py`） |
 
@@ -101,9 +102,9 @@ python <skill目录>/scripts/build_page.py \
 
 `RENDER = {sceneId: renderer}`，renderer 只回答：**当前句序号下，画布长什么样。**
 不计时（一次性 rAF 补间除外）、不写旁白、不管字幕——纪律全文见
-`references/stage.md`。画面默认内联矢量绘制；「检索」「生图」指当前环境任一可用
-能力（本 skill 不内置），每个视觉步先过 stage.md §8 的来源判断与对比度自查。
-emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
+`references/stage.md`。每个视觉步先过 stage.md §8 的来源判断与对比度自查（其中的
+「检索」「生图」指当前环境任一可用能力，本 skill 不内置）；emoji 是默认装饰层，
+三条禁区以 stage.md §7 为准。
 
 ## 6. 门禁设计
 
@@ -117,9 +118,8 @@ emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 | 操作或推理顺序 | `sequence` |
 | 用自己的话复述结论（不判定，对照即放行） | `recall` |
 
-默认 1–2 道、长课最多 3 道；安全锚点只有两个——场景开头（`scene.runtime.start`，
-考**前面已讲过**的内容）与 `at:'end'`（末句**播完以后**，考本场刚讲的），不在句中
-打断。契约全文见 `references/interactions.md`。
+数量与锚点口径归 `references/interactions.md` §1 / §3：默认 1–2 道、长课最多
+3 道；安全锚点只有场景开头与 `at:'end'` 两个，不在句中打断。
 
 ## 7. 讲稿与时间轴
 
@@ -134,8 +134,9 @@ emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 
 `interactive_runtime.js` 只做 `choice / hotspot / sequence / bucket / recall` 的
 手势（鼠标 / 触屏 / 键盘）与判定（`recall` 不判定，只给参考答案）；动态创建交互
-块后调用 `window.coursewareStudioWire()`，调用点在揭开门禁浮层**之前**；答对的
-唯一放行信号是 `el.dataset.locked = '1'`。完整契约见 `references/runtime.md`。
+块后调用 `window.coursewareStudioWire()`，调用点在揭开门禁浮层**之前**（理由见
+`references/interactions.md` §4）；答对的唯一放行信号是 `el.dataset.locked = '1'`。
+完整契约见 `references/runtime.md`。
 
 ```bash
 python scripts/check_gates.py <页面目录或 index.html>
@@ -147,8 +148,7 @@ python scripts/check_gates.py <页面目录或 index.html> --require-browser  # 
 **导出线性视频（可选）。** 画面全由 `audio.currentTime` 驱动、一句 = 一个稳定
 视觉步，所以不需要录屏：`export_video.py` 逐句截帧、按句长拼接、混入
 `combined.wav`。依赖本机 Chrome/Edge 与 `ffmpeg`。门禁在导出时间线上被抑制，
-页面侧契约以 `references/runtime.md` §7 为准（`syncGate()` 见旗标直接 return）。
-`--audio` 可覆盖页面音频；不要为单个课件另写导出 / 录屏脚本。
+页面侧契约以 `references/runtime.md` §7 为准。`--audio` 可覆盖页面音频。
 
 ```bash
 python scripts/export_video.py <页面目录或 index.html>        # 默认输出 <目录名>.mp4
@@ -165,32 +165,32 @@ python scripts/export_video.py <页面目录> -o out.mp4 --keep   # 保留逐帧
 
 | 文件 | 用途 |
 |---|---|
-| `references/layout.md` | 页面 HTML/CSS 骨架、播放器行、字幕位置、响应式 |
-| `references/stage.md` | renderer、逐句步进、视觉表达纪律 |
+| `references/layout.md` | 页面 HTML/CSS 骨架与响应式 |
+| `references/stage.md` | renderer 与逐句渲染纪律 |
 | `references/interactions.md` | 五种交互、门禁锚点、`data-locked` 契约 |
 | `references/script.md` | 讲稿格式、分句、TTS、时间轴 |
-| `references/runtime.md` | runtime API 与 DOM 钩子 |
-| `references/template.html` | 真实页面范本（`#lesson-timeline` 内联数据即 `build_timeline.py` 的输出形状） |
+| `references/runtime.md` | runtime API、QA 钩子与检查器能力 |
+| `references/template.html` | 真实页面范本 |
 | `references/template-narration.json` | 范本讲稿 |
-| `scripts/narration.py` | 内置 MiMo TTS 适配器：讲稿 → `combined.wav` + `narration_timing.json` |
-| `scripts/build_timeline.py` | `narration_timing.json` → 可内联的时间轴 `<script>` 片段 |
-| `scripts/build_page.py` | 原子组装时间轴、音频、runtime 与成品页面 |
-| `scripts/interactive_runtime.js` | 交互手势与 `data-locked` 放行 runtime（组装时拷进成品目录） |
-| `scripts/check_gates.py` | 静态契约检查与浏览器逐句冒烟 |
-| `scripts/export_video.py` | 逐句截图、拼接并混入旁白导出 MP4 |
+| `scripts/narration.py` | 内置 MiMo TTS 适配器 |
+| `scripts/build_timeline.py` | timing → 时间轴 `<script>` 片段 |
+| `scripts/build_page.py` | 原子组装成品页面 |
+| `scripts/interactive_runtime.js` | 交互手势与放行 runtime |
+| `scripts/check_gates.py` | 交付检查（静态 + 浏览器冒烟） |
+| `scripts/export_video.py` | 逐句截帧导出 MP4 |
 
 ## 11. 交付前检查
 
-先跑 `check_gates.py`——时钟、字幕、锚点、门禁放行、播放器行与播放层 `inert`、
-渲染轨迹、降级痕迹、`audio/` 目录残留等机械契约它都会验（静态与浏览器模式分担）；
+先跑 `check_gates.py`——机械契约（时间轴、字幕、门禁、钩子、`inert`、渲染轨迹、
+降级、`audio/` 残留，能力清单以 `references/runtime.md` §8 为准）它都会验；
 场景步数与旁白句数是否对得上，对照 `build_timeline.py` 报告里的「句数」列逐场景
 过一遍。不要为单个课件另写验证器。
 
-在此之上只人工核对机器管不了的事，逐条过各参考文件自带的自检：
+在此之上只人工核对机器管不了的事，逐条过各参考文件的自检小节：
 
-- [ ] `script.md` §2 讲稿自检：误区先行、一景一问、hl 句是认知增量、门禁考迁移不考复读；
-- [ ] `interactions.md` §1 / §7：门禁确实是必须经过学习者判断的认知转折点，不是为互动感凑的装饰；
-- [ ] `stage.md` §9：来源判断、图内文字对比度、连接件与构图重心、emoji 锚点；
+- [ ] `script.md` §2 讲稿自检、§6 工程自检；
+- [ ] `interactions.md` §7，并回答 §1 那个"是不是认知转折点"的问题；
+- [ ] `stage.md` §9；
 - [ ] 导出过视频且改过页面结构的：人工核对一帧成片（`runtime.md` §7）；
 - [ ] 成品目录无自建校验 / 导出脚本、巡检副本、截图、日志残留（`audio/` 残留
       `check_gates.py` 已拦，其余靠人）。

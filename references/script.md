@@ -118,11 +118,11 @@ audio/narration_timing.json
 音频 + 全局 sentence timing + 原文 text
 ```
 
-未来可以由其它 TTS / 其它 skill 提供同样的数据，而不修改页面层。
+页面层只依赖这份统一数据，不依赖某个 TTS 厂商（能力边界见 SKILL.md §2）。
 
 常用开关：`--dry-run`、`--resume`、`--clean-output`、`--speed`、`--gap`（句间静音，默认 0.4s，上限
 10s——超过直接拒绝，别指望用它做长停顿）、段级 `speed` / `voice_id` / `voice_style`、`--on-fail silence`；
-其余开关（`--workers`、`--api-timeout`、`--model`、`--base-url`、`--bgm-volume` 等）见 `--help`。
+其余开关（`--workers`、`--api-timeout`、`--model`、`--base-url` 等）见 `--help`。
 `voice_id` 会对着内置音色表校验（段落与 `speakers` 都查），写错立即失败并列出可用音色。
 
 语速优先级：`segments[].speed` > 全局 `--speed`；`opening_speed` / `closing_speed`（顶层键）单独覆盖开场与收尾，缺省时它们**跟随全局 `--speed`**（不钉死 1.0）。要"开场略慢"就写一个小于当前语速的值。
@@ -139,8 +139,6 @@ audio/narration_timing.json
 其余句子——修好配置直接带 `--resume` 重跑，已完成的句子全部命中。TTS 失败且连静音
 占位也没落成的句子会被整句丢弃，时间轴 `status` 记为 `degraded`
 （`degraded.dropped_sentence_count`）——**交付前核对句数**，丢过的句子不会出现在音频里。
-
-`--bgm` 一旦指定就必须指向存在的文件；找不到会直接失败，避免最终成品静默缺少用户要求的背景音乐。
 
 改了语速就必须重新生成音频与时间轴（指纹含语速，`--resume` 会自动重烧受影响的句子）。
 
@@ -199,7 +197,7 @@ python scripts/build_timeline.py \
 - [ ] 短句是显式改稿，不依赖脚本静默合并；
 - [ ] `hl` 没有越界；
 - [ ] 时间轴已内联；
-- [ ] 最终音频始终是 `audio/combined.wav`，BGM / loudness 不产生第二个交付文件名；
+- [ ] 最终音频始终是 `audio/combined.wav`，不产生第二个交付文件名；
 - [ ] 复用已有输出目录时，确认只保留 `combined.wav` / `narration_timing.json`，或生成前显式使用 `--clean-output`；
 - [ ] `synth_failed` 默认视为交付失败；只有明确要保留降级成片时才放行——
       开关在下游 `build_timeline.py` / `build_page.py` / `check_gates.py` 各一道

@@ -28,18 +28,19 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _script_utils import setup_stdio, guard_not_in_skill_dir, write_text_atomic  # noqa: E402
-from _contracts import (SCHEMA_VERSION, check_degraded_status, closing_title,  # noqa: E402
+from _script_utils import (guard_not_in_skill_dir, read_text, setup_stdio,  # noqa: E402
+                           write_text_atomic)
+from _contracts import (SCHEMA_VERSION, SCENE_ALIGN_MAX, TAIL_DRIFT_MAX,  # noqa: E402
+                        TIMING_EPS, check_degraded_status, closing_title,
                         inline_json, opening_title, require_finite_number,
                         require_schema_version, segment_step_id)
 
 
 def _load(path, what):
     try:
-        # utf-8-sig：PowerShell `Set-Content -Encoding UTF8` 写出的带 BOM 文件
-        # 用 utf-8 读会在第 1 列炸 json 解析。
-        with open(path, encoding="utf-8-sig") as f:
-            return json.load(f)
+        # read_text：全仓唯一一份编码探测链（utf-8-sig / utf-16 / gb18030），
+        # 与 narration / check_gates / build_page 对同一份文件判定一致。
+        return json.loads(read_text(path))
     except (OSError, ValueError) as e:
         raise SystemExit(f"[error] 无法读取{what}: {e}")
 
@@ -50,8 +51,6 @@ def _content_map(source):
         return {}
     if not isinstance(source, dict):
         raise SystemExit("[error] --source 顶层必须是 JSON 对象，不能是数组、字符串或数字")
-    if not source:
-        return {}
     out = {}
     if source.get("opening"):
         out["opening"] = {"title": opening_title(source),
@@ -144,11 +143,11 @@ def build(timing, content):
             end = float(require_finite_number(sc.get("end"), f"{sid}.end", nonnegative=True))
         except ValueError as exc:
             raise SystemExit(f"[error] {exc}")
-        if abs((start + duration) - end) > 0.12:
+        if abs((start + duration) - end) > SCENE_ALIGN_MAX:
             raise SystemExit(f"[error] {sid}: start + duration 与 end 相差 {abs(start + duration - end):.3f}s")
-        if prev_start is not None and start < prev_start - 0.02:
+        if prev_start is not None and start < prev_start - TIMING_EPS:
             raise SystemExit(f"[error] {sid}: 场景起点没有按时间递增")
-        if prev_end is not None and start < prev_end - 0.02:
+        if prev_end is not None and start < prev_end - TIMING_EPS:
             raise SystemExit(f"[error] {sid}: 场景与上一场重叠 {prev_end - start:.3f}s")
 
         meta = content.get(sid) or {}
@@ -170,9 +169,9 @@ def build(timing, content):
             except ValueError as exc:
                 raise SystemExit(f"[error] {exc}")
             s_end = s_start + s_dur
-            if s_start < start - 0.12 or s_end > end + 0.12:
+            if s_start < start - SCENE_ALIGN_MAX or s_end > end + SCENE_ALIGN_MAX:
                 raise SystemExit(f"[error] {sid}#{ni}: 旁白区间超出场景 [{start:.3f}, {end:.3f}]")
-            if last_sent_end is not None and s_start < last_sent_end - 0.02:
+            if last_sent_end is not None and s_start < last_sent_end - TIMING_EPS:
                 raise SystemExit(f"[error] {sid}#{ni}: 与上一句旁白重叠 {last_sent_end - s_start:.3f}s")
             last_sent_end = s_end
             item = {"start": round(s_start, 3), "duration": round(s_dur, 3), "text": text}
@@ -184,9 +183,9 @@ def build(timing, content):
                 item["hl"] = True
             narration.append(item)
 
-        sentences_end = last_sent_end
-        if sentences_end is not None and abs(sentences_end - end) > 0.25:
-            raise SystemExit(f"[error] {sid}: 最后一句旁白结束点与 scene.end 相差 {abs(sentences_end-end):.3f}s")
+        # 句子循环里坏条目全部 raise，走到这里 last_sent_end 必然已落值。
+        if abs(last_sent_end - end) > TAIL_DRIFT_MAX:
+            raise SystemExit(f"[error] {sid}: 最后一句旁白结束点与 scene.end 相差 {abs(last_sent_end-end):.3f}s")
 
         scenes.append({
             "step_id": sid,

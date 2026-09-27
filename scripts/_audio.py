@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ffmpeg 音频操作（从 narration.py 拆出）。
 
-包含：时长测量、静音生成、atempo 变速、拼接、BGM 混音。
+包含：时长测量、静音生成、atempo 变速、拼接。
 所有函数都只依赖"ffmpeg 路径 + 参数"，不碰 TTS/网络，可脱离 pipeline 单独测试。
 """
 import os
@@ -14,6 +14,22 @@ import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _contracts import validate_speed  # noqa: E402  领域规则单一来源
+
+
+def _run_ffmpeg(args, timeout):
+    """跑一条 ffmpeg，返回 CompletedProcess；超时或无法运行时返回 None。
+
+    encoding/errors 显式指定：中文 Windows 下 text=True 默认按 cp936 解码
+    ffmpeg stderr（UTF-8），输出路径含中文时会先抛 UnicodeDecodeError。
+    TimeoutExpired 与 OSError（ffmpeg 路径不存在）统一在此接住返回 None——
+    各调用方的兜底路径都从"没有结果"开始。
+    """
+    try:
+        return subprocess.run(
+            args, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
 
 
 def _wav_duration(audio_path):
@@ -44,29 +60,17 @@ def measure_duration(ffmpeg_path, audio_path):
     行比字符串切分对 locale/格式变化更稳健）。
     Returns 0.0 if parsing fails (callers should treat 0.0 as invalid).
 
-    显式捕获 subprocess.TimeoutExpired —— 原裸 `except Exception` 虽也能接住，
-    但 30s 超时通常意味着 ffmpeg 卡死（罕见但可能），单独记日志便于诊断。
+    30s 超时通常意味着 ffmpeg 卡死（罕见但可能），单独记日志便于诊断。
     """
     wav_dur = _wav_duration(audio_path)
     if wav_dur is not None:
         return wav_dur
-    try:
-        result = subprocess.run(
-            [ffmpeg_path, "-i", audio_path],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=30
-        )
-        stderr = result.stderr or ""
-        dur = parse_duration(stderr)
-        if dur is not None:
-            return dur
-    except subprocess.TimeoutExpired:
-        print(f"  [duration] ffmpeg -i timed out on {audio_path}",
+    result = _run_ffmpeg([ffmpeg_path, "-i", audio_path], 30)
+    if result is None:
+        print(f"  [duration] ffmpeg -i 超时或无法运行 on {audio_path}",
               file=sys.stderr)
-    except Exception as e:
-        print(f"  [duration] error measuring {audio_path}: {e}",
-              file=sys.stderr)
-    return 0.0
+        return 0.0
+    return parse_duration(result.stderr) or 0.0
 
 
 def generate_silence(ffmpeg_path, duration, out_path, rate=24000, channels=1):
@@ -79,25 +83,20 @@ def generate_silence(ffmpeg_path, duration, out_path, rate=24000, channels=1):
     pipeline. The Python fallback produces a standards-compliant WAV at the
     requested rate/channels, matching what ffmpeg -ar/-ac would emit.
 
+    encoding 显式指定（理由见 _run_ffmpeg）。TimeoutExpired 由 helper 接住
+    返回 None——与"ffmpeg 路径根本不存在"的 OSError 同样落入 wave 兜底
+    （lavfi 卡死 30s 的 ffmpeg 写不出比 Python wave 更好的静音）。
+
     两条路都失败时抛 RuntimeError 而不是落一个 0 字节空文件——空文件混进
     concat 要么整链失败要么被静默丢弃，而调用方（pipeline 的静音兜底分支）
     已经按"异常=兜底失败"处理，能正确走 skip 路径，不会带着坏文件错位时间轴。
     """
     layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
-    # encoding/errors 显式指定：中文 Windows 下 text=True 默认按 cp936 解码
-    # ffmpeg stderr（UTF-8），输出路径含中文时会先抛 UnicodeDecodeError 而
-    # 不是走兜底。TimeoutExpired 同样落入 wave 兜底（lavfi 卡死 30s 的
-    # ffmpeg 写不出比 Python wave 更好的静音）。
-    try:
-        result = subprocess.run([
-            ffmpeg_path, "-y", "-f", "lavfi",
-            "-i", f"anullsrc=r={rate}:cl={layout}",
-            "-t", str(duration), "-ar", str(rate), "-ac", str(channels), out_path
-        ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=30)
-    except (subprocess.TimeoutExpired, OSError):
-        # OSError 覆盖"ffmpeg 路径根本不存在"——Python wave 兜底不依赖 ffmpeg。
-        result = None
+    result = _run_ffmpeg([
+        ffmpeg_path, "-y", "-f", "lavfi",
+        "-i", f"anullsrc=r={rate}:cl={layout}",
+        "-t", str(duration), "-ar", str(rate), "-ac", str(channels), out_path
+    ], 30)
     if (result is not None and result.returncode == 0
             and os.path.exists(out_path) and os.path.getsize(out_path) > 0):
         return
@@ -149,14 +148,12 @@ def apply_speed(ffmpeg_path, wav_path, speed):
     """
     filt = build_atempo_filter(speed)
     tmp = wav_path + ".spd.tmp.wav"
-    try:
-        result = subprocess.run([
-            ffmpeg_path, "-y", "-i", wav_path,
-            "-filter:a", filt,
-            "-ar", "24000", "-ac", "1", tmp
-        ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=60)
-    except subprocess.TimeoutExpired:
+    result = _run_ffmpeg([
+        ffmpeg_path, "-y", "-i", wav_path,
+        "-filter:a", filt,
+        "-ar", "24000", "-ac", "1", tmp
+    ], 60)
+    if result is None:
         _remove_quiet(tmp)
         print("  [speed-skip] atempo timeout", file=sys.stderr)
         return False
@@ -189,16 +186,12 @@ def _wav_format(audio_path):
 
 def _convert_to_format(ffmpeg_path, src, dst, rate, channels):
     """把一个音频重采样成 (rate, channels, s16) 写到 dst。返回是否成功。"""
-    try:
-        result = subprocess.run([
-            ffmpeg_path, "-y", "-i", src,
-            "-ar", str(rate), "-ac", str(channels), "-sample_fmt", "s16", dst
-        ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=120)
-    except subprocess.TimeoutExpired:
-        return False
-    return (result.returncode == 0 and os.path.exists(dst)
-            and os.path.getsize(dst) > 0)
+    result = _run_ffmpeg([
+        ffmpeg_path, "-y", "-i", src,
+        "-ar", str(rate), "-ac", str(channels), "-sample_fmt", "s16", dst
+    ], 120)
+    return (result is not None and result.returncode == 0
+            and os.path.exists(dst) and os.path.getsize(dst) > 0)
 
 
 def quote_ffpath(p):
@@ -268,114 +261,28 @@ def concat_audio(ffmpeg_path, file_list, gap_sec, out_path):
                     abs_silence = os.path.abspath(silence_file).replace("\\", "/")
                     f.write(f"file '{quote_ffpath(abs_silence)}'\n")
 
-        # encoding/errors 显式指定（理由同 generate_silence）；TimeoutExpired
-        # 单独接住——原路径直接穿透会裸栈到 main（临时目录本身由
-        # TemporaryDirectory 保证清理）。
-        result = None
-        try:
-            result = subprocess.run([
-                ffmpeg_path, "-y", "-f", "concat", "-safe", "0",
-                "-i", list_file, "-c", "copy", out_path
-            ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                timeout=120)
-        except subprocess.TimeoutExpired:
-            print("  [concat] ffmpeg concat 超时（copy 路径），尝试重编码",
-                  file=sys.stderr)
+        # TimeoutExpired 由 _run_ffmpeg 接住返回 None，走下面的重编码兜底
+        # （临时目录本身由 TemporaryDirectory 保证清理）。
+        result = _run_ffmpeg([
+            ffmpeg_path, "-y", "-f", "concat", "-safe", "0",
+            "-i", list_file, "-c", "copy", out_path
+        ], 120)
 
         if result is None or result.returncode != 0:
-            # Fallback: re-encode (handles codec mismatch) — 列表此时已格式统一，
-            # 重编码只是兜住 copy 的意外失败。
-            try:
-                result = subprocess.run([
-                    ffmpeg_path, "-y", "-f", "concat", "-safe", "0",
-                    "-i", list_file, "-ar", str(rate), "-ac", str(channels),
-                    out_path
-                ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    timeout=120)
-            except subprocess.TimeoutExpired:
-                print("  [concat] ffmpeg concat 超时（重编码路径）", file=sys.stderr)
-                result = None
-            if result is not None and result.returncode != 0:
+            # Fallback: re-encode (handles codec mismatch / copy 失败或超时) —
+            # 列表此时已格式统一，重编码只是兜住 copy 的意外失败。
+            result = _run_ffmpeg([
+                ffmpeg_path, "-y", "-f", "concat", "-safe", "0",
+                "-i", list_file, "-ar", str(rate), "-ac", str(channels),
+                out_path
+            ], 120)
+            if result is None:
+                print("  [concat] ffmpeg concat 超时或无法运行（重编码路径）",
+                      file=sys.stderr)
+            elif result.returncode != 0:
                 print(f"  [concat stderr] {result.stderr[-500:]}", file=sys.stderr)
 
         return result is not None and result.returncode == 0
-
-
-def mix_bgm(ffmpeg_path, voice_path, bgm_path, bgm_volume, out_path):
-    """Mix background music under voice audio. BGM loops to match voice duration.
-
-    全程使用固定的 bgm_volume。
-    """
-    volume_filter = f"volume={bgm_volume}"
-    # normalize=0：amix 默认把每路输入各乘 1/inputs（两路即人声 -6dB），
-    # 带 BGM 的成片会系统性比不带的一半响度；关掉 normalize 后音量
-    # 关系完全交给 volume_filter 控制
-    try:
-        result = subprocess.run([
-            ffmpeg_path, "-y",
-            "-i", voice_path,
-            "-i", bgm_path,
-            "-filter_complex",
-            # size=2e9：aloop 默认 loop 缓冲只有 192000 帧（约几秒），超过缓冲的
-            # BGM 会被截成短片段循环——rc=0、文件非空，成片里音乐却是碎的。
-            # 给足上限让整条 BGM 进缓冲再无限循环。
-            f"[1:a]{volume_filter},aloop=loop=-1:size=2e9[bgm];"
-            f"[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=3:normalize=0",
-            "-ar", "24000", "-ac", "1", out_path
-        ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=300)
-    except subprocess.TimeoutExpired:
-        print("  [BGM mix failed] ffmpeg 混音超时", file=sys.stderr)
-        return False
-    if result.returncode != 0:
-        print(f"  [BGM mix failed] {result.stderr[-300:]}", file=sys.stderr)
-        return False
-    # rc==0 不必然留下有效文件（磁盘满 / 滤镜图被截断时 ffmpeg 也可能干净退出）：
-    # 只认"存在且非空"，调用方拿着 bool 就会 os.replace 覆盖 combined.wav。
-    if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
-        print("  [BGM mix failed] ffmpeg 正常退出但输出文件缺失或为空", file=sys.stderr)
-        return False
-    return True
-
-
-def build_loudnorm_filter(target_lufs=-16.0):
-    """构建 ffmpeg loudnorm 滤镜串（单遍，目标整体响度 target_lufs LUFS）。
-
-    目标 -16 LUFS 是网络视频/播客常见响度；TP/LRA 用固定值即可。
-    target_lufs 被钳制在 [-70, 0] 范围内，防止非法值进入 ffmpeg 滤镜串。
-    """
-    _MIN_LUFS, _MAX_LUFS = -70.0, 0.0
-    if target_lufs < _MIN_LUFS or target_lufs > _MAX_LUFS:
-        print(f"[loudnorm] target_lufs {target_lufs} 超出 [{_MIN_LUFS}, {_MAX_LUFS}] "
-              f"范围，自动钳制到边界。", file=sys.stderr)
-        target_lufs = max(_MIN_LUFS, min(_MAX_LUFS, target_lufs))
-    return f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11"
-
-
-def apply_loudnorm(ffmpeg_path, in_path, out_path, target_lufs=-16.0):
-    """对整条音频做响度归一化，输出到 out_path。返回是否成功。
-
-    用于把逐句 TTS 拼出来的音频统一到目标响度（跨句/跨视频音量一致）。在 concat
-    之后、对 combined 整段做，loudnorm 只做增益、不做变速，不改变句子间相对时序，
-    字幕时间轴仍按 narration_timing.json 的实测值对齐。
-    """
-    filt = build_loudnorm_filter(target_lufs)
-    try:
-        result = subprocess.run([
-            ffmpeg_path, "-y", "-i", in_path,
-            "-af", filt,
-            "-ar", "24000", "-ac", "1", out_path,
-        ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=120)
-    except subprocess.TimeoutExpired:
-        # 同模块其它 ffmpeg 封装都显式接 TimeoutExpired，唯独这里漏了：
-        # ffmpeg 卡死时用户直接吃裸栈
-        print("  [loudnorm] ffmpeg timeout (120s)", file=sys.stderr)
-        return False
-    if result.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-        return True
-    print(f"  [loudnorm] failed: {result.stderr[-200:]}", file=sys.stderr)
-    return False
 
 # ── FFmpeg runtime helpers ─────────────────────────────────────────
 def _system_ffmpeg():

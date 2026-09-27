@@ -32,6 +32,7 @@ import argparse
 import base64
 import concurrent.futures
 import hashlib
+import json
 import os
 import random
 import shutil
@@ -44,19 +45,20 @@ from typing import Dict, List
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _audio import (apply_loudnorm, apply_speed, concat_audio,  # noqa: E402
-                    generate_silence, get_ffmpeg, measure_duration, mix_bgm,
-                    _remove_quiet)
+from _audio import (apply_speed, concat_audio, generate_silence,  # noqa: E402
+                    get_ffmpeg, measure_duration, _remove_quiet)
 from _contracts import (DEFAULT_CHARS_PER_SEC, DEFAULT_GAP, DEFAULT_SPEED,  # noqa: E402
-                        closing_title, estimate_sentence_seconds, list_voice_ids,
-                        opening_title, require_finite_number, segment_step_id,
-                        validate_speed)
+                        SCHEMA_VERSION, VOICE_IDS, closing_title, opening_title,
+                        require_finite_number, segment_step_id, validate_speed)
 from _env import get_key, resolve_model_config  # noqa: E402
-from _script_utils import (guard_not_in_skill_dir, is_inside, setup_stdio,  # noqa: E402
-                           split_sentences, write_json_atomic)
+from _script_utils import (guard_not_in_skill_dir, is_inside, read_text,  # noqa: E402
+                           setup_stdio, split_sentences, write_text_atomic)
 
 # 超长句提醒阈值：写稿时一句一口气念得完最好；超过只 warn 不拦截。
 LONG_SENTENCE_CHARS = 45
+
+# 单句 TTS 的应用层重试次数（合成器内所有失败路径共用，不给 CLI 开口径）。
+MAX_RETRIES = 3
 
 # 句间静音上限：gap 会乘在整稿所有句间切换上（200 句 × 10s 就是 30+ 分钟纯静音），
 # 给得更大几乎一定是参数写错，而不是作者真想留白。
@@ -283,9 +285,9 @@ def _retry_backoff_seconds(exc, attempt):
 
 
 def synth_sentence(client, text, voice_id, voice_style, out_path,
-                   ffmpeg_path=None, speed=1.0, max_retries=3,
-                   sentence_label="", model="mimo-v2.5-tts", api_timeout=30,
-                   fatal_event=None):
+                   ffmpeg_path, speed,
+                   sentence_label, model, api_timeout,
+                   fatal_event):
     """合成一句话到 out_path，并按 speed 做确定性变速。返回 (ok, speed_applied)。
 
     ok：音频是否成功落盘；speed_applied：atempo 是否落上（ok=True 而
@@ -308,8 +310,8 @@ def synth_sentence(client, text, voice_id, voice_style, out_path,
     if voice_id:
         audio_params["voice"] = voice_id
 
-    for attempt in range(max_retries):
-        if fatal_event is not None and fatal_event.is_set():
+    for attempt in range(MAX_RETRIES):
+        if fatal_event.is_set():
             return False, False
         try:
             completion = client.chat.completions.create(
@@ -325,7 +327,7 @@ def synth_sentence(client, text, voice_id, voice_style, out_path,
                     "TTS 响应没有 choices（网关返回空结果）——"
                     "检查 --model/--base-url 是否指向可用的 TTS 模型")
             # message 缺失/形状不对同样不是可重试的网络抖动：getattr 防住
-            # AttributeError 被归为可重试、白烧满 max_retries。
+            # AttributeError 被归为可重试、白烧满 MAX_RETRIES。
             audio_obj = getattr(getattr(choices[0], "message", None), "audio", None)
             audio_data = getattr(audio_obj, "data", None) if audio_obj else None
             if not audio_data:
@@ -345,14 +347,12 @@ def synth_sentence(client, text, voice_id, voice_style, out_path,
                     f.write(wav_bytes)
             except OSError as e:
                 # 本地写盘失败（磁盘满/权限）不是可重试的网络抖动：留在下面的
-                # 宽泛 except 里会重发整次 TTS 请求，单句白烧满 max_retries 额度。
-                label = sentence_label or (text[:30] + "...")
-                print(f"    [{label}][io] 写入缓存失败，不重试以免重复烧额度：{e}",
+                # 宽泛 except 里会重发整次 TTS 请求，单句白烧满 MAX_RETRIES 额度。
+                print(f"    [{sentence_label}][io] 写入缓存失败，不重试以免重复烧额度：{e}",
                       flush=True)
                 return False, False
             break
         except Exception as e:  # noqa: BLE001 — 下面按异常类型分流
-            label = sentence_label or (text[:30] + "...")
             if _is_non_retryable(e):
                 # 两级分流：配置类（401/403/404/422、模型不含音频）短路整池；
                 # 逐句拒答（典型 400 内容审核）只弃这一句，让 --on-fail silence 兜底。
@@ -360,11 +360,11 @@ def synth_sentence(client, text, voice_id, voice_style, out_path,
                 print(f"    [{label}][{'fatal' if config_fatal else 'reject'}] {e}"
                       f"（{'配置错误，短路后续全部调用' if config_fatal else '该句确定性失败，不重试'}）",
                       flush=True)
-                if config_fatal and fatal_event is not None:
+                if config_fatal:
                     fatal_event.set()
                 return False, False
-            print(f"    [{label}][retry {attempt+1}/{max_retries}] {e}", flush=True)
-            if attempt < max_retries - 1:
+            print(f"    [{sentence_label}][retry {attempt+1}/{MAX_RETRIES}] {e}", flush=True)
+            if attempt < MAX_RETRIES - 1:
                 # Retry-After 优先（429 限流窗口），否则线性退避；都再加抖动：
                 # 多 worker 同步休眠同步唤醒会一起撞限流窗口。
                 time.sleep(_retry_backoff_seconds(e, attempt) + random.uniform(0.0, 1.0))
@@ -376,27 +376,27 @@ def synth_sentence(client, text, voice_id, voice_style, out_path,
     if abs(speed - 1.0) <= 0.01:
         return True, True
     if not ffmpeg_path:
-        print(f"    [{sentence_label or text[:30] + '...'}][speed-skip] "
+        print(f"    [{sentence_label}][speed-skip] "
               f"ffmpeg 不可用，跳过变速（音频保持原速）", file=sys.stderr, flush=True)
         return True, False
     # 变速失败保留原速音频即可（时长由实测决定，时间轴仍然准确）；重调 TTS 只会白烧额度。
     try:
         return True, apply_speed(ffmpeg_path, out_path, speed)
     except Exception as e:  # noqa: BLE001
-        print(f"    [{sentence_label or text[:30] + '...'}][speed-skip] "
+        print(f"    [{sentence_label}][speed-skip] "
               f"atempo 变速失败，保留原始语速: {e}", flush=True)
         return True, False
 
 
-def _sentence_hash(text, voice_id, voice_style, model, speed, base_url=""):
+def _sentence_hash(text, voice_id, voice_style, model, speed, base_url):
     """一句话 TTS 输入的指纹（文本 + 音色 + 风格 + 模型 + 网关 + 语速），resume 用。
 
     缓存文件名按这个指纹命名（见 main 的 out_path），sidecar 再存一份用于核对。
     换网关（--base-url）几乎必然伴随音色实现/韵律的差别，旧缓存跨网关复用
     会把两个声音混进同一条音轨，所以 base_url 也进指纹。
     """
-    payload = "\x1f".join([text, voice_id or "", voice_style or "",
-                           model or "", base_url or "", f"{float(speed):.4f}"])
+    payload = "\x1f".join([text, voice_id, voice_style,
+                           model, base_url, f"{float(speed):.4f}"])
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
@@ -416,7 +416,7 @@ def _drop_sentence_cache(out_path):
 
 
 def _resume_decision(out_path, ffmpeg_path, text, voice_id, voice_style, model,
-                     speed, base_url=""):
+                     speed, base_url):
     """--resume 时判断某句能不能跳过。返回 (action, duration)。
 
         "skip"        缓存可用（输入指纹一致且时长有效）
@@ -472,7 +472,7 @@ def _build_parser():
     parser.add_argument("--api-key", default=None,
                         help="MiMo TTS API key。建议不传、由 .env 提供 MIMO_API_KEY："
                              "命令行参数会出现在进程列表与 shell 历史里，等于泄密")
-    parser.add_argument("--voice-id", default="冰糖", choices=list_voice_ids(),
+    parser.add_argument("--voice-id", default="冰糖", choices=VOICE_IDS,
                         help="音色（默认 冰糖）")
     parser.add_argument("--voice-style",
                         default="专业新闻播报，语速适中，语气沉稳自信，中英文表达流畅自然",
@@ -482,17 +482,12 @@ def _build_parser():
                              f"上限 {MAX_GAP_SECONDS:g}s）")
     parser.add_argument("--speed", type=float, default=DEFAULT_SPEED,
                         help="语速倍率（ffmpeg atempo，1.0=原速=默认，1.5=快一半）")
-    parser.add_argument("--loudness", type=float, default=None,
-                        help="响度归一化目标（LUFS，如 -16）。默认不做归一化")
     parser.add_argument("--resume", action="store_true",
                         help="复用 cache-dir 中输入未变的句子音频")
     parser.add_argument("--clean-output", action="store_true",
                         help="生成前清空 -o 目录（仅在确认该目录专用于本课件时使用）")
     parser.add_argument("--cache-dir", default=None,
                         help="--resume 的句子缓存目录（默认在输出目录同级的 .courseware-cache/ 下）")
-    parser.add_argument("--bgm", default=None, help="背景音乐文件（mp3/wav/ogg）")
-    parser.add_argument("--bgm-volume", type=float, default=0.15,
-                        help="BGM 相对人声音量（0.0-1.0，默认 0.15）")
     parser.add_argument("--model", default=None,
                         help="TTS 模型（默认 MIMO_TTS_MODEL 或 'mimo-v2.5-tts'）")
     parser.add_argument("--base-url", default=None,
@@ -515,13 +510,9 @@ def _validate_args(parser, args):
     except ValueError as e:
         parser.error(str(e))
     # 有限数值校验只写一份（_contracts.require_finite_number），CLI 侧只负责补标签；
-    # 各入口手写 math.isfinite 必然与它漂移。None = 该开关没给，跳过。
+    # 各入口手写 math.isfinite 必然与它漂移。
     for label, val, kw in (("--gap（句间静音秒数）", args.gap, {"nonnegative": True}),
-                           ("--loudness（LUFS）", args.loudness, {}),
-                           ("--bgm-volume（0.0-1.0）", args.bgm_volume, {}),
                            ("--api-timeout（单次 TTS 超时秒数）", args.api_timeout, {})):
-        if val is None:
-            continue
         try:
             require_finite_number(val, label, **kw)
         except ValueError as e:
@@ -542,12 +533,6 @@ def _validate_args(parser, args):
                      "句间静音会按整稿句数累积，长稿下几十秒的 gap 直接毁掉节奏")
     if args.cache_dir and not args.resume:
         parser.error("--cache-dir 只能与 --resume 一起使用")
-    # 用户显式要求 BGM 时，缺失文件不能静默改变最终制品。
-    if args.bgm and not os.path.exists(args.bgm):
-        parser.error(f"--bgm 文件不存在：{args.bgm}")
-    # 越界音量在混音阶段只会钳制+告警——那时 TTS 额度已烧完。给了 --bgm 就现在拦。
-    if args.bgm and not (0.0 <= args.bgm_volume <= 1.0):
-        parser.error(f"--bgm-volume 必须在 0.0–1.0（收到 {args.bgm_volume:g}）")
 
 
 def _load_script_source(path):
@@ -557,14 +542,11 @@ def _load_script_source(path):
     opening_title/closing_title/opening_tagline/closing_tagline/opening_speed/
     closing_speed/speakers。不做隐式兼容——格式不对就报错，不猜。
     """
-    import json
-
     try:
-        # utf-8-sig：记事本"UTF-8 编码"会带 BOM，严格 utf-8 会在 \ufeff 处
-        # 报"Expecting value"，报错完全不指向编码；with 保证句柄及时关闭。
-        with open(path, encoding="utf-8-sig") as f:
-            data = json.loads(f.read())
-    except (OSError, ValueError) as e:
+        # read_text：全仓唯一一份编码探测链（utf-8-sig / utf-16 / gb18030），
+        # 与 build_timeline 读同一份 narration-source.json 的判定一致。
+        data = json.loads(read_text(path))
+    except ValueError as e:
         raise ValueError(f"无法读取旁白脚本: {e}")
     if not isinstance(data, dict) or not isinstance(data.get("segments"), list):
         raise ValueError("旁白脚本必须是 {title, segments:[...]}")
@@ -587,7 +569,7 @@ def _load_script_source(path):
     # --voice-id 有 argparse choices 兜底，但 JSON 里的 voice_id 绕过了它：
     # 写错一个音色名会被原样发给 TTS（400 或静默换声），在这里对着同一份
     # 名单校验，报错直接指到出错的段落。
-    valid_voices = set(list_voice_ids())
+    valid_voices = set(VOICE_IDS)
 
     def _check_voice(value, where):
         if value is not None and value not in valid_voices:
@@ -677,11 +659,6 @@ def _load_script_source(path):
 # ===================================================================
 # 四、主管线
 # ===================================================================
-def _audio_ref(path):
-    """把音轨路径压成制品可携带的相对引用（basename）。"""
-    return os.path.basename(str(path)) if path else None
-
-
 def _mk_hidden_wav(directory, prefix):
     """建一个隐藏 .wav 临时文件路径（与交付物同目录：os.replace 原子、不跨设备）。"""
     fd, path = tempfile.mkstemp(prefix=prefix, suffix=".wav", dir=directory)
@@ -691,18 +668,11 @@ def _mk_hidden_wav(directory, prefix):
 
 def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
                     silence_fallback_count, total_sentences, cached_count):
-    """拼接 → 可选 BGM/响度 → 写 narration_timing.json。"""
+    """拼接 → 写 narration_timing.json。"""
     print(f"\n[concat] {len(sentence_data)} clips (gap {args.gap}s)...", flush=True)
     combined_path = os.path.join(args.output, "combined.wav")
-    # 最终交付契约永远只有 audio/combined.wav。BGM / loudness 都在同目录的隐藏
-    # 临时文件上处理（同目录保证 os.replace 原子、且不跨设备），成功后原子替换；
-    # 上次被中断残留的 .combined-*.wav 在这里扫掉，交付目录不会积残渣。
-    try:
-        for stale in os.listdir(args.output):
-            if stale.startswith(".combined-") and stale.endswith(".wav"):
-                _remove_quiet(os.path.join(args.output, stale))
-    except OSError:
-        pass
+    # 最终交付契约永远只有 audio/combined.wav：拼接落在同目录的隐藏临时文件上
+    # （同目录保证 os.replace 原子、不跨设备），成功才原子替换。
     raw_path = _mk_hidden_wav(args.output, ".combined-raw-")
     try:
         if not concat_audio(ffmpeg_path, [s["file"] for s in sentence_data], args.gap,
@@ -715,8 +685,7 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
         os.replace(raw_path, combined_path)
     finally:
         # 任何异常（含 SystemExit / KeyboardInterrupt）都不把临时件留进交付目录：
-        # 开头的 .combined-* 清扫只在下次运行生效，不指望它。replace 之后路径
-        # 已不存在，这里是 no-op。
+        # replace 之后路径已不存在，这里是 no-op。
         _remove_quiet(raw_path)
 
     total_dur = measure_duration(ffmpeg_path, combined_path)
@@ -741,37 +710,6 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
         print(f"[warn] combined.wav 实测 {total_dur:.2f}s 与时间轴累计 {cumulative:.2f}s "
               f"相差较大——逐句时间轴可能整体漂移，请检查各句音频与 ffmpeg 拼接是否正常",
               file=sys.stderr)
-
-    if args.bgm:
-        # --bgm-volume 越界已在 argparse 阶段拦下（早于 TTS，不烧额度），
-        # 这里可以直接把音量拼进 ffmpeg 滤镜串；NaN/Inf 同样在入口被拒。
-        print(f"[bgm] 混入 {args.bgm}（音量 {args.bgm_volume}）...", flush=True)
-        mixed_path = _mk_hidden_wav(args.output, ".combined-bgm-")
-        try:
-            if mix_bgm(ffmpeg_path, combined_path, args.bgm, args.bgm_volume, mixed_path):
-                os.replace(mixed_path, combined_path)
-                # 混音换了文件（amix duration=first，句子相对时序不变，但整长可能
-                # 差一点）——复测最终交付文件，而不是中间文件。
-                total_dur = measure_duration(ffmpeg_path, combined_path) or total_dur
-            else:
-                print("  [warn] BGM 混音失败，使用纯人声（交付里没有你要的背景音乐，"
-                      "请检查 --bgm 文件）", file=sys.stderr, flush=True)
-        finally:
-            # _remove_quiet 捕 OSError：Windows 上被残留 ffmpeg 句柄占用时
-            # PermissionError 不能让软失败路径再补一个裸 traceback（与 concat 块同口径）。
-            _remove_quiet(mixed_path)
-
-    if args.loudness is not None:
-        loud_path = _mk_hidden_wav(args.output, ".combined-loud-")
-        try:
-            if apply_loudnorm(ffmpeg_path, combined_path, loud_path, args.loudness):
-                os.replace(loud_path, combined_path)
-                total_dur = measure_duration(ffmpeg_path, combined_path) or total_dur
-                print(f"  [loudness] 已归一化到 {args.loudness} LUFS", flush=True)
-            else:
-                print("  [warn] 响度归一化失败，使用未归一化音频", file=sys.stderr, flush=True)
-        finally:
-            _remove_quiet(loud_path)
 
     # 时间轴：一句 = 一条 {start, duration, text}；一段 = 一个 scene。
     sentences_out = []
@@ -819,13 +757,13 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
     # 配音也没字幕，status 不能因为"没有占位"就报 ok。
     dropped_count = max(0, total_sentences - len(sentence_data))
     timing = {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "status": "degraded" if (silence_fallback_count or dropped_count) else "ok",
         "title": source_data.get("title") or "",
         "total_duration": round(total_dur, 3),
         "voice_id": args.voice_id,
         # 只保留文件名：消费方按约定在同一目录下查找。
-        "audio": _audio_ref(combined_path),
+        "audio": os.path.basename(str(combined_path)),
         "scenes": scenes,
         "degraded": {"tts_silence_fallback_count": silence_fallback_count,
                      "dropped_sentence_count": dropped_count},
@@ -833,7 +771,7 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
     # 原子写：narration_timing.json 是页面内联时间轴的唯一数据源，写到一半被
     # Ctrl-C 打断会留下截断 JSON——要么完整要么不存在。
     manifest_path = os.path.join(args.output, "narration_timing.json")
-    write_json_atomic(manifest_path, timing, indent=2)
+    write_text_atomic(manifest_path, json.dumps(timing, ensure_ascii=False, indent=2))
 
     print(f"\n[manifest] {manifest_path}", flush=True)
     ok_count = len(sentence_data) - silence_fallback_count
@@ -860,8 +798,7 @@ def _spread_segment_overrides(seg_config, args, sentences,
                               sentence_speeds, sentence_voices, speaker_labels):
     """按段落与 turns 展开每句的语速 / 音色 / 说话人标签。"""
     for seg in seg_config:
-        start_idx = seg.get("start", 0)
-        end_idx = seg.get("end", len(sentences))
+        start_idx, end_idx = seg["start"], seg["end"]
         seg_speed = seg.get("speed")
         if seg_speed is not None:
             for si in range(start_idx, min(end_idx, len(sentences))):
@@ -875,8 +812,7 @@ def _spread_segment_overrides(seg_config, args, sentences,
                 )
         # turns 是比段落更细的子区间：同一段里 A/B 交替发言，各自用各自音色。
         for turn in seg.get("turns", []):
-            t_start = turn.get("start", start_idx)
-            t_end = turn.get("end", end_idx)
+            t_start, t_end = turn["start"], turn["end"]
             t_voice_id, t_voice_style = turn.get("voice_id"), turn.get("voice_style")
             t_label = turn.get("label") or turn.get("speaker")
             for si in range(t_start, min(t_end, len(sentences))):
@@ -927,7 +863,7 @@ def _synthesize_pending(args, client, ffmpeg_path, model, base_url, pending_task
         future_to_task = {
             executor.submit(synth_sentence, client, t["text_tts"], t["voice_id"],
                             t["voice_style"], t["out_path"], ffmpeg_path,
-                            t["speed"], 3, t["label"], model, args.api_timeout,
+                            t["speed"], t["label"], model, args.api_timeout,
                             fatal_event): t
             for t in pending_tasks
         }
@@ -983,8 +919,8 @@ def _synthesize_pending(args, client, ffmpeg_path, model, base_url, pending_task
             if args.on_fail == "silence":
                 # 降级：该句反复失败（如触发内容审核）时不丢弃，改为静音占位；
                 # 时长只能按字数/语速估算（没有真实语速可测），估算已除过 speed。
-                fallback_dur = max(estimate_sentence_seconds(
-                    task["text_tts"], DEFAULT_CHARS_PER_SEC, task["speed"]), 0.3)
+                fallback_dur = max(
+                    len(task["text_tts"]) / DEFAULT_CHARS_PER_SEC / task["speed"], 0.3)
                 try:
                     generate_silence(ffmpeg_path, fallback_dur, out_path)
                     # .failed 标记 + 指纹：下次 --resume 认得出这句是"已失败的静音
@@ -1059,9 +995,6 @@ def main():
     except ValueError as e:
         print(f"[error] 旁白脚本无效：{e}", file=sys.stderr)
         sys.exit(1)
-    if not sentences:
-        print("[error] 旁白脚本分句为空", file=sys.stderr)
-        sys.exit(1)
 
     print(f"[script] {sum(len(s) for s in sentences)} chars", flush=True)
     print(f"[split] {len(sentences)} sentences", flush=True)
@@ -1104,7 +1037,7 @@ def main():
         # get_ffmpeg 在"系统没有 + imageio 也没装"时返回字面量 "ffmpeg"：
         # 不管它，后面 concat_audio 会抛 FileNotFoundError，用户吃一段跟 ffmpeg
         # 毫无关系的裸栈。在这里 fail-fast，直接说清要装什么。
-        print("[error] 没找到可用的 ffmpeg（拼接 / 变速 / BGM 都依赖它）。\n"
+        print("[error] 没找到可用的 ffmpeg（拼接 / 变速都依赖它）。\n"
               "        装一个 ffmpeg 再跑；只想看分句结果可以加 --dry-run。",
               file=sys.stderr)
         sys.exit(1)
@@ -1216,7 +1149,7 @@ def main():
     pending_count = len(pending_tasks)
     if pending_count:
         mean_chars = sum(len(t["text_tts"]) for t in pending_tasks) / pending_count
-        est = mean_chars / DEFAULT_CHARS_PER_SEC * pending_count * 1.2 / max(args.workers, 1)
+        est = mean_chars / DEFAULT_CHARS_PER_SEC * pending_count * 1.2 / args.workers
         print(f"[est] 待合成 {pending_count} 句，约 {est:.0f}s"
               f"（≤{args.workers} 并发，句均 {mean_chars:.1f} 字）", flush=True)
 
