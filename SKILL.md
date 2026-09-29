@@ -72,12 +72,13 @@ MiMo API key；只用已有音频时不需要 TTS 依赖。脚本会把讲稿上
 
 `references/template.html` 是结构范本；`references/` 不放 runtime 副本。
 
-页面组装不要手动复制三份资源。在工作目录下执行（**不要在 skill 目录里跑**——
+页面组装不要手动复制三份资源。先按本课把范本改写成自己的页面骨架（下例的
+`page-draft.html`），再在工作目录下执行（**不要在 skill 目录里跑**——
 一切写入 skill 目录的输出都会被脚本内置防护拒绝）：
 
 ```bash
 python <skill目录>/scripts/build_page.py \
-  --template <skill目录>/references/template.html \
+  --template page-draft.html \
   --timeline timeline.html \
   --audio audio/combined.wav \
   --timing audio/narration_timing.json \
@@ -86,6 +87,10 @@ python <skill目录>/scripts/build_page.py \
 
 `build_page.py` 原子组装时间轴 / 音频 / runtime，并对着 manifest 做一致性校验、
 默认拒收降级与已有输出（全部校验与放行开关的语义见 `references/script.md` §3）。
+
+**它只换三样资源，不换页面内容。** 草稿里改的是 SVG 场景、`RENDER`、`GATES`、
+侧栏：照抄范本不动、只塞进新课时间轴，场景 id 会对不上——旧 renderer 永不触发、
+`GATES` 引用不存在的场景，第 5 步必红。怎么改见 §4–§6 与 `references/stage.md`。
 
 ## 4. 页面骨架
 

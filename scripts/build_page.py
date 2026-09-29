@@ -187,10 +187,13 @@ def _copy_atomic(src: Path, dst: Path) -> None:
 
 
 def main() -> int:
+    setup_stdio()   # 必须在 parse_args 之前：Windows 管道下 help/usage 也是中文
     parser = argparse.ArgumentParser(
         description="从页面范本、内联时间轴和音频组装可交付的 Courseware Studio 页面"
     )
-    parser.add_argument("--template", required=True, help="references/template.html")
+    parser.add_argument("--template", required=True,
+                        help="本课写好的页面骨架（范本的工作副本）：只被换入时间轴与音频 src，"
+                             "场景 / RENDER / GATES 原样保留")
     parser.add_argument("--timeline", required=True, help="build_timeline.py 生成的 HTML 或裸 JSON")
     parser.add_argument("--audio", required=True, help="最终旁白 WAV；会复制为 output/../audio/combined.wav")
     parser.add_argument("--timing", required=True, help="narration_timing.json；会复制到 output/../audio/")
@@ -199,7 +202,6 @@ def main() -> int:
     parser.add_argument("--allow-degraded", action="store_true",
                         help="允许 narration_timing.json 处于 degraded 状态（默认拒绝，与 build_timeline.py 同一道门）")
     args = parser.parse_args()
-    setup_stdio()
 
     template = Path(args.template).resolve()
     timeline_path = Path(args.timeline).resolve()

@@ -357,7 +357,7 @@ def synth_sentence(client, text, voice_id, voice_style, out_path,
                 # 两级分流：配置类（401/403/404/422、模型不含音频）短路整池；
                 # 逐句拒答（典型 400 内容审核）只弃这一句，让 --on-fail silence 兜底。
                 config_fatal = _is_config_fatal(e)
-                print(f"    [{label}][{'fatal' if config_fatal else 'reject'}] {e}"
+                print(f"    [{sentence_label}][{'fatal' if config_fatal else 'reject'}] {e}"
                       f"（{'配置错误，短路后续全部调用' if config_fatal else '该句确定性失败，不重试'}）",
                       flush=True)
                 if config_fatal:
@@ -985,9 +985,8 @@ def main():
     # source_path 不能省：key 与 模型/base_url 都走带 source_path 的解析，
     # 讲稿旁同目录的 .env 才能整套生效——早年只给 key 传 source_path，同一份
     # .env 里 key 生效、MIMO_TTS_MODEL 静默不生效，是最难查的半套配置。
-    model, base_url = resolve_model_config(
-        args.model, args.base_url, "MIMO_TTS_MODEL", "mimo-v2.5-tts",
-        source_path=args.source)
+    model, base_url = resolve_model_config(args.model, args.base_url,
+                                           source_path=args.source)
 
     try:
         source_data = _load_script_source(args.source)

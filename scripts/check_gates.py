@@ -1296,16 +1296,22 @@ def _build_probe(page: Path, out: Path) -> None:
         raise SystemExit(f'[error] {timeline_err}')
     # 门禁统计取"作者写下的页面"：inline 进来的 runtime 自带 GATES/scene 字样的
     # 注释与标识符，在它之上做字面量正则会污染计数（A6）。
+    # 作者页面先 strip 一次：门禁统计与探针落点都在它上面定位（runtime 内联
+    # 那处要等探针注入完再另算，见下面的 RUNTIME_REF_RE）。
+    stripped_html = _js_strip_html(src)
     gate_scenes_json = json.dumps(sorted(k for k in
-                                         _gate_scene_counts(src, _js_strip_html(src))
+                                         _gate_scene_counts(src, stripped_html)
                                          if k != EXPR_SCENE_KEY),
                                   ensure_ascii=False).replace('</', '<\\/')
     # probe 落在临时目录：不给页面相对资源（styles.css / 图片 / 音频）留一个
     # 指向页面目录的 <base>，它们会全部 404——外部 CSS 一失效，祖先链可见性
     # 检查就全体空洞通过，无样式布局还会产出假的手势失败。
     base = page.parent.resolve().as_uri().rstrip('/') + '/'
-    head = re.search(r'<head\b[^>]*>', src, re.I)
-    first_script = re.search(r'<script\b', src, re.I)
+    # 与 runtime 引用同一口径在 stripped 上定位（偏移一致）：注释残稿里排在
+    # 真 <head> / 真 <script> 前面的 ghost tag 会把探针注进注释——浏览器里是
+    # 死代码，桩不住 currentTime，整轮冒烟静默失真。
+    head = re.search(r'<head\b[^>]*>', stripped_html, re.I)
+    first_script = re.search(r'<script\b', stripped_html, re.I)
     if head:
         i = head.end()
     else:

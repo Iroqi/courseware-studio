@@ -239,7 +239,7 @@ def _build_shot_page(src: str, out_path: Path, page_dir: Path, audio: Path) -> N
     body_close = _first_outside_comment(r'</body\s*>', src)
     if not body_close:
         raise _fail('页面没有 </body>，无法在末尾挂截图脚本；请检查页面骨架')
-    head = re.search(r'<head\b[^>]*>', src, re.I)
+    head = _first_outside_comment(r'<head\b[^>]*>', src)
     if not head:
         # 没有 <head> 时 <base> 与 flag 只能挂到 </body> 前——那时 <audio> 早已
         # 按临时目录解析、门禁逻辑也已跑完，产出的是静默错帧。硬失败，别赌。
@@ -293,6 +293,7 @@ def _frame_plan(sentences: list[tuple[float, float, int]], wav_dur: float) -> li
 
 
 def main() -> int:
+    setup_stdio()   # 必须在 parse_args 之前：Windows 管道下 help/usage 也是中文
     ap = argparse.ArgumentParser(description='课件 → 线性 MP4（逐句定格 + 按时长拼接 + 旁白混音）')
     ap.add_argument('page', help='课件目录或页面 .html 路径（与 check_gates.py 同一口径）')
     ap.add_argument('-o', '--output', help='默认 <课件目录名>.mp4，写在课件目录同级')
@@ -483,5 +484,4 @@ def main() -> int:
 
 
 if __name__ == '__main__':
-    setup_stdio()
     sys.exit(main())

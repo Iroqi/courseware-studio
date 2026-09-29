@@ -9,7 +9,7 @@
     --source  narration-source.json         ← 可选：带出每段的 title / tagline
 
 输出（-o，不给则打到 stdout）：
-    <script type="application/json" id="lesson-timeline">{"scenes":[…]}</script>
+    <script type="application/json" id="lesson-timeline">{"schema_version":1,"scenes":[…]}</script>
 
 形状：
     scenes[i] = {"step_id", "content":{"title","tagline"},
@@ -221,6 +221,7 @@ def report(scenes, total, stream=sys.stdout):
 
 
 def main():
+    setup_stdio()   # 必须在 parse_args 之前：Windows 管道下 help/usage 也是中文
     p = argparse.ArgumentParser(description="把 narration_timing.json 压成可内联的时间轴脚本块")
     p.add_argument("--timing", required=True, help="narration.py 产出的 narration_timing.json")
     p.add_argument("--source", default=None, help="可选：旁白脚本，用来带出 title / tagline")
@@ -230,7 +231,6 @@ def main():
     p.add_argument("--allow-degraded", action="store_true",
                    help="允许 narration_timing.json 处于 degraded 状态（默认拒绝，避免降级痕迹在此断链）")
     args = p.parse_args()
-    setup_stdio()   # Windows 重定向下 stdout 非 UTF-8：下面要打中文章节标题
     # 产物守卫：-o 是相对 CWD 解析的，从技能目录照抄示例命令会把时间轴块
     # 直接写进技能仓库（其余写盘入口都有同一道拦截）。
     if args.output:

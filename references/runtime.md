@@ -42,11 +42,14 @@
 ```json
 {
   "options": [
-    {"id":"a","label":"错误答案","correct":false,"feedback":"再想一步。"},
-    {"id":"b","label":"正确答案","correct":true,"feedback":"对。"}
+    {"id":"a","correct":false,"feedback":"再想一步。"},
+    {"id":"b","correct":true,"feedback":"对。"}
   ]
 }
 ```
+
+选项**文案在 DOM 按钮上**（上面那段 HTML），配置只负责判定与反馈；两边靠 `id`
+对齐，对不上是 §5 的契约错误。
 
 作答后选中的选项带 `data-selected="1"`（其余为 `"0"`），页面可样式化；它挂在选项上，
 选项随卡片重建一并消失，不在 §3 的重开清洗清单里。

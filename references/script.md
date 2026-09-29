@@ -22,7 +22,7 @@
 `text` 是真正被朗读的正文，同时也是最终字幕的唯一文本来源。
 
 开场与收尾各有一组可选顶层键：`opening_title` / `closing_title`（缺省时开场沿用
-`title`、收尾固定「小结」）、`opening_tagline` / `closing_tagline`（章节头一句话
+`title`、`title` 也缺省时用「开场」；收尾固定「小结」）、`opening_tagline` / `closing_tagline`（章节头一句话
 提示）、`opening_speed` / `closing_speed`（见 §3）。不写这些键就用默认值。
 
 多人对话（问答 / 情景剧）用顶层 `speakers` + 段落 `dialogue` 代替该段的 `text`：
@@ -105,10 +105,10 @@ audio/narration_timing.json
 `scenes[]` 每场带 `step_id/start/duration/end` 与 `sentences[{start,duration,text}]`。
 外部（其它 skill / 外部 TTS）产出的 timing 先归一成这个形状再进 `build_timeline.py`。
 页面内联后仍保留这个版本号。
-组装成品时，`build_page.py` 会要求 manifest 含非空 `scenes`，与 `build_timeline.py` 同一道门
-拒收 `status` 非 `ok` 的降级 manifest（确要交付静音占位版才加 `--allow-degraded`），并核对它与
-内联时间轴的场景顺序、句子文本、起止时间和句数；已有输出文件要显式 `--force`
-才覆盖；不要把不同批次的音频与 timing 混用。
+组装成品时，`build_page.py` 会要求 manifest 含非空 `scenes`，并与 `build_timeline.py` 走同一道门
+（`_contracts.check_degraded_status`）拒收 `status` 非 `ok` 的降级 manifest——确要交付静音占位版才加
+`--allow-degraded`；随后核对它与内联时间轴的场景顺序、句子文本、起止时间和句数。
+已有输出文件要显式 `--force` 才覆盖；不要把不同批次的音频与 timing 混用。
 
 未使用 `--resume` 时，句子音频只保存在临时工作目录，结束后清理；使用 `--resume` 时，缓存默认写在输出目录同级的 `.courseware-cache/<输出目录名>/sentences/`（输出目录名为 `audio` 时即 `.courseware-cache/audio/sentences/`），也可通过 `--cache-dir` 指定。无论哪种模式，`audio/` 交付目录只包含 `combined.wav` 与 `narration_timing.json`，不要把缓存目录当成成品模板。
 
@@ -191,7 +191,7 @@ python scripts/build_timeline.py \
 
 也可直接使用环境变量或 CLI 参数。不要读取其它 skill 的私有配置目录。
 
-## 6. 自检
+## 6. 工程自检
 
 - [ ] dry-run 后句数和视觉步数对得上；
 - [ ] 短句是显式改稿，不依赖脚本静默合并；

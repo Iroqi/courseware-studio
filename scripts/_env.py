@@ -50,6 +50,7 @@ def _strip_env_comment(value):
 
 # 用户级 .env 路径
 _USER_ENV_PATH = os.path.join(os.path.expanduser("~"), ".config", "courseware-studio", ".env")
+DEFAULT_MODEL = "mimo-v2.5-tts"
 DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1"
 
 _ENV_CACHE = {}  # path -> 解析结果（.env 在单次 CLI 进程内稳定，缓存避免每次调用重复 3 编码探测）
@@ -193,10 +194,13 @@ def get_key(name, cli_value=None, source_path=None):
     return cli_value or load_env(source_path=source_path).get(name) or None
 
 
-def resolve_model_config(cli_model, cli_base_url, model_env_name, default_model,
-                         source_path=None):
-    """按 CLI > 环境变量 > 项目 .env > 用户 .env > 默认值解析模型配置。"""
+def resolve_model_config(cli_model, cli_base_url, source_path=None):
+    """按 CLI > 环境变量 > 项目 .env > 用户 .env > 默认值解析模型配置。
+
+    本技能是 MiMo TTS 适配器：键名与 DEFAULT_BASE_URL 一样固定为 MIMO_*，
+    不给只泛化到一半的伪通用留参数。
+    """
     env = load_env(source_path=source_path)
-    model = cli_model or env.get(model_env_name) or default_model
+    model = cli_model or env.get("MIMO_TTS_MODEL") or DEFAULT_MODEL
     base_url = cli_base_url or env.get("MIMO_BASE_URL") or DEFAULT_BASE_URL
     return model, base_url

@@ -6,6 +6,7 @@ audio_output/
 narration-source.json
 narration_timing.json
 timeline.html
+page-draft.html
 .courseware-cache/
 
 # Python 运行时
