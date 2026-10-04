@@ -1577,7 +1577,15 @@
   }
   function buildBucket(g, c){
     var answer = {}, why = {};
-    (g.items || []).forEach(function(it){ answer[it.id] = it.correct; why[it.id] = it.feedback; });
+    (g.items || []).forEach(function(it){
+      // 判定字段在条目自身（interactions.md §4）：correct=筐 id、feedback=该项反馈。
+      // 配错成独立 answer/fb 时这里会静默生成空答案、被运行时 fail-closed——
+      // 在源头 warn 一句，控制台直接指向配置格式，而不是只看到"缺少 answer"。
+      if (it.correct === undefined)
+        console.warn('[gate] bucket 条目 "' + (it.t || it.id || '?') + '" 缺 correct（筐 id），'
+          + 'GATES 的 items 每项需要 correct/feedback 字段（见 interactions.md §4）');
+      answer[it.id] = it.correct; why[it.id] = it.feedback;
+    });
     c.dataset.interaction = JSON.stringify({ answer:answer, feedback:why });
     bkQ.textContent = g.q;
     clear(bkTray); clear(el('bk-same')); clear(el('bk-diff'));    // 重开时洗回待放区

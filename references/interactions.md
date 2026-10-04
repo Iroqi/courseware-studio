@@ -80,7 +80,12 @@ var GATES = [
 `data-interaction` 配置）。范本里的字段：`scene`（挂哪个场景）、`at`（缺省=场景
 开头，`'end'`=末句播完）、`type`、`preGate`、`q`，加上按题型四选一的题面数据
 `opts` / `spots` / `items` / `seq:{items,correct}`（`recall` 用第五种 `a`=参考答案）
-和可选 `fb`。页面把每一项
+和可选 `fb`。`bucket` 的判定字段在**条目自身**上：每个 `items` 项带
+`correct`（该项应放入的筐 id，范本筐是 `'same'` / `'diff'`）和可选 `feedback`
+（该项答错时单独给的反馈）；**不要**在 `items` 外另写 `answer` / `fb`——
+那是 runtime 的 `data-interaction` 层契约（runtime.md §5），`buildBucket`
+只认条目上的 `correct` / `feedback`；配错格式的后果是门禁开出来没有答案、
+被运行时 fail-closed（`[gate] 门禁打开失败`）。页面把每一项
 翻译成对应卡片的 `data-interaction` JSON 后调用 `window.coursewareStudioWire()`
 重新接线；调用点必须在**揭开门禁浮层之前**——契约抛错时浮层还挂着 `hidden`，
 学习者不会看到一张永远点不动的半开门禁。runtime 的可选文案键（`wrong_text` /
