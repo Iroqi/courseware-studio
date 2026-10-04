@@ -161,6 +161,26 @@ class TestTimelineFromHtml:
         assert parsed is None
         assert err
 
+    def test_script_block_present_but_broken_json(self):
+        """回归：script 块存在但内容 JSON 解析失败时必须返回错误，
+        而不是静默返回 (None, None)（mutation 曾全绿放行）。"""
+        src = '<script id="lesson-timeline">{not json</script>'
+        parsed, err = cg._timeline_from_html(src)
+        assert parsed is None
+        assert err
+        assert "不是合法 JSON" in err
+
+    def test_commented_block_then_broken_block(self):
+        """注释掉的旧时间轴 + 新时间轴内容损坏：错误必须来自真实块。"""
+        src = (
+            '<!-- <script id="lesson-timeline">{"schema_version":1}</script> -->\n'
+            '<script id="lesson-timeline">{broken</script>'
+        )
+        parsed, err = cg._timeline_from_html(src)
+        assert parsed is None
+        assert err
+        assert "不是合法 JSON" in err
+
 
 # ── static_check 集成（范本页面 + 最小时间轴）──────────────────────
 def _template_aligned_manifest():

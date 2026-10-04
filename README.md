@@ -216,6 +216,15 @@ python -m pytest tests/ -q
   （时间轴 → 组装 → 静态检查 → 浏览器冒烟 → 视频导出），并断言**成片时长 ≈ 旁白
   音频时长**——这个断言在守着一条真实的回归：concat demuxer 对列表尾帧的时长处理
   不可靠，曾让导出视频比音轨长出 4.6 秒；
+- `tests/test_narration_e2e.py` 把 fake OpenAI 注入 `sys.modules` 后跑
+  `narration.py main()` **完整 CLI**（此前 narration 只有函数级覆盖）：验证对话
+  展开、句级节拍（beat pause）、段级变速（--speed 后 duration 重测）、concat
+  时长与 manifest 精确一致，并把产物接入 build_timeline → build_page →
+  check_gates 真实下游；`--dry-run` 路径不需 key 不写音频；
+- `tests/test_build_timeline.py` / `test_check_gates.py` 另覆盖两个被 mutation
+  testing 抓出的假绿缺口：`_content_map` 必须滤掉空段再编号（否则 seg-N 与音频
+  侧错位、title/hl 静默丢失）；`_timeline_from_html` 对"script 块存在但 JSON
+  损坏"必须返回错误而非静默放行；
 - `tests/test_audio.py` 另覆盖 concat 的**混格式归一**路径（TTS 48kHz 立体声 +
   静音占位 24kHz 单声道混列时必须先统一格式再拼接，否则时长错乱）；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，

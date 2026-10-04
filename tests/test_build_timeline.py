@@ -115,6 +115,55 @@ class TestBuild:
         with pytest.raises(SystemExit, match="text 为空"):
             bt.build(timing, content_map())
 
+    def test_content_map_filters_empty_segments(self):
+        """回归：空段必须被滤掉再编号，否则 seg-N 与音频侧错位，
+        title/tagline/hl 会全部静默丢失（mutation 曾全绿放行）。"""
+        source = {
+            "schema_version": 1, "title": "T", "opening": True,
+            "opening_title": "开场", "opening_text": "开场白",
+            "segments": [
+                {"title": "第一节", "text": "内容一"},
+                {"title": "空段", "text": "   "},      # 空段：滤掉
+                {"title": "第三节", "text": "内容三", "hl": [1]},
+                {"title": "只讲不讲", "dialogue": []},  # 空对话段：同样滤掉
+            ],
+            "closing": True, "closing_title": "小结", "closing_text": "收尾",
+        }
+        cm = bt._content_map(source)
+        # 编号按**内容段**数：第一节=seg-1，第三节=seg-2，空段不入列
+        assert list(cm.keys()) == ["opening", "seg-1", "seg-2", "closing"]
+        assert cm["seg-1"]["title"] == "第一节"
+        # 第三节被编号为 seg-2，且 hl 没有因错位丢失
+        assert cm["seg-2"]["title"] == "第三节"
+        assert cm["seg-2"]["hl"] == [1]
+
+    def test_content_map_dialogue_only_segment_kept(self):
+        """只有 dialogue 没有 text 的段是有内容段（不能被滤掉）。"""
+        source = {
+            "schema_version": 1, "title": "T",
+            "segments": [
+                {"title": "对话段", "dialogue": [{"speaker": "A", "text": "你好"}]},
+            ],
+        }
+        cm = bt._content_map(source)
+        assert list(cm.keys()) == ["seg-1"]
+        assert cm["seg-1"]["title"] == "对话段"
+
+    def test_content_map_non_dict_segment_skipped(self):
+        """坏形状段（非对象）按空段处理，不参与编号。"""
+        source = {
+            "schema_version": 1, "title": "T",
+            "segments": [
+                {"title": "正常段", "text": "内容"},
+                "垃圾段",
+                {"title": "末段", "text": "收尾"},
+            ],
+        }
+        cm = bt._content_map(source)
+        assert list(cm.keys()) == ["seg-1", "seg-2"]
+        assert cm["seg-1"]["title"] == "正常段"
+        assert cm["seg-2"]["title"] == "末段"
+
     def test_non_dict_scene(self):
         timing = conftest_minimal()
         timing["scenes"][1] = "seg-2"
