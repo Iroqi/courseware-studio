@@ -141,3 +141,68 @@ class TestApplySpeed:
                         "-ac", "1", str(src)], check=True)
         assert au.apply_speed(au.get_ffmpeg(), src, 0.5)
         assert au._wav_duration(src) == pytest.approx(4.0, abs=0.1)
+
+
+def _ffmpeg_wav(path, dur, rate, ch):
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                    "-i", f"sine=frequency=440:duration={dur}",
+                    "-ar", str(rate), "-ac", str(ch), str(path)], check=True)
+
+
+class TestConcatMixedFormat:
+    """concat 的格式归一路径（真实生产分支，此前零覆盖）：
+
+    TTS 原速产物常是 48kHz 立体声，静音占位/变速产物是 24kHz 单声道——混列时
+    _audio 必须把偏离段就地转码到管线约定再拼接，否则 concat demuxer 按首段
+    格式探测会产出时长错乱的废片。本测试钉死：混格式拼接时长必须等于
+    各片段 + 逐边界静音之和，且产物可按 wave 直接读（格式已统一）。
+    """
+
+    def test_tts_48k_stereo_plus_silence_24k_mono(self, tmp_path):
+        a = tmp_path / "tts.wav"        # 48k 立体声（TTS 原速形态）
+        b = tmp_path / "placeholder.wav"  # 24k 单声道（静音占位形态）
+        out = tmp_path / "combined.wav"
+        _ffmpeg_wav(a, 1.0, 48000, 2)
+        _ffmpeg_wav(b, 1.5, 24000, 1)
+        assert au.concat_audio(au.get_ffmpeg(), [str(a), str(b)], 0.4, out)
+        # 1.0 + 0.4 + 1.5 = 2.9s
+        assert au._wav_duration(out) == pytest.approx(2.9, abs=0.1)
+        # 产物格式已统一：wave 模块能直接读（首段格式不会污染时长解析）
+        import wave
+        with wave.open(str(out), "rb") as w:
+            assert w.getframerate() == 24000
+            assert w.getnchannels() == 1
+
+    def test_silence_first_then_tts(self, tmp_path):
+        # 静音占位排前、TTS 排后：归一逻辑不能只认"第一个是 TTS"
+        a = tmp_path / "placeholder.wav"
+        b = tmp_path / "tts.wav"
+        out = tmp_path / "combined.wav"
+        _ffmpeg_wav(a, 0.5, 24000, 1)
+        _ffmpeg_wav(b, 2.0, 48000, 2)
+        assert au.concat_audio(au.get_ffmpeg(), [str(a), str(b)], 0.2, out)
+        assert au._wav_duration(out) == pytest.approx(2.7, abs=0.1)
+
+    def test_per_boundary_gaps_mixed_formats(self, tmp_path):
+        # 逐边界静音 + 混格式：两种机制叠加不能互相抵消
+        a = tmp_path / "tts.wav"
+        b = tmp_path / "s.wav"
+        c = tmp_path / "tts2.wav"
+        out = tmp_path / "combined.wav"
+        _ffmpeg_wav(a, 1.0, 48000, 2)
+        _ffmpeg_wav(b, 1.0, 24000, 1)
+        _ffmpeg_wav(c, 1.0, 48000, 2)
+        assert au.concat_audio(au.get_ffmpeg(), [str(a), str(b), str(c)],
+                               [0.3, 0.7], out)
+        # 三条 1.0s 片段 + 0.3/0.7 两段静音 = 4.0s
+        assert au._wav_duration(out) == pytest.approx(4.0, abs=0.1)
+
+    def test_uniform_format_copy_path(self, tmp_path):
+        # 全列同格式时走流拷贝路径：时长仍是逐边界累加
+        a = tmp_path / "a.wav"
+        b = tmp_path / "b.wav"
+        out = tmp_path / "combined.wav"
+        _ffmpeg_wav(a, 2.0, 24000, 1)
+        _ffmpeg_wav(b, 1.0, 24000, 1)
+        assert au.concat_audio(au.get_ffmpeg(), [str(a), str(b)], 0.5, out)
+        assert au._wav_duration(out) == pytest.approx(3.5, abs=0.1)

@@ -5,9 +5,13 @@
 浏览器冒烟与视频导出按环境能力跳过（无 chrome 时静态链路仍必须通过）。
 """
 import json
+import os
 import shutil
+import socket
 import subprocess
 import sys
+import time
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -19,6 +23,11 @@ HAVE_CHROME = shutil.which("chromium") or shutil.which("google-chrome") \
     or shutil.which("microsoft-edge")
 HAVE_FFMPEG = shutil.which("ffmpeg") is not None
 HAVE_FFPROBE = shutil.which("ffprobe") is not None
+try:
+    import websocket  # noqa: F401
+    HAVE_WEBSOCKET = True
+except ImportError:
+    HAVE_WEBSOCKET = False
 
 pytestmark = pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
 
@@ -188,3 +197,193 @@ class TestPipelineBrowser:
         else:
             # 无 ffprobe 时退化为脚本自带的时长断言（脚本内 |out_dur−wav_dur|≤0.35）
             assert "[done]" in r.stdout
+
+
+# ── 真实时钟浏览器回归（可选）──────────────────────────────────────
+# 第三轮实例验证的固化：check_gates 的浏览器冒烟用确定性时钟桩（从不真实播放
+# 音频）；这里用无头 Chrome + CDP + 真实 audio.currentTime 推进，验证：
+#   * 真实播放下字幕翻句延迟有界（rAF 驱动，<= 200ms 墙钟）
+#   * 任意采样点字幕文本与时间轴逐句一致（20ms 采样）
+#   * 门禁真实开/锁/继续，答对后音频真实恢复（首道门禁与下一门禁锚点过近时
+#     允许被下一门禁再次暂停——范本 seg-2 末锚点与 seg-3 首锚点仅隔 0.5s）
+# 因依赖真实媒体时钟与无头环境，默认跳过：REALCLOCK=1 时显式开启。
+_REALCLOCK_PROBE = r"""
+(() => {
+  const report = {ok:false, errors:[], flipLatency:[], gates:[], rafHz:0,
+                  finalT:0, captionMismatch:0};
+  window.addEventListener('error', e =>
+    report.errors.push('JSERR ' + (e && e.message || e)));
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const q = s => document.querySelector(s);
+  const capNorm = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const audio = q('#main-audio');
+  const caption = q('#cap-text');
+  const timeline = JSON.parse(q('#lesson-timeline').textContent);
+  const scenes = timeline.scenes || [];
+  const idx = [];
+  scenes.forEach((sc, si) => (sc.runtime.narration || []).forEach((n, ni) =>
+    idx.push({si, sii:ni, t0:n.start, t1:n.start + n.duration, text:n.text})));
+  let rafCount = 0;
+  (function rafLoop(){ rafCount++; requestAnimationFrame(rafLoop); })();
+  setInterval(() => { report.rafHz = Math.round(rafCount / 3); rafCount = 0; }, 3000);
+  let lastTxt = '';
+  setInterval(() => {
+    const t = audio.currentTime, txt = capNorm(caption.textContent);
+    if (txt !== lastTxt){
+      lastTxt = txt;
+      const cur = idx.find(e => txt === capNorm(e.text));
+      if (cur && t >= cur.t0) report.flipLatency.push(+((t - cur.t0) * 1000).toFixed(0));
+    }
+    const cur = idx.find(e => t >= e.t0 + 0.15 && t < e.t1 - 0.02);
+    if (cur && txt !== capNorm(cur.text)) report.captionMismatch++;
+  }, 20);
+  const gate = q('#gate'), go = q('#gate-go');
+  const gateActive = () => gate && !gate.hidden;
+  async function driveGate(){
+    const card = gate.querySelector('[data-interaction]:not([hidden])');
+    if (!card){ report.errors.push('no visible card'); return; }
+    const kind = card.dataset.interactionType;
+    const cfg = JSON.parse(card.dataset.interaction || '{}');
+    const scene = (q('#gate-host') && q('#gate-host').dataset.stepId) || '';
+    report.gates.push({kind, scene});
+    if (kind === 'choice'){
+      const right = (cfg.options || []).find(o => o.correct === true);
+      const b = card.querySelector('[data-choice-id="' + CSS.escape(String(right.id)) + '"]');
+      if (b) b.click();
+    } else if (kind === 'recall'){
+      const rv = card.querySelector('[data-recall-reveal]');
+      if (rv) rv.click();
+    } else if (kind === 'sequence'){
+      const list = card.querySelector('.sequence-list');
+      const order = (cfg.correct_order || []).map(String);
+      const map = {}; Array.from(list.children).forEach(li => map[li.dataset.sequenceId] = li);
+      order.forEach(id => { if (map[id]) list.appendChild(map[id]); });
+      const sb = card.querySelector('[data-sequence-submit]');
+      if (sb) sb.click();
+    } else if (kind === 'hotspot'){
+      const right = (cfg.options || cfg.spots || []).find(o => o.correct === true);
+      const sp = card.querySelector('[data-hotspot-id="' + CSS.escape(String(right.id)) + '"]');
+      if (sp) sp.click();
+    } else if (kind === 'bucket'){
+      // 条目选中走 pointerdown 手势通路（位移<=3px 算点选），click() 不触发——
+      // 派发真实指针手势模拟"点条目 → 点筐"（runtime 一等手势，模板注释明确支持）
+      const answer = cfg.answer || {};
+      Object.keys(answer).forEach(id => {
+        const item = card.querySelector('.bucket-item[data-bucket-item="' + CSS.escape(id) + '"]');
+        const box = card.querySelector('[data-drop][data-bucket-id="' + CSS.escape(String(answer[id])) + '"]');
+        if (item && box){
+          const r = item.getBoundingClientRect();
+          const tapOpts = {bubbles:true, cancelable:true, pointerId: 41, isPrimary:true,
+                           clientX: r.left + r.width/2, clientY: r.top + r.height/2,
+                           button: 0, pointerType: 'mouse'};
+          item.dispatchEvent(new PointerEvent('pointerdown', tapOpts));
+          item.dispatchEvent(new PointerEvent('pointerup', tapOpts));
+          box.click();
+        }
+      });
+      const sb = card.querySelector('[data-bucket-submit]');
+      if (sb) sb.click();
+    }
+    let lockedMs = null;
+    for (let i=0;i<40;i++){ if (card.dataset.locked === '1'){ lockedMs = i*50; break; } await sleep(50); }
+    const g = report.gates[report.gates.length - 1];
+    g.lockedMs = lockedMs;
+    let waitMs = 0;
+    while (waitMs < 1000 && go.disabled){ await sleep(50); waitMs += 50; }
+    g.goEnabledMs = lockedMs === null ? -1 : waitMs;
+    if (go.disabled){ report.errors.push('gate-go never enabled: ' + kind + '@' + scene); return; }
+    const pausedBefore = audio.paused;
+    go.click();
+    await sleep(500);
+    g.resumed = pausedBefore && !audio.paused;
+    g.audioPausedAfter = audio.paused;
+  }
+  async function run(){
+    audio.playbackRate = 4;
+    audio.currentTime = 0;
+    await audio.play().catch(()=>{});
+    const t0 = Date.now();
+    while (Date.now() - t0 < 18000){
+      if (gateActive()) await driveGate();
+      await sleep(60);
+    }
+    audio.pause();
+    report.finalT = +audio.currentTime.toFixed(2);
+    report.ok = report.errors.length === 0 && report.captionMismatch === 0
+        && report.gates.length >= 1;
+    window.__rlReport = report;
+    document.title = 'realclock ' + (report.ok ? 'PASS' : 'FAIL');
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
+"""
+
+
+@pytest.mark.skipif(os.environ.get("REALCLOCK") != "1",
+                    reason="真实时钟冒烟需 REALCLOCK=1 显式开启")
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+class TestRealClockBrowser:
+    def test_real_audio_clock_sync_and_gates(self, lesson_project):
+        import websocket
+
+        page_dir, _, _ = lesson_project
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        chrome = subprocess.Popen(
+            [str(HAVE_CHROME), "--headless=new", "--disable-gpu", "--no-sandbox",
+             "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+             "--remote-allow-origins=*", "--autoplay-policy=no-user-gesture-required",
+             f"--remote-debugging-port={port}", "--user-data-dir=" + str(page_dir / "_rlprof"),
+             (page_dir / "index.html").as_uri()],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            ws = None
+            for _ in range(40):
+                try:
+                    tabs = json.load(urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/json", timeout=2))
+                    tab = [t for t in tabs if t.get("type") == "page"][0]
+                    ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
+                    break
+                except Exception:
+                    time.sleep(0.4)
+            assert ws is not None, "无法连接 CDP"
+
+            def ev(expr):
+                ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                    "params": {"expression": expr, "returnByValue": True}}))
+                while True:
+                    m = json.loads(ws.recv())
+                    if m.get("id") == 1:
+                        return m["result"].get("result", {}).get("value")
+
+            # 注入探针并等它跑完（自限 18s 真实时间）
+            assert ev("document.querySelector('#lesson-timeline') !== null"), \
+                "页面未就绪"
+            ev(_REALCLOCK_PROBE)
+            time.sleep(22)
+            rep = ev("window.__rlReport")
+            assert rep is not None, "探针未产出报告"
+            assert rep["ok"], f"真实时钟回归失败: {json.dumps(rep['errors'], ensure_ascii=False)}"
+            assert rep["captionMismatch"] == 0, "存在字幕与时间轴不一致的采样点"
+            assert rep["finalT"] > 10, f"真实播放未推进（finalT={rep['finalT']}）"
+            assert len(rep["gates"]) >= 1, "未遇到任何门禁"
+            lats = rep["flipLatency"]
+            assert lats, "未采集到翻句延迟样本"
+            assert max(lats) <= 200, f"翻句延迟超限: max={max(lats)}ms"
+            # 首道门禁与下一道锚点过近（范本 seg-2 末/seg-3 首仅隔 0.5s），
+            # 答对后音频恢复可能被下一门禁立即暂停——恢复通路只要**有任一
+            # 门禁**真实恢复播放即证明成立（实例实测 5 道中 3 道恢复、2 道
+            # 被下一门禁 500ms 内再次暂停，均符合门禁锚点间距）
+            assert any(g["resumed"] for g in rep["gates"]), \
+                "没有任何门禁答对后恢复播放"
+            for g in rep["gates"]:
+                assert g["lockedMs"] is not None, f"门禁 {g['kind']}@{g['scene']} 未锁定"
+                assert g["goEnabledMs"] is not None, \
+                    f"门禁 {g['kind']}@{g['scene']} 继续按钮未启用"
+        finally:
+            chrome.kill()

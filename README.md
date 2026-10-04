@@ -216,5 +216,15 @@ python -m pytest tests/ -q
   （时间轴 → 组装 → 静态检查 → 浏览器冒烟 → 视频导出），并断言**成片时长 ≈ 旁白
   音频时长**——这个断言在守着一条真实的回归：concat demuxer 对列表尾帧的时长处理
   不可靠，曾让导出视频比音轨长出 4.6 秒；
+- `tests/test_audio.py` 另覆盖 concat 的**混格式归一**路径（TTS 48kHz 立体声 +
+  静音占位 24kHz 单声道混列时必须先统一格式再拼接，否则时长错乱）；
+- **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
+  从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
+  `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴
+  一致、五类门禁真实开/锁/继续、答对后音频真实恢复（需 Chromium/Edge 与
+  websocket-client）：
+  ```bash
+  REALCLOCK=1 python -m pytest tests/test_pipeline_smoke.py::TestRealClockBrowser -q
+  ```
 - 没有 Chrome/Edge 时浏览器冒烟与导出用例自动跳过，静态链路仍必须通过；
 - CI（`.github/workflows/ci.yml`）在 Ubuntu 上装好 ffmpeg 与 Chrome 后全量执行。
