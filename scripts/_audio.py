@@ -69,6 +69,11 @@ def measure_duration(ffmpeg_path, audio_path):
     wav_dur = _wav_duration(audio_path)
     if wav_dur is not None:
         return wav_dur
+    # WAV 精确路径没走到 → 需要 ffmpeg -i 兜底；ffmpeg 缺失时按契约返回 0.0
+    # （调用方视 0.0 为无效），而不是让 subprocess 拿 None 当命令裸崩 TypeError——
+    # _run_ffmpeg 只接 TimeoutExpired/OSError，接不住 TypeError。
+    if not ffmpeg_path:
+        return 0.0
     result = _run_ffmpeg([ffmpeg_path, "-i", audio_path], 30)
     if result is None:
         print(f"  [duration] ffmpeg -i 超时或无法运行 on {audio_path}",
@@ -96,14 +101,15 @@ def generate_silence(ffmpeg_path, duration, out_path, rate=24000, channels=1):
     已经按"异常=兜底失败"处理，能正确走 skip 路径，不会带着坏文件错位时间轴。
     """
     layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
-    result = _run_ffmpeg([
-        ffmpeg_path, "-y", "-f", "lavfi",
-        "-i", f"anullsrc=r={rate}:cl={layout}",
-        "-t", str(duration), "-ar", str(rate), "-ac", str(channels), out_path
-    ], 30)
-    if (result is not None and result.returncode == 0
-            and os.path.exists(out_path) and os.path.getsize(out_path) > 0):
-        return
+    if ffmpeg_path:
+        result = _run_ffmpeg([
+            ffmpeg_path, "-y", "-f", "lavfi",
+            "-i", f"anullsrc=r={rate}:cl={layout}",
+            "-t", str(duration), "-ar", str(rate), "-ac", str(channels), out_path
+        ], 30)
+        if (result is not None and result.returncode == 0
+                and os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+            return
     # Fallback: write silent WAV via Python wave module (no ffmpeg lavfi needed)
     try:
         n_frames = int(duration * rate)
