@@ -13,7 +13,7 @@ import tempfile
 import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _contracts import validate_speed  # noqa: E402  领域规则单一来源
+from _contracts import require_finite_number, validate_speed  # noqa: E402  领域规则单一来源
 
 
 def _run_ffmpeg(args, timeout):
@@ -201,11 +201,35 @@ def quote_ffpath(p):
     return p.replace("'", "'\\''")
 
 
+def _normalize_gaps(gap_sec, n):
+    """把 gap 归一成**逐边界**的静音秒数（长度 n-1，n 为片段数）。
+
+    gap_sec 可以是标量（整稿句间同一静音，历史行为），也可以是长度恰好为
+    n-1 的序列——narration 用它落句级节拍（某一句之前停久一点）。两种形态
+    都在这一处展开，调用方与时间轴累加共享同一张表，不存在"拼接按 A 静音、
+    时间轴按 B 累加"的第二套口径。
+    """
+    if n < 1:
+        raise ValueError("concat 片段数必须 ≥ 1")
+    if isinstance(gap_sec, (list, tuple)):
+        gaps = [require_finite_number(g, f"第 {i + 1} 个句间静音", nonnegative=True)
+                for i, g in enumerate(gap_sec)]
+        if len(gaps) != n - 1:
+            raise ValueError(f"逐边界静音需要 {n - 1} 个值（{n} 段音频之间有 {n - 1} 个"
+                             f"边界），收到 {len(gaps)} 个")
+    else:
+        gaps = [require_finite_number(gap_sec, "句间静音", nonnegative=True)] * (n - 1)
+    return gaps
+
+
 def concat_audio(ffmpeg_path, file_list, gap_sec, out_path):
     """Concatenate audio files with silence gaps. Uses absolute paths (Windows safe).
 
     列表 / 静音临时文件放系统临时目录（列表内引用绝对路径，位置无关），
     交付目录只会出现 out_path；TemporaryDirectory 保证异常路径也清理。
+
+    `gap_sec`：标量 = 所有句间同一静音；序列（长度 = 片段数-1）= 逐边界静音，
+    展开口径见 `_normalize_gaps`。同一秒数的静音只生成一次。
 
     concat 的硬前提是各片段采样格式一致：concat demuxer 按首段的格式探测
     时长，混格式（TTS 原速常是 48kHz 立体声，静音占位/变速产物是 24kHz
@@ -217,7 +241,12 @@ def concat_audio(ffmpeg_path, file_list, gap_sec, out_path):
     """
     with tempfile.TemporaryDirectory(prefix="courseware-concat-") as tmp_dir:
         list_file = os.path.join(tmp_dir, "concat_list.txt")
-        silence_file = os.path.join(tmp_dir, "silence.wav")
+
+        try:
+            gaps = _normalize_gaps(gap_sec, len(file_list))
+        except ValueError as e:
+            print(f"  [concat] 句间静音参数无效: {e}", file=sys.stderr)
+            return False
 
         fmts = [_wav_format(fp) for fp in file_list]
         known = [f for f in fmts if f is not None]
@@ -237,15 +266,24 @@ def concat_audio(ffmpeg_path, file_list, gap_sec, out_path):
                 return False
             paths.append(conv)
 
-        if gap_sec > 0:
+        # 每种秒数只生成一份静音；键按 3 位小数取整，与时间轴累加的舍入口径一致，
+        # 免得 0.4 与 0.400000001 各占一个文件。
+        silence_files = {}
+        for sec in gaps:
+            if sec <= 0:
+                continue
+            key = round(sec, 3)
+            if key in silence_files:
+                continue
+            path = os.path.join(tmp_dir, f"silence_{key:.3f}.wav")
             try:
-                generate_silence(ffmpeg_path, gap_sec, silence_file,
-                                 rate=rate, channels=channels)
+                generate_silence(ffmpeg_path, key, path, rate=rate, channels=channels)
             except RuntimeError as e:
                 # generate_silence 现在失败时抛错（不再落 0 字节空文件）；
                 # concat 的错误契约是返回 bool，这里转成 False 而不是裸栈。
                 print(f"  [concat] gap 静音生成失败: {e}", file=sys.stderr)
                 return False
+            silence_files[key] = path
 
         # newline='\n'：Windows 默认翻译会写出 CRLF 清单；与 write_text_atomic
         # 同一约定，ffmpeg 清单恒为 LF。
@@ -257,8 +295,9 @@ def concat_audio(ffmpeg_path, file_list, gap_sec, out_path):
                 # 英文用户名 O'Brien 这类会炸
                 _esc = quote_ffpath(abs_fp)
                 f.write(f"file '{_esc}'\n")
-                if i < len(paths) - 1 and gap_sec > 0:
-                    abs_silence = os.path.abspath(silence_file).replace("\\", "/")
+                gap_key = round(gaps[i], 3) if i < len(gaps) else 0
+                if gap_key > 0:
+                    abs_silence = os.path.abspath(silence_files[gap_key]).replace("\\", "/")
                     f.write(f"file '{quote_ffpath(abs_silence)}'\n")
 
         # TimeoutExpired 由 _run_ffmpeg 接住返回 None，走下面的重编码兜底

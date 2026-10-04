@@ -122,6 +122,57 @@ def validate_speed(speed):
     return speed
 
 
+# ── 句级节拍（beat）────────────────────────────────────────────────
+# beat.pause 只作用在一个句间边界上，比全局 --gap 宽容，但超过这个数就不是
+# "抖包袱前停一下"而是拖垮节奏了（narration 的 --gap 另有 MAX_GAP_SECONDS 上限）。
+MAX_PAUSE_SECONDS = 5.0
+BEAT_KEYS = ("pause", "speed")
+
+
+def normalize_beat(raw, label, n):
+    """把段级 `beat`（句序号 → 覆盖对象）展开成与句子**等长对齐**的列表。
+
+    返回第 i 项 = 第 i 句的覆盖 dict 或 None。对齐在这里一次做完，下游（语速展开、
+    逐边界静音）不必再解析句序号，也不会各写一份口径。
+
+    句序号与 `hl` 同一口径：从 1 数起、按整段总句序（多轮对话连续计数）。越界、
+    非数字键、未知键一律抛 ValueError——节拍被静默丢弃等于"以为留了白、成品听不出"，
+    只能靠耳朵重听整稿，所以 fail closed。
+    """
+    beats = [None] * n
+    if raw is None:
+        return beats
+    if not isinstance(raw, dict):
+        raise ValueError(f"{label} 必须是对象（\"句序号\" → {{\"pause\": …, \"speed\": …}}），"
+                         f"收到 {type(raw).__name__}")
+    for key, value in raw.items():
+        text = str(key).strip()
+        if not text.isdigit():
+            raise ValueError(f"{label} 的键必须是句序号（如 \"3\"），收到 {key!r}")
+        idx = int(text)
+        if not 1 <= idx <= n:
+            raise ValueError(f"{label} 指向第 {idx} 句，但这一段只有 {n} 句")
+        if not isinstance(value, dict):
+            raise ValueError(f"{label} 第 {idx} 句的节拍必须是对象"
+                             f"（可含 {'/'.join(BEAT_KEYS)}），收到 {value!r}")
+        unknown = [k for k in value if k not in BEAT_KEYS]
+        if unknown:
+            raise ValueError(f"{label} 第 {idx} 句有未知节拍键 {unknown}："
+                             f"只认 {'、'.join(BEAT_KEYS)}")
+        ov = {}
+        if "pause" in value:
+            pause = require_finite_number(value["pause"], f"{label} 第 {idx} 句的 pause",
+                                          nonnegative=True)
+            if pause > MAX_PAUSE_SECONDS:
+                raise ValueError(f"{label} 第 {idx} 句的 pause 是 {pause:g}s"
+                                 f"（上限 {MAX_PAUSE_SECONDS:g}s）")
+            ov["pause"] = float(pause)
+        if "speed" in value:
+            ov["speed"] = validate_speed(value["speed"])
+        beats[idx - 1] = ov
+    return beats
+
+
 # ── 跨脚本默认值（单一来源）────────────────────────────────────────
 # 默认**原速**。变速是逐段可选的调味（`segments[].speed`），不是全局基调：
 # 默认值一旦不是 1.0，"这段就是原速"这个最朴素的预期就没了，改回来还得重烧一遍 TTS 额度。

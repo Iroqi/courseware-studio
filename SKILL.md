@@ -106,10 +106,16 @@ python <skill目录>/scripts/build_page.py \
 ## 5. 画面渲染
 
 `RENDER = {sceneId: renderer}`，renderer 只回答：**当前句序号下，画布长什么样。**
-不计时（一次性 rAF 补间除外）、不写旁白、不管字幕——纪律全文见
-`references/stage.md`。每个视觉步先过 stage.md §8 的来源判断与对比度自查（其中的
-「检索」「生图」指当前环境任一可用能力，本 skill 不内置）；emoji 是默认装饰层，
-三条禁区以 stage.md §7 为准。
+它是 (scene, step) 的**纯函数**——不计时、不写旁白、不管字幕，也不"记住上一步演到
+哪儿"（导出 mp4 每帧一次冷启动，历史状态会漏进整节课）。纪律全文见
+`references/stage.md`。
+
+舞台是三层：**常驻图元**（`put/txt/badge/sweep`，同 key 复用同一节点，所以 CSS
+transition 补得到）、**世界层**（跨幕活着的主角，`POSE` + `WORLD` 逐句对账）、
+**相机**（`CAM` 每步声明一个取景窗，窗的中心就是这一步的重心）。运动全部声明成
+目标状态由 CSS 走，`class` 就是节拍词汇（`.in/.pop/.draw/.pulse`）。每个视觉步先过
+stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
+本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 
 ## 6. 门禁设计
 
@@ -171,9 +177,9 @@ python scripts/export_video.py <页面目录> -o out.mp4 --keep   # 保留逐帧
 | 文件 | 用途 |
 |---|---|
 | `references/layout.md` | 页面 HTML/CSS 骨架与响应式 |
-| `references/stage.md` | renderer 与逐句渲染纪律 |
+| `references/stage.md` | 三层舞台（常驻图元 / 世界层 / 相机）、动效原语、逐句渲染纪律 |
 | `references/interactions.md` | 五种交互、门禁锚点、`data-locked` 契约 |
-| `references/script.md` | 讲稿格式、分句、TTS、时间轴 |
+| `references/script.md` | 讲稿格式、分句、分镜、TTS、时间轴 |
 | `references/runtime.md` | runtime API、QA 钩子与检查器能力 |
 | `references/template.html` | 真实页面范本 |
 | `references/template-narration.json` | 范本讲稿 |
@@ -193,9 +199,11 @@ python scripts/export_video.py <页面目录> -o out.mp4 --keep   # 保留逐帧
 
 在此之上只人工核对机器管不了的事，逐条过各参考文件的自检小节：
 
-- [ ] `script.md` §2 讲稿自检、§6 工程自检；
+- [ ] `script.md` §2 讲稿自检与分镜自检、§6 工程自检；
 - [ ] `interactions.md` §7，并回答 §1 那个"是不是认知转折点"的问题；
 - [ ] `stage.md` §9；
-- [ ] 导出过视频且改过页面结构的：人工核对一帧成片（`runtime.md` §7）；
+- [ ] 改过页面结构：`export_video.py --keep` 后**逐个视觉步**看一遍成片帧，不是挑一帧看
+      ——一句 = 一帧，动效只是相邻两帧之间的桥，成片里只留终态，所以每一步单独截出来
+      都要站得住（`runtime.md` §7）；
 - [ ] 成品目录无自建校验 / 导出脚本、巡检副本、截图、日志残留（`audio/` 残留
       `check_gates.py` 已拦，其余靠人）。

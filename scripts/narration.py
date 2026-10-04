@@ -14,12 +14,20 @@
       "segments": [
         {"id": "seg-1", "title": "小节名", "text": "这一节要念的话。",
          "hl": [2],
-         "voice_id": "冰糖", "speed": 1.2}
+         "voice_id": "冰糖", "speed": 1.2,
+         "beat": {"5": {"pause": 0.9}, "6": {"speed": 0.9, "pause": 0.5}}}
       ]
     }
 
     `text` 分句后就地成为字幕与时间轴；`hl` 是结论句的句序号（从 1 数起），
     只由 build_timeline 透传给页面用作强调色。`speed` 默认 1.0（原速），逐段可覆盖。
+
+    `beat` 是**句级节拍**（导演口），键是这一段里的句序号（与 `hl` 同一口径，从 1
+    数起，多轮对话按整段总句序连续计数），值只接受两个键：
+      · `pause`——这句**之前**插多长的静音（秒，覆盖这一处的 `--gap`；整稿第一句不接受）；
+      · `speed`——这一句的语速（优先级高于段级 `speed`，只重烧这一句的缓存）。
+    写别的键、越界的句序号、非数字值一律当场报错——节拍静默丢失等于"以为留了白、
+    成品里听不出"，只能靠耳朵重听整稿。
 
     多人对话：顶层提供 speakers，段落上用 dialogue（每一轮单独分句，各自用各自音色）。
 
@@ -48,8 +56,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _audio import (apply_speed, concat_audio, generate_silence,  # noqa: E402
                     get_ffmpeg, measure_duration, _remove_quiet)
 from _contracts import (DEFAULT_CHARS_PER_SEC, DEFAULT_GAP, DEFAULT_SPEED,  # noqa: E402
-                        SCHEMA_VERSION, VOICE_IDS, closing_title, opening_title,
-                        require_finite_number, segment_step_id, validate_speed)
+                        SCHEMA_VERSION, VOICE_IDS, closing_title, normalize_beat,
+                        opening_title, require_finite_number, segment_step_id,
+                        validate_speed)
 from _env import get_key, resolve_model_config  # noqa: E402
 from _script_utils import (guard_not_in_skill_dir, is_inside, read_text,  # noqa: E402
                            setup_stdio, split_sentences, write_text_atomic)
@@ -73,13 +82,18 @@ _PREVIEW_LIMIT = 10
 # ===================================================================
 @dataclass
 class Block:
-    """一个待合成段落：sentences 是它分好的句子；turns 非空表示多人对话段落。"""
+    """一个待合成段落：sentences 是它分好的句子；turns 非空表示多人对话段落。
+
+    beats 与 sentences **等长对齐**（第 i 项 = 第 i 句的节拍覆盖，没有则为 None），
+    由 _collect_blocks 从段级 beat 展开；对齐在这里做完，下游不必再猜句序号。
+    """
     id: str
     title: str
     tagline: str
     sentences: List[str]
     extra: Dict = field(default_factory=dict)
     turns: List[Dict] = field(default_factory=list)
+    beats: List[Dict] = field(default_factory=list)
 
 
 def _collect_dialogue_sentences(dialogue, speakers, seg_index, seg_title):
@@ -168,6 +182,10 @@ def _collect_blocks(source, default_speed):
             sentences=sents,
             extra=_extra(seg, default_speed),
             turns=turns,
+            # 句级节拍：与 sents 等长对齐（含 dialogue 展开后的整段总句序）。
+            # 形状、句序号越界、未知键都在 normalize_beat 里 fail closed。
+            beats=normalize_beat(seg.get("beat"), f"第 {i} 段（title={title!r}）的 beat",
+                                 len(sents)),
         ))
 
     closing_text = (source.get("closing") or "").strip()
@@ -213,6 +231,13 @@ def build_parts(source, default_speed):
         seg = {"id": blk.id, "title": blk.title, "tagline": blk.tagline,
                "start": start, "end": end}
         seg.update(blk.extra)
+        # 段内局部句序号 → 全局句序号（下游按全局索引取语速与逐边界静音）。
+        beats = {start + k: ov for k, ov in enumerate(blk.beats) if ov}
+        if beats:
+            if 0 in beats and "pause" in beats[0]:
+                raise ValueError(f"{blk.id} 第 1 句写了 pause，但整稿第一句之前没有句间边界"
+                                 "可插静音——留白要落在第二句之前（首句空白属于起播，不属于节拍）")
+            seg["beat"] = beats
         if blk.turns:
             # 段内局部区间 → 全局区间，供按句覆盖音色 + 记录说话人标签。
             seg["turns"] = [
@@ -626,6 +651,14 @@ def _load_script_source(path):
         for k in ("voice_id", "voice_style", "speed", "tagline"):
             if seg.get(k) is not None:
                 out[k] = seg[k]
+        # beat 必须带过去：白名单漏掉它 = 作者写了节拍、管线读不见，成品里听不出来。
+        # 这里只认形状，句序号越界 / 未知键 / 数值非法由 normalize_beat 在分句之后
+        # 统一判（那时才知道这一段有几句）。
+        if seg.get("beat") is not None:
+            if not isinstance(seg["beat"], dict):
+                raise ValueError(f"segments[{index}].beat 必须是对象"
+                                 '（"句序号" → {"pause": …, "speed": …}）')
+            out["beat"] = seg["beat"]
         if dialogue is not None:
             out["dialogue"] = dialogue
         segs.append(out)
@@ -667,15 +700,30 @@ def _mk_hidden_wav(directory, prefix):
 
 
 def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
-                    silence_fallback_count, total_sentences, cached_count):
-    """拼接 → 写 narration_timing.json。"""
-    print(f"\n[concat] {len(sentence_data)} clips (gap {args.gap}s)...", flush=True)
+                    silence_fallback_count, total_sentences, cached_count,
+                    sentence_pauses=None):
+    """拼接 → 写 narration_timing.json。
+
+    句间静音展开成**逐边界**列表后交给 concat_audio，时间轴累加读同一个列表：
+    拼接与时间轴若各算一套，节拍就会变成"听得出留白、字幕对不上"的整句漂移。
+    """
+    sentence_pauses = sentence_pauses or {}
+    # 边界归属按存活句子的**原始 index** 取：整句被丢弃时（TTS 连静音占位也没落成），
+    # 它后面那句的节拍不会因为编号前移而消失。
+    gaps = [args.gap] * max(0, len(sentence_data) - 1)
+    for i in range(1, len(sentence_data)):
+        gi = int(sentence_data[i]["index"])
+        if gi in sentence_pauses:
+            gaps[i - 1] = sentence_pauses[gi]
+    overridden = sum(1 for g in gaps if g != args.gap)
+    print(f"\n[concat] {len(sentence_data)} clips (gap {args.gap}s"
+          + (f"，{overridden} 处句级节拍" if overridden else "") + ")...", flush=True)
     combined_path = os.path.join(args.output, "combined.wav")
     # 最终交付契约永远只有 audio/combined.wav：拼接落在同目录的隐藏临时文件上
     # （同目录保证 os.replace 原子、不跨设备），成功才原子替换。
     raw_path = _mk_hidden_wav(args.output, ".combined-raw-")
     try:
-        if not concat_audio(ffmpeg_path, [s["file"] for s in sentence_data], args.gap,
+        if not concat_audio(ffmpeg_path, [s["file"] for s in sentence_data], gaps,
                             raw_path):
             print("[error] 音频拼接失败", file=sys.stderr)
             sys.exit(1)
@@ -696,13 +744,13 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
         sys.exit(1)
     print(f"[done] 总时长 {total_dur:.2f}s", flush=True)
 
-    # 每句起始时间：拼接实测时长 + 句间 gap 累加（时间轴的唯一来源）。
+    # 每句起始时间：拼接实测时长 + 逐边界静音累加（时间轴的唯一来源）。
     cumulative = 0.0
     for i, sd in enumerate(sentence_data):
         sd["start_time"] = round(cumulative, 3)
         cumulative += sd["duration"]
-        if i < len(sentence_data) - 1:
-            cumulative += args.gap
+        if i < len(gaps):
+            cumulative += gaps[i]
 
     # 时间轴按各句实测时长累加，combined.wav 由 concat 产出（_audio 探测到格式
     # 不统一会自动重编码）。两者对不上说明拼接或测时有问题——逐句时间会整体漂移。
@@ -795,8 +843,15 @@ def _clean_output_dir(path):
 
 
 def _spread_segment_overrides(seg_config, args, sentences,
-                              sentence_speeds, sentence_voices, speaker_labels):
-    """按段落与 turns 展开每句的语速 / 音色 / 说话人标签。"""
+                              sentence_speeds, sentence_voices, speaker_labels,
+                              sentence_pauses):
+    """按段落、turns 与句级 beat 展开每句的语速 / 音色 / 节拍留白 / 说话人标签。
+
+    语速优先级：句级 beat.speed > 段级 speed > 全局 --speed（`sentence_speeds`
+    只存显式覆盖，取值时由调用方兜全局默认）。
+    节拍留白：`sentence_pauses[gi]` = 第 gi 句**之前**的静音秒数，缺省由调用方
+    按 --gap 取（这里只收显式写出的那一处）。
+    """
     for seg in seg_config:
         start_idx, end_idx = seg["start"], seg["end"]
         seg_speed = seg.get("speed")
@@ -825,6 +880,15 @@ def _spread_segment_overrides(seg_config, args, sentences,
                     )
                 if t_label:
                     speaker_labels[si] = t_label
+        # 句级节拍是比段落与 turns 更细的一档，最后落，覆盖前面写进同一句的语速。
+        for si, ov in (seg.get("beat") or {}).items():
+            gi = int(si)
+            if not 0 <= gi < len(sentences):
+                continue   # build_parts 已按段内句数核对过界，这里只兜住手工传进来的 seg_config
+            if "speed" in ov:
+                sentence_speeds[gi] = ov["speed"]
+            if "pause" in ov:
+                sentence_pauses[gi] = ov["pause"]
 
 
 def _make_sentence_entry(task, duration, speaker_labels, synth_failed=False):
@@ -1003,6 +1067,15 @@ def main():
         print(f"  ...（其余 {len(sentences) - _PREVIEW_LIMIT} 句已省略）", flush=True)
 
     if args.dry_run:
+        # 节拍在 dry-run 里可见：作者改的是"哪一句留白多久、哪一句慢下来"，
+        # 只报分句结果的话这一档信息要等烧完 TTS 才第一次对上眼。
+        beats = [(str(seg.get("id")), gi - seg["start"] + 1, gi, ov)
+                 for seg in seg_config for gi, ov in (seg.get("beat") or {}).items()]
+        for sid, local, gi, ov in sorted(beats, key=lambda b: b[2]):
+            note = "、".join(filter(None, [
+                f"句前停 {ov['pause']:g}s" if "pause" in ov else "",
+                f"语速 ×{ov['speed']:g}" if "speed" in ov else ""]))
+            print(f"  [beat] {sid} 第 {local} 句（全稿第 {gi + 1} 句）：{note}", flush=True)
         print("\n[dry-run] 分句与段落识别完成：未调 TTS、未写音频。", flush=True)
         return
 
@@ -1066,8 +1139,10 @@ def main():
     print(f"[api] model={model} base_url={shown_base}", flush=True)
 
     sentence_speeds, sentence_voices, sentence_speaker_labels = {}, {}, {}
+    sentence_pauses = {}
     _spread_segment_overrides(seg_config, args, sentences, sentence_speeds,
-                              sentence_voices, sentence_speaker_labels)
+                              sentence_voices, sentence_speaker_labels,
+                              sentence_pauses)
 
     sentence_data, pending_tasks, cached_count = [], [], 0
     cached_failed_labels = []
@@ -1189,7 +1264,8 @@ def main():
               f"\"synth_failed\": true 的句子并考虑补录", file=sys.stderr, flush=True)
 
     _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
-                    silence_fallback_count, len(sentences), cached_count)
+                    silence_fallback_count, len(sentences), cached_count,
+                    sentence_pauses)
     if temp_cache is not None:
         temp_cache.cleanup()
 

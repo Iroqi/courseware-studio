@@ -112,7 +112,32 @@
 
   .el{opacity:0;transition:opacity .38s ease}
   .el.on{opacity:1}
-  .card0{transition:transform .62s cubic-bezier(.22,1,.36,1),fill .4s,stroke .4s}
+
+  /* ── 舞台运动学：图元常驻，一步只写"该是什么样" ──────────────────────
+     renderer 不是动画引擎，是状态函数：它把目标状态写进属性，**补间交给 CSS**。
+     导出截图页会一刀切掉 transition/animation（口径见 references/runtime.md §7），
+     所以属性值本身就必须是终态——切掉动效拿到的是同一张正确定格，不是半截动画。
+     由此三条推论（改舞台前必读）：
+       ① 位移/变色只走 transition，不在 JS 里排程（纪律 1）；
+       ② 入场用 animation 且 **fill-mode 用 backwards / 不写**——`both`/`forwards`
+          会把终态钉在 CSS 上，之后 setAttribute 的 opacity/transform 全被压住；
+       ③ 循环动效的 0% 必须等于静息态（导出切掉后落在属性上，不是随机相位）。 */
+  #cam{transition:transform .6s cubic-bezier(.22,1,.36,1)}
+  .nt{transition:transform .5s cubic-bezier(.22,1,.36,1),opacity .4s ease,
+       fill .35s ease,stroke .35s ease,stroke-width .3s ease}
+  /* 只写 from：to 取元素自身值，所以目标 opacity 是多少都接得住 */
+  .in{animation:ntIn .42s ease backwards}
+  @keyframes ntIn{from{opacity:0}}
+  /* 缩放入场只能挂在**没有 transform 属性**的节点上（CSS transform 会顶掉属性值），
+     要位移又要点入场的，外层管位移、这一层管入场。 */
+  .pop{transform-box:fill-box;transform-origin:50% 50%;
+       animation:ntPop .46s cubic-bezier(.22,1,.36,1) backwards}
+  @keyframes ntPop{from{opacity:0;transform:scale(.82)}}
+  /* 画线：配 pathLength="1"，虚线偏移从整条藏到整条显；终态 = 满线 */
+  .draw{stroke-dasharray:1 1;animation:ntDraw .55s ease backwards}
+  @keyframes ntDraw{from{stroke-dashoffset:1}}
+  .pulse{animation:ntPulse 2.4s ease-in-out infinite}
+  @keyframes ntPulse{0%,100%{opacity:1}50%{opacity:.45}}
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
      页面级常驻字幕条不属于当前结构；字幕统一留在画布内。
@@ -395,8 +420,8 @@
     .n-jump{font-size:12.5px}
     .chapter .tagline{font-size:14px}
   }
-  /* 画布静态文字（场景头 / 字幕）按字号分档提级，与 mk() 的 tfs() 档位同比例
-     （≤14 ×2、≤19 ×1.7）；动态图元走 JS。1000 宽的 viewBox 压到手机上
+  /* 画布静态文字（场景头 / 字幕）按字号分档提级，与 JS 里 tfs() 的档位同比例
+     （≤14 ×2、≤19 ×1.7）；常驻图元由 put() 在写属性时放大。1000 宽的 viewBox 压到手机上
      14px 只剩视觉 5–10px，不救就是看不清的课。
      例外：字幕 17→26 只提 ×1.53——整行长文，按 1.7 档放到 29px 就会换行压图。
      这里只读 html[data-compact]；开关的唯一判定与理由见 JS 的 setCompact()。 */
@@ -457,50 +482,76 @@
       <div class="stage" id="stage" data-state="idle">
         <svg viewBox="0 0 1000 460" preserveAspectRatio="xMidYMid meet"
              role="img" aria-label="排序过程可视化">
-          <line x1="0" y1="230" x2="1000" y2="230" stroke="#1b2029" stroke-width="1" opacity=".35"/>
+          <!-- 相机层：整块世界（常驻图元 + 各幕内容）都在它里面，唯一的写手是
+               camSet()（见 JS §②）。**字幕带 #cap 与门禁小图在相机之外**——镜头
+               怎么推拉，字幕的位置与字号都不动（layout.md §4）。 -->
+          <!-- 取景框：相机推近后，**窗外的东西照样画得出来**（可见区是整个 viewBox，
+               不是声明的窗），于是被镜头留在身后的内容会一路画到字幕带上，字压字。
+               这里给相机套一个固定的取景框：396 以下（分隔线 404 + 字幕 438）是字幕带
+               的地盘，镜头怎么推都不许越过去——窗外的内容被**裁掉**，就像真实取景器里
+               出画的东西。裁剪挂在包装层上而不是 #cam 上：#cam 自己带 transform，
+               clip-path 会跟着它一起被变换，框就漂了。 -->
+          <defs>
+            <clipPath id="frameClip"><rect x="0" y="0" width="1000" height="396"/></clipPath>
+          </defs>
+          <g clip-path="url(#frameClip)">
+          <g id="cam">
+            <!-- 箭头只有一枚：弧线 / 连线指方向用。颜色固定，不随描边变——
+                 marker 里的 fill 继承不到被标注的图元，模板就不假装能。 -->
+            <defs>
+              <marker id="ah" viewBox="0 0 9 9" refX="7.5" refY="4.5"
+                      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0 L9 4.5 L0 9 z" fill="#8d95a8"/>
+              </marker>
+            </defs>
+            <line x1="0" y1="230" x2="1000" y2="230" stroke="#1b2029" stroke-width="1" opacity=".35"/>
 
-          <!-- 舞台 A：三个数字块（seg-1）。标题行写成代码而不是句子——
-               与旁白说的话形不相似，不构成双字幕（判据见 stage.md §2 纪律 3） -->
-          <g id="stA" class="el">
-            <text x="500" y="52" text-anchor="middle" fill="#8d95a8" font-size="14">🔤 [10, 9, 1].sort() → [1, 10, 9]</text>
-            <g id="a-body"></g>
+            <!-- 世界层：跨幕常驻的主角数组，不随场景重建（WORLD/POSE 两张表说话） -->
+            <g id="world"></g>
+
+            <!-- 舞台 A：三个数字块（seg-1）。标题行写成代码而不是句子——
+                 与旁白说的话形不相似，不构成双字幕（判据见 stage.md §2 纪律 3） -->
+            <g id="stA" class="el">
+              <text x="500" y="52" text-anchor="middle" fill="#8d95a8" font-size="14">🔤 [10, 9, 1].sort() → [1, 10, 9]</text>
+              <g id="a-body"></g>
+            </g>
+
+            <!-- 舞台 B：字符串逐位比较（seg-2） -->
+            <g id="stB" class="el">
+              <text x="500" y="52" text-anchor="middle" fill="#8d95a8" font-size="14">🔎 第一位不同就决定大小；都没不同则短的更小</text>
+              <g id="b-body"></g>
+            </g>
+
+            <!-- 舞台 C：比较函数契约（seg-4） -->
+            <g id="stC" class="el">
+              <text x="500" y="48" text-anchor="middle" fill="#8d95a8" font-size="14">⚖️ 比较函数的返回值：只看符号，不看数值</text>
+              <g id="c-body"></g>
+            </g>
+
+            <!-- 舞台 D：布尔值陷阱（seg-5）。结果那三个块归世界层，不在这里画 -->
+            <g id="stD" class="el">
+              <text x="500" y="46" text-anchor="middle" fill="#8d95a8" font-size="14">🔢 比较函数返回布尔值时会发生什么</text>
+              <g id="d-body"></g>
+            </g>
+
+            <!-- 舞台 E：稳定性（seg-6） -->
+            <g id="stE" class="el">
+              <text x="500" y="48" text-anchor="middle" fill="#8d95a8" font-size="14">⚓ 稳定：相等的元素不互换，原来的先后带进结果</text>
+              <g id="e-body"></g>
+            </g>
+
+            <!-- 舞台 F：开场 / 结尾提问 -->
+            <g id="stF" class="el">
+              <text id="f-q" x="500" y="196" text-anchor="middle" fill="#e9ecf3"
+                    font-size="27" font-weight="700"></text>
+            </g>
+
+            <!-- 舞台 G：巧合（seg-3） -->
+            <g id="stG" class="el">
+              <text x="500" y="46" text-anchor="middle" fill="#8d95a8" font-size="14">🎲 字符串序 vs 数值序：什么时候一致，什么时候不一致</text>
+              <g id="g-body"></g>
+            </g>
           </g>
-
-          <!-- 舞台 B：字符串逐位比较（seg-2） -->
-          <g id="stB" class="el">
-            <text x="500" y="52" text-anchor="middle" fill="#8d95a8" font-size="14">🔎 第一位不同就决定大小；都没不同则短的更小</text>
-            <g id="b-body"></g>
-          </g>
-
-          <!-- 舞台 C：比较函数契约（seg-4） -->
-          <g id="stC" class="el">
-            <text x="500" y="48" text-anchor="middle" fill="#8d95a8" font-size="14">⚖️ 比较函数的返回值：只看符号，不看数值</text>
-            <g id="c-body"></g>
-          </g>
-
-          <!-- 舞台 D：布尔值陷阱（seg-5） -->
-          <g id="stD" class="el">
-            <text x="500" y="46" text-anchor="middle" fill="#8d95a8" font-size="14">🔢 比较函数返回布尔值时会发生什么</text>
-            <g id="d-body"></g>
-            <g id="d-blocks"></g>
-          </g>
-
-          <!-- 舞台 E：稳定性（seg-6） -->
-          <g id="stE" class="el">
-            <text x="500" y="48" text-anchor="middle" fill="#8d95a8" font-size="14">⚓ 稳定：相等的元素不互换，原来的先后带进结果</text>
-            <g id="e-body"></g>
-          </g>
-
-          <!-- 舞台 F：开场 / 结尾提问 -->
-          <g id="stF" class="el">
-            <text id="f-q" x="500" y="196" text-anchor="middle" fill="#e9ecf3"
-                  font-size="27" font-weight="700"></text>
-          </g>
-
-          <!-- 舞台 G：巧合（seg-3） -->
-          <g id="stG" class="el">
-            <text x="500" y="46" text-anchor="middle" fill="#8d95a8" font-size="14">🎲 字符串序 vs 数值序：什么时候一致，什么时候不一致</text>
-            <g id="g-body"></g>
           </g>
 
           <!-- ── 字幕带：**画布内的唯一字幕** ──
@@ -690,8 +741,8 @@
   var mqShort  = window.matchMedia('(max-height:560px)');
   // 小屏唯一判定 = 宽 ≤560 或 高 ≤560（手机横屏宽 800+ 但高不足 400，画布按高缩得更狠）；
   // 导出截图模式一律按桌面渲染——视频与桌面页面同一张脸，放大只为移动端真机。
-  // 结果写进 html[data-compact]：CSS 字号分档、mk()、stageFit 都只认这一个开关，
-  // 判定不散落第二处。
+  // 结果写进 html[data-compact]：CSS 字号分档、put() 的放大、camSet 的兜底取景
+  // 都只认这一个开关，判定不散落第二处。
   function setCompact(){
     var on = !window.__coursewareShotMode && (mqNarrow.matches || mqShort.matches);
     if (on) document.documentElement.dataset.compact = '1';
@@ -701,15 +752,74 @@
   setCompact();
   // 小屏画布字号分档：viewBox 1000 宽在手机上整体缩到 ~0.4–0.8，正文图元 11–14px
   // 只有视觉 4–10px。越小的字乘得越狠——小字才是真看不清的；大字本来就够大，
-  // 轻放一档，免得互相挤位。所有 SVG 图元都从 mk() 出门，在这一点统一处理就够了。
+  // 轻放一档，免得互相挤位。托管图元都从 put() 出门，在这一点统一处理就够了。
   function tfs(fs){ return fs <= 14 ? 2.0 : fs <= 19 ? 1.7 : fs <= 26 ? 1.45 : 1.3; }
-  function mk(tag, attrs){ var n = document.createElementNS(NS, tag);
-    if (tag === 'text' && compact() && attrs['font-size'])
-      attrs['font-size'] = Math.round(attrs['font-size'] * tfs(+attrs['font-size']));
-    for (var k in attrs) n.setAttribute(k, attrs[k]); return n; }
+  function scaleFontSize(tag, fs){
+    return (tag === 'text' && compact()) ? Math.round(fs * tfs(+fs)) : fs;
+  }
   function clear(node){ while (node.firstChild) node.removeChild(node.firstChild); }
   function show(id, on){ el(id).classList[on ? 'add' : 'remove']('on'); }
-  function txt(attrs, s){ var n = mk('text', attrs); n.textContent = s; return n; }
+
+  // ── 常驻图元：图元按 key 活着一幕又一幕，renderer 每步只写"该是什么样" ──
+  // 为什么不让每步重建：新建的节点没有"上一状态"，CSS transition 无从补间——
+  // 于是所有位移都只能瞬移，或者退回去用 rAF 补间（那正是纪律 1 要拦的事）。
+  // 复用节点之后，改一个属性就是一次可见的运动，跨幕延续也顺势成立。
+  //
+  // 写字的两个入口仍叫 `txt()` / `badge()`：`check_gates.py` 就是按这两个函数名
+  // 在 renderer 体内采集画面文字、与旁白原句做形状比对的（stage.md 纪律 3）。
+  // 换名字 = 让这道机器防线静默失明，所以 API 演进时名字不动。
+  var REG = {}, GEN = 0;
+  function begin(){ GEN++; }                  // 每一步开头调用：本步写过的活下来
+  function host(p){ return typeof p === 'string' ? el(p) : p; }
+  /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
+   *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
+   *  表示"这一档不要了"。小屏字号在 put 这一道关口统一放大，renderer 只写设计值。 */
+  function put(parent, tag, key, attrs, text){
+    var n = REG[key], fresh = !n;
+    if (fresh) { n = document.createElementNS(NS, tag);
+                 n.id = key; n.dataset.key = key;          // id = key：嵌套建档时
+                 n.setAttribute('class', 'nt in'); REG[key] = n; }  // 父节点写 key 就够了
+    n._g = GEN;
+    for (var k in attrs || {}) {
+      var v = attrs[k];
+      if (k === 'font-size') v = scaleFontSize(tag, v);
+      else if (k === 'class') v = v === null || v === '' ? 'nt' : 'nt ' + v;
+      if (v === null) n.removeAttribute(k);
+      else if (n.getAttribute(k) !== String(v)) n.setAttribute(k, v);
+    }
+    if (text !== undefined && n.textContent !== text) n.textContent = text;
+    if (fresh) host(parent).appendChild(n);   // 先写完状态再入树：新节点没有"上一状态"，
+    return n;                                 // 也就不会被补间到起飞点上
+  }
+  function txt(parent, key, attrs, s){ return put(parent, 'text', key, attrs, s); }
+  /** 短标签/徽标：药丸底 + 居中字。s 必须是短标注，不是句子（纪律 3）。 */
+  function badge(parent, key, x, y, s, col){
+    var fs = scaleFontSize('text', 14);
+    var g = put(parent, 'g', key + '-g', {transform:'translate(' + x + ',' + y + ')'});
+    var w = Math.max(30, s.length * (fs > 14 ? fs + 2 : 13) + 18);
+    put(g, 'rect', key + '-r', {x:-w/2, y:-(fs*0.5+7), width:w, height:fs+14, rx:(fs+14)/2,
+      fill:'rgba(245,166,35,.12)', stroke:col, 'stroke-width':1.5});
+    txt(g, key + '-t', {x:0, y:Math.round(fs*0.36), 'text-anchor':'middle', 'font-size':14,
+      'font-weight':'600', fill:col}, s);
+    return g;
+  }
+  /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
+   *  才有"的那个小挂件不再被引用时，也必须跟着掉——只扫容器一层会把它留在台上。
+   *  没有退场动画：要淡出就把 opacity 写成 0 让它再停一步，下一步不再引用它收尾。 */
+  function sweep(parent){ prune(host(parent)); }
+  function prune(node){
+    Array.prototype.slice.call(node.children).forEach(function(n){
+      if (n.dataset && n.dataset.key !== undefined){
+        if (n._g !== GEN){ retire(n); node.removeChild(n); return; }
+      }
+      prune(n);
+    });
+  }
+  function retire(node){
+    var kids = node.children ? Array.prototype.slice.call(node.children) : [];
+    kids.forEach(retire);
+    if (node.dataset && node.dataset.key) delete REG[node.dataset.key];
+  }
   function fmt(t){ t = Math.max(0, t || 0);
     var m = Math.floor(t/60), s = Math.floor(t%60);
     return (m<10?'0':'')+m+':'+(s<10?'0':'')+s; }
@@ -732,100 +842,252 @@
     return {scene: null, index: -1, sceneIndex: -1, sentence: null};
   }
 
-  // ══ ② 舞台渲染器：每个场景一个纯函数，输入「这一段里的第几句」 ═══════
-  // 纪律：不读 currentTime、不 setTimeout；步数与句数一一对齐；只清内层容器；
-  //       位移一律走 setAttribute('transform')，不用 CSS transform。
-  var BAY = [300, 500, 700], CY = 232, BAY_SRC = ['10','9','1'];
+  // ══ ② 舞台：世界谱（常驻实体）+ 相机（取景）+ 每幕的局部图层 ══════════
+  // renderer 是**状态函数**：输入"这一幕的第几句"，输出该看到什么状态。
+  // 它不计时、不排程、不补间——补间是 CSS 的事（见 CSS 的「舞台运动学」）。
+  // 主循环每步做三件事：begin() 开新步 → RENDER[scene](step) → camSet() 落镜头。
+  var CY = 232, MONO = 'ui-monospace,Consolas,monospace';
+  var poseNow = 'off';           // 当前步的主角姿势，只给窄屏兜底取景判断"灯亮不亮"
 
   var STAGES = ['stA','stB','stC','stD','stE','stF','stG'];
   function only(keep){
     STAGES.forEach(function(id){ show(id, id === keep); });
   }
 
-  // 小屏自适应取景：把当前场景按内容包围盒等比缩放、钉到字幕带上方内容区的正中
-  // （口径见 layout.md §4——字和框同倍率，不存在框内溢出）。
-  // 内容区：x 留 10 边距，y 到字幕分隔线 404 前收 10。系数复核要逐场景截图。
-  function stageFit(){
-    var id = STAGES.filter(function(s){ return el(s).classList.contains('on'); })[0];
-    var g = id && el(id);
-    if (!g) return;
-    if (!compact()){ g.removeAttribute('transform'); return; }
-    var b = g.getBBox();
-    if (!b.width || !b.height) return;
-    var k = Math.max(0.85, Math.min(980 / b.width, 384 / b.height, 1.8));
-    g.setAttribute('transform', 'translate(' + (500 - k * (b.x + b.width / 2)).toFixed(1) + ','
-      + (202 - k * (b.y + b.height / 2)).toFixed(1) + ') scale(' + k.toFixed(3) + ')');
-  }
-
-  /** 舞台 A：三个数字块（4 句） */
-  function renderA(step){
-    only('stA');
-    clear(el('a-body'));
-
-    var moved = step >= 2;
-    var vals = moved ? ['1','10','9'] : ['10','9','1'];
-    vals.forEach(function(v, i){
-      var g = mk('g', {class:'card0'});
-      var w = v.length > 1 ? 96 : 74;
-      g.appendChild(mk('rect', {x:-w/2, y:-46, width:w, height:92, rx:14,
-        fill: moved ? 'rgba(245,166,35,.13)' : '#1c212c',
-        stroke: moved ? '#f5a623' : '#39405233', 'stroke-width':2}));
-      g.appendChild(txt({x:0, y:14, 'text-anchor':'middle', 'font-size':40, 'font-weight':'700',
-        'font-family':'ui-monospace,Consolas,monospace',
-        fill: moved ? '#f5a623' : '#e9ecf3'}, v));
-      if (step === 2){        // 只在"排序完成"那一步做滑动，后续步骤直接落位
-        var from = BAY[BAY_SRC.indexOf(v)];
-        g.setAttribute('transform', 'translate('+from+','+CY+')');
-        requestAnimationFrame(function(){ requestAnimationFrame(function(){
-          g.setAttribute('transform', 'translate('+BAY[i]+','+CY+')'); }); });
-      } else {
-        g.setAttribute('transform', 'translate('+BAY[i]+','+CY+')');
-      }
-      el('a-body').appendChild(g);
+  // ── 世界谱：同一批实体跨幕活着，每一幕每一步它们在哪、什么样 ──────────
+  // 段与段之间最贵的不是新画面，是"刚才那三个数去哪了"。写进这张表，观众就
+  // 看得见主角被收上台、被推到边上、被搞乱、最后回到台上回答问题（POSE 给姿势，
+  // WORLD 给哪一步用哪个姿势；不写的那一步沿用上一个姿势，即"不动"）。
+  var HERO = ['10', '9', '1'];
+  var POSE = {
+    off:  {y:CY, xs:[300, 500, 700], k:1,   op:0,  quoted:false, tone:'plain',
+           order:['10','9','1']},                     // 退到侧台：位置照常，只是灯灭
+    bench:{y:320, xs:[214, 500, 786], k:.6, op:.4,  quoted:false, tone:'plain',
+           order:['10','9','1']},                     // 开场：题目下方淡淡一排影子
+    bay:  {y:CY, xs:[300, 500, 700], k:1,   op:1,  quoted:false, tone:'plain',
+           order:['10','9','1']},
+    // 姿势是**整步的快照**，段内不换姿势就不会在两句之间漂一下重心：
+    // 旧范本里同一姿势覆盖两句时，位置仍从 step 推导，画面会自己跳。
+    sorted:{y:CY, xs:[300, 500, 700], k:1,  op:1,  quoted:false, tone:'amber',
+           order:['1','10','9']},
+    shelf:{y:84, xs:[330, 500, 670], k:.46, op:.9, quoted:true,  tone:'amber',
+           order:['1','10','9']},                     // 收上台当参照；84 让开各幕的抬头行
+    messed:{y:300, xs:[366, 496, 626], k:.78, op:1, quoted:false, tone:'red',
+           order:['9','1','10']},
+    answer:{y:310, xs:[300, 500, 700], k:.9, op:1, quoted:true, tone:'amber',
+           order:['1','10','9']}
+  };
+  var WORLD = {
+    'opening': ['bench'],
+    'seg-1':   ['bay', 'bay', 'sorted', 'shelf'],
+    'seg-2':   ['shelf'],
+    'seg-3':   ['shelf'],
+    'seg-4':   ['off'],
+    'seg-5':   ['off', 'off', 'off', 'off', 'messed', 'messed'],
+    'seg-6':   ['off'],
+    'closing': ['answer']
+  };
+  var TONE = {
+    plain: {fill:'#e9ecf3', stroke:'#394052', box:'#1c212c'},
+    amber: {fill:'#f5a623', stroke:'#f5a623', box:'rgba(245,166,35,.13)'},
+    blue:  {fill:'#4d90f0', stroke:'#4d90f0', box:'#1c212c'},
+    red:   {fill:'#ef4d4d', stroke:'#ef4d4d', box:'rgba(239,77,77,.10)'}
+  };
+  /** 把主角三张卡落到某个姿势上。只写目标状态：上台、退场、染色全是 CSS 补间。 */
+  function poseWorld(name){
+    var p = POSE[name];
+    if (!p) return;
+    poseNow = name;
+    HERO.forEach(function(v){
+      var slot = p.order.indexOf(v), g = 'w-' + v;
+      put('world', 'g', g, {transform:'translate(' + p.xs[slot] + ',' + p.y + ') scale(' + p.k + ')',
+        opacity:p.op});
+      var w = v.length > 1 ? 96 : 74, t = TONE[p.tone];
+      put(g, 'rect', g + '-r', {x:-w/2, y:-46, width:w, height:92, rx:14,
+        fill:t.box, stroke:t.stroke, 'stroke-width':2});
+      txt(g, g + '-t', {x:0, y:14, 'text-anchor':'middle', 'font-size':40,
+        'font-weight':'700', 'font-family':MONO, fill:t.fill},
+        p.quoted ? "'" + v + "'" : v);
     });
   }
+  /** 这一幕的第 step 句，主角该在哪。WORLD 里没写到的步**沿用本幕最近一个写过的
+   *  姿势**（"沿用"在画面上就是站着不动），但沿用是**在这一步就地回推**，不是记
+   *  住"上一幕演到哪儿"——导出 mp4 是每帧一次冷启动、直接 seek 到那一秒，只跑这一
+   *  步的 renderer。靠历史的话，第一句的姿势会漏进后面每一帧（实测过：整幕都挂着
+   *  开场那排影子）。所以状态必须是 (scene, step) 的纯函数。 */
+  function worldFor(sid, step){
+    var seq = WORLD[sid], name = null;
+    if (seq) for (var i = 0; i <= step && i < seq.length; i++) if (seq[i]) name = seq[i];
+    poseWorld(name || 'off');       // 这一幕没写世界谱 = 主角不在台上
+  }
 
-  /** 舞台 B：字符串逐位比较 —— 本课最关键的一段（6 句） */
+  // ── 相机：每一步声明一个取景窗，镜头怎么推怎么摇全在这张表里 ──────────
+  // 取景窗是世界坐标 [x, y, w, h]；没写的那一步 = FULL = 不动镜头（桌面端与改造前
+  // 一模一样，不会莫名缩放）。窗的中心被钉到可用区中心，所以**声明了窗就等于
+  // 声明了重心**——stage.md §6 那条"逐场景量 getBBox 配平"从此有了机械抓手。
+  // 缩放系数只在 [0.85, 1.8] 之间：下限之下会把窗外的东西裁掉（宁可多看不看不看），
+  // 上限之上字会糊到画布外。窗比这更宽/更窄时按钳位后的倍率走，看到的只会比窗多。
+  var VIEW = {x:10, y:10, w:980, h:384};
+  var FULL = [VIEW.x, VIEW.y, VIEW.w, VIEW.h];
+  var CAM = {
+    // seg-1：三个数从"站着"到"被收上架子"。s3 之后台上只剩架子那一排，镜头跟着
+    // 推近，不然半屏都是空的（内容重心在 y≈110，FULL 会把镜头钉在 202）。
+    'seg-1': [
+      FULL,                     // s0 结果摆在那儿：全场
+      [200, 40, 600, 260],      // s1 两条断言 + 三张卡
+      [200, 44, 600, 300],      // s2 排好了 + 徽标：内容最长的一刻
+      [250, 40, 500, 140]       // s3 收上架子：只剩头顶那一排，推近看它
+    ],
+    // seg-2：三个数收在架子上（世界层），下面两行是逐位比较。镜头跟着"看哪一行、
+    // 看哪一位"走——旁白说到第二位时画面就在第二位上，不用读者自己找。
+    'seg-2': [
+      FULL,                     // s0 规则总述：全场
+      [230, 61, 580, 120],      // s1 第一位相等：推到第一行（架子留在窗里当参照）
+      [300, 72, 460, 110],     // s2 第二位：再推到"有 / 没有"这一列
+      [250, 62, 560, 130],     // s3 落判决：收回整行
+      [250, 262, 560, 120],     // s4 换第二行，第一位定胜负
+      [150, 0, 700, 250]        // s5 串起来：架子那排 + 结论行，第二行留在画外
+    ],
+    // seg-4：a / b 两个块在契约之间移动。这一幕的内容从抬头行(48)一直排到脚注(344)，
+    // 竖向是缩放的上限——所以镜头只在 s1 推近、s5 拉回，中间不假装有运镜。
+    'seg-4': [
+      FULL,                     // s0 引入：连顶部公式条一起看
+      [230, 40, 540, 315],      // s1–s3 三条契约：收拢到 a/b 这一对
+      [230, 40, 540, 315],
+      [230, 40, 540, 315],
+      [230, 40, 540, 315],      // s4 只看符号：靠方块合拢 + 描边变色说话
+      FULL                      // s5 升降序：拉回全场
+    ],
+    // seg-5：管线讲完（s0–s3 挤在画面上半截），s4 数据被搞乱、s5 给出正确写法，
+    // 内容一路长到 y=374——镜头在后果落地这一刻**往后拉**，把新出现的东西收进画面。
+    'seg-5': [
+      [140, 40, 760, 200],      // s0–s3 管线：收在写法和 true/false 上
+      [140, 40, 760, 200],
+      [140, 40, 760, 200],
+      [140, 40, 760, 200],
+      [140, 40, 760, 340],      // s4 乱了 + 不报错：拉远
+      [140, 40, 760, 340]       // s5 正确写法：留在拉远后的取景里收尾
+    ]
+  };
+  function camTo(f){
+    var k = Math.max(0.85, Math.min(VIEW.w / f[2], VIEW.h / f[3], 1.8));
+    el('cam').setAttribute('transform',
+      'translate(' + (500 - k * (f[0] + f[2] / 2)).toFixed(1) + ',' +
+      (202 - k * (f[1] + f[3] / 2)).toFixed(1) + ') scale(' + k.toFixed(3) + ')');
+  }
+  /** 可见内容的并集包围盒（窄屏兜底取景用）。世界层只在灯亮着时才计入——
+   *  opacity:0 的主角不该把镜头拽向侧台。 */
+  function contentBox(){
+    var b = null;
+    var ids = STAGES.filter(function(s){ return el(s).classList.contains('on'); });
+    if (POSE[poseNow] && POSE[poseNow].op > 0) ids = ids.concat(['world']);
+    ids.forEach(function(id){
+      var bb = el(id).getBBox();
+      if (!bb.width || !bb.height) return;
+      b = !b ? {x:bb.x, y:bb.y, w:bb.width, h:bb.height} : {
+        x:Math.min(b.x, bb.x), y:Math.min(b.y, bb.y),
+        w:Math.max(b.x + b.w, bb.x + bb.width) - Math.min(b.x, bb.x),
+        h:Math.max(b.y + b.h, bb.y + bb.height) - Math.min(b.y, bb.y)};
+    });
+    return b;
+  }
+  /** 落镜头：这一幕这一步声明过取景窗就用它；没声明时桌面回 FULL（与改造前的
+   *  "不做任何变换"等价），窄屏按内容包围盒居中（改造前小屏自适应取景的口径——小画布
+   *  塞不下大窗，窗要重算，所以窄屏下这一步盖过 CAM）。 */
+  function camSet(sid, step){
+    var declared = (CAM[sid] || [])[step];
+    if (!declared && compact()){
+      var b = contentBox();
+      if (b) return camTo([b.x, b.y, b.w, b.h]);
+    }
+    camTo(declared || FULL);
+  }
+
+  /** 舞台 A：三个数字块（4 句）——主角归**世界层**，这一幕只画"旁白正在指的那件事"
+   *  s0 结果就摆在那儿（抬头行 + 三张卡，本地层空）
+   *  s1「一在十前面，十在九前面」→ 两条弧线把这两个断言画出来
+   *  s2「不是缺陷，是默认规则」→ 弧线淡出，卡自己排好（世界的 sorted 姿势），落一枚徽标
+   *  s3「先转成字符串」→ 卡被收上架子并带上引号（世界的 shelf 姿势），指认这一步
+   *  弧线在 s2 淡掉、s3 撤走：**断言兑现成了事实**。这就是常驻图元买到的表达力——
+   *  每步重建节点的话，卡只能瞬移，弧线只能凭空出现又凭空消失。 */
+  function renderA(step){
+    only('stA');
+    // 弧线画在 bay 位（'10'@300 / '9'@500 / '1'@700，卡顶 186）之上。
+    // 只在 s1 之后才**建档**：建档即入场，画线动画就在这一刻跑；早一步建好压着
+    // opacity:0 的话，动画会在没人看见的那一步跑完，轮到 s1 只剩淡入。
+    // s2 写 opacity:0 让它淡出，s3 不再引用 → 由 sweep 撤走。
+    if (step >= 1){
+      var arcs = put('a-body', 'g', 'a-arcs', {opacity: step === 1 ? 1 : 0});
+      // 箭头从**排得晚的那个**指向**排得早的那个**，箭头尖落在"先"字说的那张卡上：
+      // '1' 先 → 尖指 '1'（700）；'10' 先 → 尖指 '10'（300）。方向反了就是另一句话。
+      put(arcs, 'path', 'a-arc-1', {class:'draw', pathLength:1, fill:'none',
+        stroke:'#8d95a8', 'stroke-width':1.5, 'marker-end':'url(#ah)',
+        d:'M300,178 Q500,96 700,178'});
+      txt(arcs, 'a-arc-1-lab', {x:500, y:112, 'text-anchor':'middle', 'font-size':13,
+        fill:'#8d95a8'}, "'1' 先");
+      put(arcs, 'path', 'a-arc-2', {class:'draw', pathLength:1, fill:'none',
+        stroke:'#8d95a8', 'stroke-width':1.5, 'marker-end':'url(#ah)',
+        d:'M500,178 Q400,140 300,178'});
+      txt(arcs, 'a-arc-2-lab', {x:400, y:136, 'text-anchor':'middle', 'font-size':13,
+        fill:'#8d95a8'}, "'10' 先");
+    }
+    if (step === 2) badge('a-body', 'a-rule', 500, 322, '默认规则', '#f5a623');
+    if (step === 3) badge('a-body', 'a-str', 500, 150, '转成字符串', '#4d90f0');
+    sweep('a-body');
+  }
+
+  /** 舞台 B：字符串逐位比较——本课最关键的一段（6 句）
+   *  抬头行讲规则，架子上那三个带引号的数是 seg-1 收上去的主角（世界层，不动），
+   *  这一幕把两对字符串逐位摊开：哪一格被点着，镜头就推到哪一列（取景见 CAM）。 */
   function renderB(step){
     only('stB');
-    clear(el('b-body'));
     var cur = step >= 4 ? 1 : 0;              // 第 4 句起看 ("10","9") 这一组
     var rows = [['1','10'], ['10','9']];
-
     rows.forEach(function(r, ri){
-      var baseY = 130 + ri * 130;
-      var g = mk('g', {opacity: (ri !== cur && step >= 4) ? 0.28 : 1});
+      var baseY = 165 + ri * 135;
+      var g = put('b-body', 'g', 'b-row' + ri,
+        {opacity: (ri !== cur && step >= 4) ? .28 : 1});
       r.forEach(function(s, cx){
         var ox = 330 + cx * 300;
         s.split('').forEach(function(ch, k){
           var lit = false, col = '#5d6577';
           if (ri === cur){
-            if (step >= 2 && k === 0){ lit = true; col = '#4d90f0'; }        // 首位相等 → 蓝
-            if (step >= 3 && k === 1 && s === '10'){ lit = true; col = '#f5a623'; }
-            if (step >= 4 && k === 0){ lit = true; col = '#f5a623'; }        // "10" vs "9" 首位定胜负
+            // 高亮跟着**旁白指的那一位**走，过了那一句就收：第一对看第二位时，
+            // 第二对还没登场；换到第二对之后，第一对那位"空出来的第二位"也不再提。
+            if (step >= 1 && step <= 3 && k === 0){ lit = true; col = '#4d90f0'; }   // 首位相等 → 蓝
+            if (step >= 2 && step <= 3 && k === 1 && s === '10'){ lit = true; col = '#f5a623'; }
+            if (step >= 4 && k === 0){ lit = true; col = '#f5a623'; }   // 第一位定胜负
           }
-          g.appendChild(mk('rect', {x: ox + k*46 - 21, y: baseY - 26, width:42, height:52, rx:9,
+          var cell = put(g, 'g', 'b-' + ri + cx + k,
+            {transform:'translate(' + (ox + k * 46) + ',' + baseY + ')'});
+          put(cell, 'rect', 'b-' + ri + cx + k + '-r', {x:-21, y:-26, width:42, height:52, rx:9,
             fill: lit ? 'rgba(245,166,35,.14)' : '#1c212c',
-            stroke: lit ? col : '#39405233', 'stroke-width':2,
-            style:'transition:fill .35s,stroke .35s'}));
-          g.appendChild(txt({x: ox + k*46, y: baseY + 9, 'text-anchor':'middle', 'font-size':28,
-            'font-weight':'700', 'font-family':'ui-monospace,Consolas,monospace',
-            fill: lit ? col : '#8d95a8', style:'transition:fill .35s'}, ch));
+            stroke: lit ? col : '#394052', 'stroke-width':2});
+          txt(cell, 'b-' + ri + cx + k + '-t', {x:0, y:10, 'text-anchor':'middle', 'font-size':28,
+            'font-weight':'700', 'font-family':MONO, fill: lit ? col : '#8d95a8'}, ch);
         });
         // 「没有第二位」的空位：短串在这个位置是空的，所以它更小
-        if (ri === cur && step >= 3 && s.length === 1){
-          g.appendChild(mk('rect', {x: ox + 46 - 21, y: baseY - 26, width:42, height:52, rx:9,
-            fill:'none', stroke:'#f5a623', 'stroke-width':2, 'stroke-dasharray':'5 5'}));
-          g.appendChild(txt({x: ox + 46, y: baseY + 8, 'text-anchor':'middle', 'font-size':17,
-            fill:'#f5a623'}, '∅'));
+        if (ri === cur && step >= 2 && step <= 3 && s.length === 1){
+          var gap = put(g, 'g', 'b-' + ri + cx + '-x',
+            {transform:'translate(' + (ox + 46) + ',' + baseY + ')'});
+          put(gap, 'rect', 'b-x' + ri + cx + '-r', {class:'pop', x:-21, y:-26, width:42, height:52,
+            rx:9, fill:'none', stroke:'#f5a623', 'stroke-width':2, 'stroke-dasharray':'5 5'});
+          txt(gap, 'b-x' + ri + cx + '-t', {class:'pop', x:0, y:6, 'text-anchor':'middle',
+            'font-size':17, fill:'#f5a623'}, '∅');
         }
-        g.appendChild(txt({x: ox, y: baseY + 56, 'text-anchor':'middle', 'font-size':12,
-          'font-family':'ui-monospace,Consolas,monospace', fill:'#5d6577'}, '"' + s + '"'));
+        txt(g, 'b-' + ri + cx + '-lab', {x:ox, y:baseY + 56, 'text-anchor':'middle',
+          'font-size':12, 'font-family':MONO, fill:'#5d6577'}, '"' + s + '"');
       });
-      g.appendChild(txt({x: 330 + 150, y: baseY + 9, 'text-anchor':'middle', 'font-size':26,
-        fill:'#5d6577'}, 'vs'));
-      el('b-body').appendChild(g);
+      // 判决落地：'vs' 变成 '<'。s3 与 s2 的区别就在这里——上一句还在逐位比字符，
+      // 这一句给出先后。两句停在同一帧 = 这一句白说。
+      var won = (ri === 0 && step >= 3) || (ri === 1 && step >= 4);
+      txt(g, 'b-' + ri + '-vs', {x:480, y:baseY + 10, 'text-anchor':'middle', 'font-size':30,
+        'font-weight':'700', fill: won ? '#2ecc71' : '#5d6577'}, won ? '<' : 'vs');
     });
+    // s5「串起来」：把两行的结论并成一行记法（记号不是句子，纪律 3）
+    if (step === 5) txt('b-body', 'b-sum', {x:540, y:250, 'text-anchor':'middle',
+      'font-size':15, 'font-family':MONO, fill:'#f5a623'}, "'1' < '10' < '9'");
+    sweep('b-body');
   }
 
   /** 舞台 C：比较函数的契约（6 句）
@@ -834,201 +1096,206 @@
    *  阈值**显式写成常量**，不写推导表达式；s4/s5 各给独立画面，不连停在同态。 */
   function renderC(step){
     only('stC');
-    clear(el('c-body'));
     var cases = [
       {sign:'a - b < 0', act:'a 排在 b 前面', col:'#2ecc71', dx:[-100, 100]},
-      {sign:'a - b = 0', act:'两者相等',       col:'#8d95a8', dx:[-52, 52]},
+      {sign:'a - b = 0', act:'两者相等',       col:'#8d95a8', dx:[-72, 72]},
       {sign:'a - b > 0', act:'a 排在 b 后面', col:'#ef4d4d', dx:[100, -100]}
     ];
     // 契约态：s1→<0，s2→=0，s3→>0；s4/s5 不再停留 >0（各给独立画面）
     var pick = (step >= 3 && step < 4) ? 2 : (step === 2) ? 1 : (step === 1) ? 0 : -1;
     var c = pick >= 0 ? cases[pick] : null;
     var cy = 224;
-    el('c-body').appendChild(mk('rect', {x:240, y:cy-150, width:520, height:58, rx:12,
-      fill:'#161a23', stroke:'#2a3140'}));
+    put('c-body', 'rect', 'c-formula', {x:240, y:cy-150, width:520, height:58, rx:12,
+      fill:'#161a23', stroke:'#2a3140'});
     // 顶部公式行：引入 → 三种契约 → s4 强调「只看符号」→ s5「落到升降序」
     var headFill, headText;
     if (step === 4){ headFill = '#f5a623'; headText = '只看符号：负 / 0 / 正，数值本身不参与'; }
     else if (step === 5){ headFill = '#f5a623'; headText = 'a - b 升序 · b - a 降序'; }
     else if (pick === -1){ headFill = '#8d95a8'; headText = '不传比较函数 → 字符串序；要按数值排，得自己传'; }
     else { headFill = c.col; headText = '(a, b) => a - b    →    ' + c.sign; }
-    el('c-body').appendChild(txt({x:500, y:cy-111, 'text-anchor':'middle', 'font-size':19,
-      'font-family':'ui-monospace,Consolas,monospace', fill: headFill}, headText));
-    // a / b 两个方块：契约态间滑动；s4/s5 收拢居中、描边变橙把视线压到符号上
+    txt('c-body', 'c-head', {x:500, y:cy-111, 'text-anchor':'middle', 'font-size':19,
+      'font-family':MONO, fill: headFill}, headText);
+    // a / b 两个方块：常驻节点，契约态之间**滑过去**（transform 由 .nt 补间）；
+    // s4/s5 收拢居中、描边变橙把视线压到符号上。
     var aX = pick >= 0 ? 500 + cases[pick].dx[0] : 448;
     var bX = pick >= 0 ? 500 + cases[pick].dx[1] : 552;
     var boxStroke = (step === 4 || step === 5) ? '#f5a623' : null;
     [['a','#4d90f0', aX], ['b','#f5a623', bX]].forEach(function(q){
-      var g = mk('g', {});
-      g.setAttribute('style', 'transition:transform .7s cubic-bezier(.22,1,.36,1)');
-      g.setAttribute('transform', 'translate(' + q[2] + ',' + cy + ')');
-      g.appendChild(mk('rect', {x:-52, y:-40, width:104, height:80, rx:13,
-        fill:'#1c212c', stroke: boxStroke || q[1], 'stroke-width':2}));
-      g.appendChild(txt({x:0, y:13, 'text-anchor':'middle', 'font-size':34, 'font-weight':'700',
-        fill:q[1]}, q[0]));
-      el('c-body').appendChild(g);
+      var g = put('c-body', 'g', 'c-' + q[0], {transform:'translate(' + q[2] + ',' + cy + ')'});
+      put(g, 'rect', 'c-' + q[0] + '-r', {x:-52, y:-40, width:104, height:80, rx:13,
+        fill:'#1c212c', stroke: boxStroke || q[1], 'stroke-width':2});
+      txt(g, 'c-' + q[0] + '-t', {x:0, y:13, 'text-anchor':'middle', 'font-size':34,
+        'font-weight':'700', fill:q[1]}, q[0]);
     });
-    if (pick === 1){
-      el('c-body').appendChild(txt({x:500, y:cy+14, 'text-anchor':'middle', 'font-size':30,
-        'font-weight':'700', fill:'#8d95a8'}, '='));
-    }
+    if (pick === 1) txt('c-body', 'c-eq', {x:500, y:cy+14, 'text-anchor':'middle',
+      'font-size':30, 'font-weight':'700', fill:'#8d95a8'}, '=');
     // 图内短标注（**不是口播原句**）：s4「只看符号」、s5「升降序」各给一个独立标签——
     // 这些是图元的标注/公式，与旁白那句话不同（判据见 stage.md §2 纪律 3）
     var footFill, footText;
     if (step === 4){ footFill = '#8d95a8'; footText = '符号相同 = 结果相同：只看 ± 与 0'; }
-    else if (step === 5){ footFill = '#2ecc71'; footText = '取 a-b 升序排 · 取反成 b-a 降序'; }
+    else if (step === 5){ footFill = '#2ecc71'; footText = 'a - b → 1 9 10   升'; }
     else if (pick === -1){ footFill = '#8d95a8'; footText = '（比较函数决定 a 与 b 的先后）'; }
     else { footFill = c.col; footText = c.act; }
-    el('c-body').appendChild(txt({x:500, y:cy+120, 'text-anchor':'middle', 'font-size':16,
-      fill: footFill}, footText));
+    txt('c-body', 'c-foot', {x:500, y:cy + (step === 5 ? 96 : 120), 'text-anchor':'middle',
+      'font-size':16, 'font-family':MONO, fill: footFill}, footText);
+    // s5 是这一幕唯一"两句一件事"的收尾：升序 / 降序各摆一条真实序列，
+    // 而不是把旁白再念一遍——两个方向同时在场，才看得出"取个反就掉头"。
+    if (step === 5) txt('c-body', 'c-dn', {x:500, y:cy+128, 'text-anchor':'middle',
+      'font-size':16, 'font-family':MONO, fill:'#4d90f0'}, 'b - a → 10 9 1   降');
+    sweep('c-body');
   }
 
-  /** 舞台 D：布尔值陷阱（6 句） */
+  /** 舞台 D：布尔值陷阱（6 句）
+   *  管线归这一幕，**被排的那个数组归世界层**：s4 主角三个数被搞乱（POSE.messed），
+   *  于是"错误发生在数据上"这件事看得见，而不是在角落重画一版假数组。 */
   function renderD(step){
     only('stD');
-    clear(el('d-body')); clear(el('d-blocks'));
-    var G = el('d-body');
-    // 管线在 step≥2 才长出右边「0」这一段。未长出时整条右移配平重心，
-    // 长出后归位——两种步态的画面重心都 ≈500，不留右侧大空带。
-    G.setAttribute('transform', 'translate(' + (step >= 2 ? 0 : 93) + ',0)');
-    G.appendChild(mk('rect', {x:150, y:110, width:290, height:66, rx:12,
-      fill:'#161a23', stroke:'#2a3140'}));
-    G.appendChild(txt({x:295, y:151, 'text-anchor':'middle', 'font-size':18,
-      'font-family':'ui-monospace,Consolas,monospace', fill:'#ef4d4d'}, '(a, b) => a < b'));
-
-    var branchOn = step >= 1;
-    G.appendChild(mk('line', {x1:446, y1:143, x2:536, y2:143, stroke:'#2f3646', 'stroke-width':2}));
-    G.appendChild(txt({x:491, y:133, 'text-anchor':'middle', 'font-size':11, fill:'#5d6577'}, '求值'));
-    G.appendChild(mk('rect', {x:544, y:86, width:120, height:48, rx:10, fill:'#1c212c',
-      stroke: branchOn ? '#2ecc71' : '#2a3140', 'stroke-width':2}));
-    G.appendChild(txt({x:604, y:117, 'text-anchor':'middle', 'font-size':17, 'font-weight':'600',
-      fill: branchOn ? '#2ecc71' : '#5d6577'}, 'true'));
-    G.appendChild(mk('rect', {x:544, y:152, width:120, height:48, rx:10,
+    // 逐句对账：s0 写出那个错的写法 · s1 判它错（红）· s2 true/false 亮出来
+    // · s3 false 折成 0 · s4 数据被搞乱 + 不报错 · s5 给出正确写法
+    var wrong = step >= 1, branchOn = step >= 2, zero = step >= 3, messy = step >= 4;
+    // 管线在 s3 才长出右边「0」那一段。没长出时整条右移配平重心，长出后归位——
+    // d-rig 是常驻节点，这一次平移由 .nt 补间成可见的运动，不是画面自己跳。
+    var G = put('d-body', 'g', 'd-rig', {transform:'translate(' + (zero ? 0 : 93) + ',0)'});
+    put(G, 'rect', 'd-src', {x:150, y:110, width:290, height:66, rx:12,
+      fill: wrong ? 'rgba(239,77,77,.08)' : '#161a23',
+      stroke: wrong ? '#ef4d4d' : '#2a3140'});
+    txt(G, 'd-src-t', {x:295, y:151, 'text-anchor':'middle', 'font-size':18,
+      'font-family':MONO, fill: wrong ? '#ef4d4d' : '#c9d1e0'}, '(a, b) => a < b');
+    put(G, 'line', 'd-link', {x1:446, y1:143, x2:536, y2:143, stroke:'#2f3646', 'stroke-width':2});
+    txt(G, 'd-link-t', {x:491, y:133, 'text-anchor':'middle', 'font-size':11,
+      fill:'#5d6577'}, '求值');
+    put(G, 'rect', 'd-true-r', {x:544, y:86, width:120, height:48, rx:10, fill:'#1c212c',
+      stroke: branchOn ? '#2ecc71' : '#2a3140', 'stroke-width':2});
+    txt(G, 'd-true-t', {x:604, y:117, 'text-anchor':'middle', 'font-size':17,
+      'font-weight':'600', fill: branchOn ? '#2ecc71' : '#5d6577'}, 'true');
+    put(G, 'rect', 'd-false-r', {x:544, y:152, width:120, height:48, rx:10,
       fill: branchOn ? 'rgba(239,77,77,.12)' : '#1c212c',
-      stroke: branchOn ? '#ef4d4d' : '#2a3140', 'stroke-width':2}));
-    G.appendChild(txt({x:604, y:183, 'text-anchor':'middle', 'font-size':17, 'font-weight':'600',
-      fill: branchOn ? '#ef4d4d' : '#5d6577'}, 'false'));
+      stroke: branchOn ? '#ef4d4d' : '#2a3140', 'stroke-width':2});
+    txt(G, 'd-false-t', {x:604, y:183, 'text-anchor':'middle', 'font-size':17,
+      'font-weight':'600', fill: branchOn ? '#ef4d4d' : '#5d6577'}, 'false');
 
-    if (step >= 2){
-      G.appendChild(mk('line', {x1:680, y1:176, x2:760, y2:176, stroke:'#ef4d4d', 'stroke-width':2}));
-      G.appendChild(mk('rect', {x:766, y:152, width:110, height:48, rx:10,
-        fill:'rgba(239,77,77,.12)', stroke:'#ef4d4d', 'stroke-width':2}));
-      G.appendChild(txt({x:821, y:184, 'text-anchor':'middle', 'font-size':20, 'font-weight':'700',
-        'font-family':'ui-monospace,Consolas,monospace', fill:'#ef4d4d'}, '0'));
-      G.appendChild(txt({x:821, y:222, 'text-anchor':'middle', 'font-size':12, fill:'#8d95a8'},
-        '被当成「相等」'));
+    if (zero){
+      put(G, 'line', 'd-fold', {x1:680, y1:176, x2:760, y2:176, stroke:'#ef4d4d', 'stroke-width':2});
+      put(G, 'rect', 'd-zero-r', {x:766, y:152, width:110, height:48, rx:10,
+        fill:'rgba(239,77,77,.12)', stroke:'#ef4d4d', 'stroke-width':2});
+      txt(G, 'd-zero-t', {x:821, y:184, 'text-anchor':'middle', 'font-size':20,
+        'font-weight':'700', 'font-family':MONO, fill:'#ef4d4d'}, '0');
+      txt(G, 'd-zero-lab', {x:821, y:222, 'text-anchor':'middle', 'font-size':12,
+        fill:'#8d95a8'}, '被当成「相等」');
     }
-
-    var messy = step >= 4;
-    var vals = messy ? ['9','1','10'] : ['10','9','1'];
-    var BX = [370, 500, 630];
-    vals.forEach(function(v, i){
-      var g = mk('g', {});
-      var base = 'translate(' + BX[i] + ',330)';
-      g.setAttribute('transform', messy ? base + ' translate(' + (-4 + i*4) + ',0)' : base);
-      g.appendChild(mk('rect', {x:-40, y:-32, width:80, height:64, rx:11,
-        fill: messy ? 'rgba(239,77,77,.10)' : '#1c212c',
-        stroke: messy ? '#ef4d4d' : '#394052', 'stroke-width':2}));
-      g.appendChild(txt({x:0, y:11, 'text-anchor':'middle', 'font-size':28, 'font-weight':'700',
-        'font-family':'ui-monospace,Consolas,monospace',
-        fill: messy ? '#ef4d4d' : '#e9ecf3'}, v));
-      el('d-blocks').appendChild(g);
-    });
+    if (messy){
+      // 从「0」画一条线到被搞乱的那排数：错不在管线，在数据上
+      put('d-body', 'path', 'd-harm', {class:'draw', pathLength:1, fill:'none',
+        stroke:'#ef4d4d', 'stroke-width':1.5, opacity:.7, 'marker-end':'url(#ah)',
+        d:'M821,202 C821,258 760,270 692,276'});
+      txt('d-body', 'd-quiet', {x:196, y:306, 'text-anchor':'middle', 'font-size':13,
+        fill:'#ef4d4d'}, '不报错');
+    }
+    if (step === 5) txt('d-body', 'd-fix', {x:500, y:374, 'text-anchor':'middle',
+      'font-size':16, 'font-family':MONO, 'font-weight':'600', fill:'#2ecc71'},
+      '(a, b) => a - b');
+    sweep('d-body');
   }
 
   /** 舞台 E：稳定性（4 句）
    *  逐句对账：s0 稳定(引入) · s1 相等元素保序 · s2 多级排序好用 · s3 同分维持姓名顺序
-   *  s2/s3 各给独立画面，不连停在同态。 */
+   *  s2/s3 各给独立画面，不连停在同态。
+   *  卡片按**人**建档（'e-r-小明'）而不是按行号：同分的两个人在结果列里各自占哪一行
+   *  会变，"人"才是这里的主角——按行建档的话，换序时高亮会跟着行号跳到别人身上。 */
   function renderE(step){
     only('stE');
-    clear(el('e-body'));
-    var G = el('e-body');
     var sorted = step >= 1;
     var before = [['小明',90], ['小红',90], ['小刚',80]];
     var after = [['小刚',80], ['小明',90], ['小红',90]];
-    var data = sorted ? after : before;
-
-    [0,1].forEach(function(col){
+    [[0,'e-l',before], [1,'e-r',after]].forEach(function(q){
+      var col = q[0], pre = q[1], data = q[2];
       var ox = 208 + col * 584;
-      G.appendChild(txt({x:ox, y:100, 'text-anchor':'middle', 'font-size':13, fill:'#5d6577'},
-        col === 0 ? '录入顺序' : '按分数排序后'));
+      var G = put('e-body', 'g', 'e-col' + col, {});
+      txt(G, pre + '-h', {x:ox, y:100, 'text-anchor':'middle', 'font-size':13, fill:'#5d6577'},
+        col === 0 ? '录入顺序' : '按分数排序后');
       if (col === 1 && !sorted){
-        G.appendChild(txt({x:ox, y:230, 'text-anchor':'middle', 'font-size':22, fill:'#3d465a'}, '?'));
-        return;
+        txt(G, 'e-q', {x:ox, y:230, 'text-anchor':'middle', 'font-size':22, fill:'#3d465a'}, '?');
+      } else {
+        data.forEach(function(s, i){
+          var y = 150 + i * 72;
+          // 同分 90 的是小明/小红，排完后落在 i=1、2 —— 相对顺序没变，这才是"稳定"
+          var hi = col === 1 && sorted && s[1] === 90;
+          var card = put(G, 'g', pre + '-' + s[0],
+            {transform:'translate(' + ox + ',' + y + ')'});
+          put(card, 'rect', pre + '-' + s[0] + '-r', {x:-146, y:-26, width:292, height:52, rx:11,
+            fill: hi ? 'rgba(46,204,113,.10)' : '#1c212c',
+            stroke: hi ? '#2ecc71' : '#394052', 'stroke-width':2});
+          txt(card, pre + '-' + s[0] + '-n', {x:-106, y:8, 'text-anchor':'middle', 'font-size':18,
+            'font-weight':'600', fill:'#e9ecf3'}, s[0]);
+          txt(card, pre + '-' + s[0] + '-s', {x:92, y:8, 'text-anchor':'middle', 'font-size':18,
+            'font-family':MONO, fill:'#f5a623'}, String(s[1]));
+        });
       }
-      data.forEach(function(s, i){
-        var y = 150 + i * 72;
-        // 同分 90 的是 小明/小红（排完后是 i=1、i=2），相对顺序没变 → 高亮 i>=1
-        var hi = col === 1 && sorted && i >= 1;
-        G.appendChild(mk('rect', {x:ox-146, y:y-26, width:292, height:52, rx:11,
-          fill: hi ? 'rgba(46,204,113,.10)' : '#1c212c',
-          stroke: hi ? '#2ecc71' : '#394052', 'stroke-width':2,
-          style:'transition:fill .4s,stroke .4s'}));
-        G.appendChild(txt({x:ox-106, y:y+8, 'text-anchor':'middle', 'font-size':18,
-          'font-weight':'600', fill:'#e9ecf3'}, s[0]));
-        G.appendChild(txt({x:ox+92, y:y+8, 'text-anchor':'middle', 'font-size':18,
-          'font-family':'ui-monospace,Consolas,monospace', fill:'#f5a623'}, s[1]));
-      });
     });
-
-    // s1「相等元素保序」：把同分的两人（小明/小红，排完是 i=1、2）跨两列连起来看
+    // s1「相等元素保序」：把同分的两个人从左列的录入位连到右列的结果位——
+    // 连线是画出来的（.draw），斜着走才说得清"位置变了，先后没变"
     if (step === 1){
-      [1,2].forEach(function(i){
-        var y = 150 + i * 72;
-        G.appendChild(mk('line', {x1:208+146, y1:y, x2:208+584-146, y2:y, stroke:'#2ecc71',
-          'stroke-width':1.5, 'stroke-dasharray':'4 4', opacity:'.5'}));
+      [['小明',150,222], ['小红',222,294]].forEach(function(p){
+        put('e-body', 'line', 'e-tie-' + p[0], {class:'draw', pathLength:1,
+          x1:354, y1:p[1], x2:646, y2:p[2], stroke:'#2ecc71', 'stroke-width':1.5, opacity:.55});
       });
     }
-    // s2「多级排序时特别有用」：标出「两级」这个动作，与 s1 区分
-    if (step === 2){
-      G.appendChild(txt({x:792, y:118, 'text-anchor':'middle', 'font-size':12,
-        'font-family':'ui-monospace,Consolas,monospace', fill:'#f5a623'},
-        '两级：先姓名 → 再分数'));
-    }
+    // s2「多级排序时特别有用」：标出「两级」这个动作，与 s1 区分。
+    // 挂在两列中间的空白处——右列抬头行(100)和卡片(150 起)都在这条线上方/下方，
+    // 贴在列头上就会撞字（实测过）。
+    if (step === 2) txt('e-body', 'e-lv', {x:500, y:352, 'text-anchor':'middle', 'font-size':12,
+      'font-family':MONO, fill:'#f5a623'}, '两级：姓名 → 分数');
     // s3「同分的人维持姓名的顺序」：给并列的两人补一个括注，与 s2 区分
-    if (step === 3){
-      G.appendChild(txt({x:792, y:344, 'text-anchor':'middle', 'font-size':12,
-        'font-family':'ui-monospace,Consolas,monospace', fill:'#2ecc71'},
-        '同分 90 · 按姓名保持先后'));
-    }
+    if (step === 3) txt('e-body', 'e-note', {x:792, y:344, 'text-anchor':'middle',
+      'font-size':12, 'font-family':MONO, fill:'#2ecc71'}, '90 分两行 · 小明在小红前');
+    sweep('e-body');
   }
 
-  /** 舞台 F：开场 / 结尾提问 */
+  /** 舞台 F：开场 / 结尾提问。世界层在旁边打底（开场 bench 一排影子、结尾
+   *  answer 那排带引号的数），问题本身留在抬头那一行。 */
   function renderF(which){
     only('stF');
     el('f-q').textContent = which === 'open' ? '[10, 9, 1].sort()  →  ?'
                                              : '🤔 为什么是 [1, 10, 9] ？';
   }
 
-  /** 舞台 G：巧合（5 句） */
+  /** 舞台 G：巧合（5 句）
+   *  s0「一二三看着挺对」→ 只有位数相同那一行，站在正中
+   *  s1「这是巧合」→ 落一枚徽标
+   *  s2「位数相同时恰好一致」→ 位数不同那一行**长出来**，原本居中的行让位上移——
+   *     这是常驻图元才有的编排：建行是建档，让位是补间，不是整屏重画一次
+   *  s3「位数不同就破了」→ 聚焦破功那行，另一行压暗（镜头不管，靠明暗分主次）
+   *  s4「别让碰巧的成功骗过你」→ 两行都恢复正常，收一句判词 */
   function renderG(step){
     only('stG');
-    clear(el('g-body'));
-    var box = el('g-body');
     var groups = [
-      {nums:['1','2','10'], label:'位数不同（1 位 / 2 位）', luck:false},
-      {nums:['1','2','3'],  label:'位数相同（都是 1 位）',   luck:true}
+      {k:'same', nums:['1','2','3'],  lab:'位数相同 · 都是 1 位',   col:'#2ecc71', from:0},
+      {k:'diff', nums:['1','2','10'], lab:'位数不同 · 1 位 / 2 位', col:'#ef4d4d', from:2}
     ];
-    var visible = step >= 1 ? groups : [groups[0]];
-    if (step === 3) visible = [groups[0]];      // 聚焦「破功」这组
-    if (step >= 4)  visible = groups;           // 收尾恢复对照
-
-    var ROW_H = 126, BLK = 68, baseY = visible.length > 1 ? 212 : 258;
-    visible.forEach(function(g, gi){
-      var oy = baseY + gi * ROW_H;
-      var col = g.luck ? '#2ecc71' : '#ef4d4d';
-      box.appendChild(txt({x:500, y:oy - 50, 'text-anchor':'middle', 'font-size':13, fill:col},
-        g.label));
+    var two = step >= 2;
+    groups.forEach(function(g, gi){
+      if (step < g.from) return;
+      var oy = two ? 232 + gi * 120 : 258;
+      var dim = step === 3 && gi === 0;
+      var G = put('g-body', 'g', 'g-' + g.k, {transform:'translate(0,' + oy + ')',
+        opacity: dim ? .28 : 1});
+      txt(G, 'g-' + g.k + '-lab', {x:500, y:-50, 'text-anchor':'middle', 'font-size':13,
+        fill:g.col}, g.lab);
       var span = (g.nums.length - 1) * 132;
       g.nums.forEach(function(v, i){
-        var x = 500 - span/2 + i * 132;
-        box.appendChild(mk('rect', {x:x-46, y:oy-BLK/2, width:92, height:BLK, rx:12,
-          fill:'#1c212c', stroke:col, 'stroke-width':2, opacity: g.luck ? '1' : '.8',
-          style:'transition:stroke .4s,opacity .4s'}));
-        box.appendChild(txt({x:x, y:oy+11, 'text-anchor':'middle', 'font-size':28,
-          'font-weight':'700', 'font-family':'ui-monospace,Consolas,monospace', fill:col}, v));
+        var cell = put(G, 'g', 'g-' + g.k + '-' + v,
+          {transform:'translate(' + (500 - span / 2 + i * 132) + ',0)'});
+        put(cell, 'rect', 'g-' + g.k + '-' + v + '-r', {x:-46, y:-34, width:92, height:68, rx:12,
+          fill:'#1c212c', stroke:g.col, 'stroke-width':2, opacity: g.k === 'diff' ? .85 : 1});
+        txt(cell, 'g-' + g.k + '-' + v + '-t', {x:0, y:11, 'text-anchor':'middle', 'font-size':28,
+          'font-weight':'700', 'font-family':MONO, fill:g.col}, v);
       });
     });
+    // 徽标跟着它注释的那一行：s1 只有一行，判词落在行上方；s4 两行已经排满，
+    // 就落在"翻车"那一行的右边——居中会把行标签挤在一起（实测过）。
+    if (step === 1) badge('g-body', 'g-luck', 500, 132, '巧合', '#f5a623');
+    if (step === 4) badge('g-body', 'g-luck', 772, 346, '位数不同就翻车', '#f5a623');
+    sweep('g-body');
   }
 
   var RENDER = {
@@ -1522,9 +1789,11 @@
       // （句间本来就有几十毫秒的接缝，闪一下空白比多留半秒更难看）
       if (hit.index >= 0 && key !== lastKey){       // 句号变了才重画
         lastKey = key;
+        begin();                                  // 开新步：本步没引用的常驻图元随后撤走
         (RENDER[hit.scene.step_id] || function(){})(hit.index);
+        worldFor(hit.scene.step_id, hit.index);   // 主角落位（跨幕延续的那三个数）
+        camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
-        stageFit();                             // 换幕即重新取景（小屏缩放+居中）
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
         el('ch-tag').textContent = segLabel(idx);
         el('ch-title').textContent = hit.scene.content.title || '';

@@ -7,11 +7,9 @@
 推荐每课 1–2 道，长课最多 3 道。不要每节都放一道题来制造“互动感”。
 
 范本 `references/template.html` 是为演示契约写的，对它的 `check_gates.py` 报告不是
-交付基准：五种题型各一道（恒报“超过 3 道”警告）、不带 `audio/` 与 runtime 副本
+交付基准：五种题型各一道（恒报"超过 3 道"警告）、不带 `audio/` 与 runtime 副本
 （静态检查它——`check_gates.py references/template.html`——会恒报三条 error：缺主音频、
-缺 timing、缺 runtime）、
-舞台 A 的落位一次性补间（恒报一条 rAF 警告，正是被允许的用法）。正式交付页不要
-照抄这些形态。
+缺 timing、缺 runtime）。正式交付页不要照抄这些形态。
 
 侧栏参考资料与纯手感实验不产证据。
 

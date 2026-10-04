@@ -781,7 +781,8 @@ def static_check(src: str, *, allow_degraded: bool,
         if sched:
             errors.append(f'renderer {label} 用 {" / ".join(sched)} 排程后续视觉状态')
         if re.search(r'\brequestAnimationFrame\s*\(', bs):
-            warnings.append(f'renderer {label} 使用 requestAnimationFrame：只允许一次性补间，不得推进句序号')
+            warnings.append(f'renderer {label} 使用 requestAnimationFrame：声明式动效（stage.md §3.4）'
+                            f'已覆盖这类补间，改回写目标状态；确要保留则人工确认它不推进句序号')
 
     # 一个 scene 最多挂一个 gate；页面自己的门禁控制器是单槽位，不允许静默覆盖。
     gate_counts = _gate_scene_counts(src, stripped_html)
