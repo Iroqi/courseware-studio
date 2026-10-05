@@ -387,3 +387,162 @@ class TestRealClockBrowser:
                     f"门禁 {g['kind']}@{g['scene']} 继续按钮未启用"
         finally:
             chrome.kill()
+
+# ══ 第六轮：seek / 进度条 × 门禁语义 + 导出门禁抑制（真实时钟回归）══
+# 契约见 interactions.md §4「seek / 进度条与门禁的交互」。核心断言：
+#   越过锚点的 seek 不追溯打断；未答门禁被 seek 撤销后重问；答对后不复出；
+#   rew 重置清空状态；__coursewareShotMode 抑制门禁且不冻结音频。
+_SEEK_PROBE = r"""
+(() => {
+  const report = {ok:false, errors:[], checks:[]};
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const audio = document.getElementById('main-audio');
+  const gate = document.getElementById('gate');
+  const card = () => document.querySelector('#gate-host [data-interaction]:not([hidden])');
+  const gateOpen = () => !gate.hidden && !!card();
+  const gateClosed = () => gate.hidden;
+  const goBtn = document.getElementById('gate-go');
+  const kindOf = () => (card() && card().dataset) ? card().dataset.interactionType : 'none';
+  const step = (name, pass) => report.checks.push({name, pass:!!pass});
+  async function waitGate(ms){
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms){ if (gateOpen()) return true; await sleep(120); }
+    return gateOpen();
+  }
+  async function ans(kind){
+    const k = kindOf();
+    if (k === 'recall'){ card().querySelector('[data-recall-reveal]').click(); }
+    else if (k === 'choice'){ card().querySelector('[data-choice-id="b"]').click(); }
+    else if (k === 'hotspot'){ card().querySelector('[data-hotspot-id="step3"]').click(); }
+    else if (k === 'bucket'){
+      const cfg = JSON.parse(card().dataset.interaction || '{}');
+      const answer = cfg.answer || {};
+      Object.keys(answer).forEach(id => {
+        const item = card().querySelector('.bucket-item[data-bucket-item="'+CSS.escape(id)+'"]');
+        const box = card().querySelector('[data-drop][data-bucket-id="'+CSS.escape(String(answer[id]))+'"]');
+        if (item && box){
+          const r = item.getBoundingClientRect();
+          const tap = {bubbles:true, cancelable:true, pointerId:41, isPrimary:true,
+                       clientX:r.left+r.width/2, clientY:r.top+r.height/2, button:0, pointerType:'mouse'};
+          item.dispatchEvent(new PointerEvent('pointerdown', tap));
+          item.dispatchEvent(new PointerEvent('pointerup', tap));
+          box.click();
+        }
+      });
+      const sb = card().querySelector('[data-bucket-submit]');
+      if (sb) sb.click();
+    }
+    else { report.errors.push('ans: unexpected '+k); return false; }
+    await sleep(300);
+    if (card().dataset.locked !== '1'){ report.errors.push('not locked: '+k); return false; }
+    goBtn.click(); await sleep(450);
+    return gateClosed();
+  }
+  async function run(){
+    audio.playbackRate = 4;
+    audio.currentTime = 0; await audio.play().catch(()=>{});
+    audio.currentTime = 12.5; await sleep(150);                 // recall@seg-2 end
+    if (!(await waitGate(1800) && kindOf()==='recall')){ report.errors.push('recall 未弹出'); }
+    else if (!(await ans('recall'))){ report.errors.push('recall 未答对'); }
+    step('choice 弹出', await waitGate(1800) && kindOf()==='choice');
+    if (!(await ans('choice'))){ report.errors.push('choice 未答对'); }
+    if (!gateClosed()){ report.errors.push('前菜后门禁未关'); }
+    // 主验证：hotspot@seg-4 end
+    audio.currentTime = 21.5; await sleep(900);
+    step('seek 越过锚点不弹', gateClosed());                     // a
+    audio.currentTime = 20.9; await sleep(150);
+    step('回锚点前播放过锚点弹 hotspot', await waitGate(1800) && kindOf()==='hotspot');  // b
+    if (!(await ans('hotspot'))){ report.errors.push('hotspot 未答对'); }
+    audio.currentTime = 5; await sleep(700);
+    step('seek 走收起门禁', gateClosed());                       // c
+    audio.currentTime = 20.8; await sleep(900);
+    step('答对后 seek 回锚点前不复出', gateClosed());            // e
+    // 未答撤销重问：bucket@seg-5 end
+    audio.currentTime = 25.1; await sleep(150);
+    step('bucket 弹出', await waitGate(1800) && kindOf()==='bucket');  // f
+    audio.currentTime = 5; await sleep(800);                    // 不答 seek 走
+    step('未答 bucket seek 走收起', gateClosed());               // g
+    audio.currentTime = 25.1; await audio.play().catch(()=>{}); await sleep(150);
+    step('撤销后 bucket 重问', await waitGate(1800) && kindOf()==='bucket');  // h
+    if (!(await ans('bucket'))){ report.errors.push('bucket 重问后未答对'); }
+    step('答对后 bucket 收起', gateClosed());
+    // 导出门禁抑制。模拟导出截图页语义：页面加载前注入 __coursewareShotMode
+    // （export_video.py SHOT_MODE_FLAG），整页从头到尾无门禁。探针此前若在
+    // 播放中过过 sequence 锚点，preGate 的 setTimeout 已排队——先 rew 复位：
+    // resetGates() 把 gOpen 置 -1，排队回调的 `gOpen === i` 检查随之作废。
+    document.getElementById('rew').click();
+    window.__coursewareShotMode = true;
+    audio.pause();
+    await sleep(1300);                                           // 让任何排队回调过期
+    audio.currentTime = 21.2; await sleep(900);
+    step('shotMode 抑制 hotspot', gateClosed());                 // m
+    audio.currentTime = 25.5; await sleep(900);
+    step('shotMode 抑制 bucket', gateClosed());                  // n
+    audio.currentTime = 26.0; await sleep(900);
+    step('shotMode 抑制 sequence', gateClosed());                // o
+    audio.play().catch(()=>{}); await sleep(700);
+    step('shotMode 下音频不冻结', !audio.paused);                // p
+    audio.pause();
+    report.ok = report.errors.length === 0 && report.checks.every(c => c.pass);
+    window.__rlSeekReport = report;
+    document.title = 'seek ' + (report.ok ? 'PASS' : 'FAIL');
+  }
+  run().catch(e => { report.errors.push('PROBE ' + (e && e.message || String(e)));
+    report.ok = false; window.__rlSeekReport = report; document.title = 'seek FAIL'; });
+})();
+"""
+
+
+@pytest.mark.skipif(os.environ.get("REALCLOCK") != "1",
+                    reason="seek 门禁语义回归需 REALCLOCK=1 显式开启")
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+class TestSeekGateSemantics:
+    """真实时钟下验证 seek/进度条与门禁的交互契约（interactions.md §4）。"""
+
+    def test_seek_gate_semantics_and_shot_mode(self, lesson_project):
+        import websocket
+
+        page_dir, _, _ = lesson_project
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        chrome = subprocess.Popen(
+            [str(HAVE_CHROME), "--headless=new", "--disable-gpu", "--no-sandbox",
+             "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+             "--remote-allow-origins=*", "--autoplay-policy=no-user-gesture-required",
+             f"--remote-debugging-port={port}", "--user-data-dir=" + str(page_dir / "_rlprof2"),
+             (page_dir / "index.html").as_uri()],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            ws = None
+            for _ in range(40):
+                try:
+                    tabs = json.load(urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/json", timeout=2))
+                    tab = [t for t in tabs if t.get("type") == "page"][0]
+                    ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
+                    break
+                except Exception:
+                    time.sleep(0.4)
+            assert ws is not None, "无法连接 CDP"
+
+            def ev(expr):
+                ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                    "params": {"expression": expr, "returnByValue": True}}))
+                while True:
+                    m = json.loads(ws.recv())
+                    if m.get("id") == 1:
+                        return m["result"].get("result", {}).get("value")
+
+            assert ev("document.querySelector('#lesson-timeline') !== null"), "页面未就绪"
+            ev(_SEEK_PROBE)
+            time.sleep(32)
+            rep = ev("window.__rlSeekReport")
+            assert rep is not None, "探针未产出报告"
+            assert rep["ok"], \
+                f"seek 门禁语义回归失败: {json.dumps(rep['errors'], ensure_ascii=False)} " \
+                f"{json.dumps([c for c in rep['checks'] if not c['pass']], ensure_ascii=False)}"
+        finally:
+            chrome.kill()
