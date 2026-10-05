@@ -51,6 +51,13 @@ from check_gates import (  # noqa: E402
 STAGE_PAD = 10          # 标准骨架 .stage 的 padding；窗口按它留边
 EPS = 0.06              # 定格点相对句末的提前量
 SHOT_MODE_FLAG = '<script>window.__coursewareShotMode = true;</script>'
+# new-headless 的 --window-size 高度会被浏览器内部 UI（标签栏等）吃掉一块：
+# 实测 Chromium 146 在 scale=1/2 时布局视口比窗口矮 87/139px。截图页已把
+# #root 钉成 block（见 SNIPPET），舞台恒贴页面左上角，所以窗口高度加一个
+# 安全余量即可保证字幕带（舞台最底部）必然完整进入视口，编码时再按已知的
+# 舞台盒裁掉底部留白。余量必须 ≥ 实际偏移（0–200px 的常见区间都罩得住），
+# 否则字幕又会被视口下沿切掉、成片无声无息地缺字幕。
+WIN_HEIGHT_MARGIN = 300
 
 SNIPPET = """
 <script>
@@ -62,6 +69,7 @@ SNIPPET = """
     '*,*::before,*::after{transition:none!important;animation:none!important}' +
     'body{margin:0;background:#181c25}' +
     '.shell{display:block;padding:0;max-width:none;gap:0}' +
+    '#root{display:block;min-height:0}' +
     '.col-side,.chapter,.rack{display:none!important}' +
     '.stage{border:0!important;border-radius:0;padding:%(pad)dpx}' +
     '#gate,#pregate{display:none!important}';
@@ -386,7 +394,14 @@ def main() -> int:
         raise _fail(f'时间轴最后一句结束于 {last_end:.2f}s，但旁白只有 {wav_dur:.2f}s；拒绝导出截断音画')
     vw, vh = _view_box(src)
     win_w = int(args.width + STAGE_PAD * 2)
-    win_h = int(round(args.width * vh / vw + STAGE_PAD * 2))
+    # 舞台高 = viewBox 比例 × 画布宽 + 两倍 padding；窗口再加 WIN_HEIGHT_MARGIN
+    # 罩住 new-headless 的视口偏移（见常量注释），裁帧时按 stage_h 裁回。
+    stage_h = int(round(args.width * vh / vw + STAGE_PAD * 2))
+    win_h = stage_h + WIN_HEIGHT_MARGIN
+    # 裁剪盒 = 舞台盒 × 设备缩放。页面在截图模式下 #root 被钉成 block、舞台恒贴
+    # (0,0)，所以窗口里比舞台高的部分全是底部留白，裁掉即可得到精确的成品帧。
+    crop_w = win_w * args.scale
+    crop_h = stage_h * args.scale
 
     tmp = Path(tempfile.mkdtemp(prefix='courseware-video-'))
     try:
@@ -431,6 +446,19 @@ def main() -> int:
                 if log.exists():
                     err = log.read_text(encoding='utf-8', errors='replace')[-400:]
                 raise _fail(f'第 {i + 1} 帧截图失败 rc={rc_chrome} {err}')
+            # 裁掉窗口加高产生的底部留白：舞台被 #root{display:block} 钉在页面
+            # 左上角（见 SNIPPET），窗口里比舞台高的部分全是 new-headless 视口
+            # 偏移的余量，不裁会以留白进成片。ffmpeg 不接受输出覆盖自身输入，
+            # 先写临时文件再原子替换。
+            tmp_png = png.with_name(png.name + '.crop.png')
+            r_crop = subprocess.run([
+                ffmpeg, '-y', '-i', str(png), '-vf', f'crop={crop_w}:{crop_h}:0:0',
+                str(tmp_png)], capture_output=True, timeout=120)
+            if r_crop.returncode != 0:
+                err = (r_crop.stderr or b'').decode('utf-8', 'ignore')[-400:]
+                raise _fail(f'第 {i + 1} 帧裁剪失败（截图 {win_w}x{win_h} → '
+                            f'裁剪盒 {crop_w}x{crop_h}）：{err}')
+            os.replace(tmp_png, png)
             digests.append(hashlib.md5(png.read_bytes()).hexdigest())
             frame_scenes.append(scene_idx)
             lines.append(f"file '{quote_ffpath(png.as_posix())}'\nduration {show:.3f}")

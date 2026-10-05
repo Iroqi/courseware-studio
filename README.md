@@ -216,6 +216,11 @@ python -m pytest tests/ -q
   （时间轴 → 组装 → 静态检查 → 浏览器冒烟 → 视频导出），并断言**成片时长 ≈ 旁白
   音频时长**——这个断言在守着一条真实的回归：concat demuxer 对列表尾帧的时长处理
   不可靠，曾让导出视频比音轨长出 4.6 秒；
+- 视频导出另守一条截图路径的回归：new-headless 的 `--window-size` 高度会被
+  浏览器内部 UI 吃掉一块（实测 Chromium 146 视口比窗口矮 87/139px），此前成片
+  字幕带恰好落在视口外、整段缺失。`export_video.py` 现在把截图页的 `#root`
+  钉成 block、窗口加高一个安全余量并在编码前裁回舞台盒（见
+  `scripts/export_video.py` 的 `WIN_HEIGHT_MARGIN` 注释），保证字幕进入成片；
 - `tests/test_narration_e2e.py` 把 fake OpenAI 注入 `sys.modules` 后跑
   `narration.py main()` **完整 CLI**（此前 narration 只有函数级覆盖）：验证对话
   展开、句级节拍（beat pause）、段级变速（--speed 后 duration 重测）、concat
