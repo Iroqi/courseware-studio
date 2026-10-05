@@ -308,6 +308,29 @@ def split_sentences(text):
                 sentences[-1] += s
             continue
         sentences.append(s)
+    # 引号边界归位：引号里的终止符会按标点照切（`他说"你好。"然后走了。`），
+    # 但下一句会以一根孤立闭引号开头（`"然后走了。`）——口播与字幕都会带上
+    # 这根裸引号。规则：一句以闭引号开头、而上一句里同型开引号未闭合（计数为
+    # 奇）时，把闭引号归回上一句。逐句从左到右处理，嵌套引号（'引"中"引'）也
+    # 按最近未闭合配对收敛。
+    _quote_pairs = [('"', '"'), ("'", "'"), ('“', '”'), ('‘', '’'),
+                    ('「', '」'), ('『', '』'), ('《', '》')]
+    fixed = []
+    for s in sentences:
+        while s and fixed:
+            lead = s[0]
+            moved = False
+            for _open, _close in _quote_pairs:
+                if lead == _close and fixed[-1].count(_open) % 2 == 1:
+                    fixed[-1] += lead
+                    s = s[1:]
+                    moved = True
+                    break
+            if not moved:
+                break
+        if s:
+            fixed.append(s)
+    sentences = fixed
     # 不自动合并短句。一个作者终止句就是一个视觉步 / 字幕步。
     # TTS 可能不喜欢过短句，但应告警，让作者主动改稿。
     short = [x for x in sentences if len(x) < 5]

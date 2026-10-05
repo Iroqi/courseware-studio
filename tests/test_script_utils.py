@@ -51,6 +51,27 @@ class TestSplitSentences:
         assert "少于 5 字" in capsys.readouterr().err
         assert sentences[0] == "短。"
 
+    def test_quote_terminal_does_not_leave_dangling_closing_quote(self):
+        # 引号里的句号照切，但闭引号必须归回引号内那句，不能留下
+        # 以孤立引号开头的残句（口播/字幕会带上裸引号）
+        assert su.split_sentences('他说"你好。"然后走了。') == \
+            ['他说"你好。"', "然后走了。"]
+
+    def test_quote_terminal_with_sentence_initial_quote(self):
+        # 开引号起句 + 引号内句号：两句各自完整，不吞并
+        assert su.split_sentences('"第一句。"然后第二句。') == \
+            ['"第一句。"', "然后第二句。"]
+
+    def test_quote_terminal_double_quote_pair(self):
+        # 连续两处引号内句号：闭引号逐对归位
+        assert su.split_sentences('他说"好。"我说"行。"') == \
+            ['他说"好。"', '我说"行。"']
+
+    def test_quote_terminal_nested(self):
+        # 嵌套引号：按最近未闭合配对收敛
+        assert su.split_sentences("他说'我说\"你好。\"'" ) == \
+            ["他说'我说\"你好。\"'"]
+
 
 class TestDecodeTextBlob:
     def test_utf8(self):
