@@ -80,7 +80,12 @@ var GATES = [
 `data-interaction` 配置）。范本里的字段：`scene`（挂哪个场景）、`at`（缺省=场景
 开头，`'end'`=末句播完）、`type`、`preGate`、`q`，加上按题型四选一的题面数据
 `opts` / `spots` / `items` / `seq:{items,correct}`（`recall` 用第五种 `a`=参考答案）
-和可选 `fb`。页面把每一项
+和可选 `fb`。`bucket` 的判定字段在**条目自身**上：每个 `items` 项带
+`correct`（该项应放入的筐 id，范本筐是 `'same'` / `'diff'`）和可选 `feedback`
+（该项答错时单独给的反馈）；**不要**在 `items` 外另写 `answer` / `fb`——
+那是 runtime 的 `data-interaction` 层契约（runtime.md §5），`buildBucket`
+只认条目上的 `correct` / `feedback`；配错格式的后果是门禁开出来没有答案、
+被运行时 fail-closed（`[gate] 门禁打开失败`）。页面把每一项
 翻译成对应卡片的 `data-interaction` JSON 后调用 `window.coursewareStudioWire()`
 重新接线；调用点必须在**揭开门禁浮层之前**——契约抛错时浮层还挂着 `hidden`，
 学习者不会看到一张永远点不动的半开门禁。runtime 的可选文案键（`wrong_text` /
@@ -99,6 +104,23 @@ layout.md §2）。不改成盖在画布上方的悬浮层——那样点击目�
 的触屏通路见 runtime.md §2，别指望手指拖）。
 
 答对后给明确的“继续”按钮，不自动跳走。
+
+### seek / 进度条与门禁的交互
+
+门禁只在**自然播放经过锚点**时打断；进度条拖拽是 seek，不追溯（以下语义
+实测于门禁密集实例，模板 `syncGate` 的 seek 注释同源）：
+
+- 一帧跳 0.5s 以上算 seek；落点已越过锚点的门禁**不追溯打断**——拖进度条到
+  场景中途不会被 at-start 门禁拽回起点；
+- 门禁开着时 seek 走 → 收起并**撤销 shown**：没答对的题再经过锚点应当重问；
+  seek 回到锚点之前同样撤销（倒回去重看会再拦）；**答对过的（gAnswered）
+  不复出**；
+- 进度条按住（scrubbing）期间门禁延后到松手再开：`preGateOpen` 会把
+  `currentTime` 拽回场景起点，和按着进度条的手指抢方向盘；
+- 「重播」（rew）= seek 回 0 + `resetGates()`：shown/answered 全清，
+  重播会重新拦每一道门禁；
+- 导出截图模式（`__coursewareShotMode`，`export_video.py` 注入）：`syncGate`
+  见旗直接 return，门禁既不弹也不冻结音频，成片无门禁浮层。
 
 ## 5. 错答 / 对答状态
 

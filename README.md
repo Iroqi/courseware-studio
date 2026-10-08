@@ -196,3 +196,49 @@ lesson/
 `SKILL.md` 是给模型读的契约（能力边界、四条铁律、工作流），`references/` 里五份文档分别
 讲页面布局、画面渲染、交互门禁、讲稿分句、运行时与检查器。这些是改页面时才需要查的，
 日常使用不必看。
+
+---
+
+## 开发与自测
+
+仓库自带一套不依赖 TTS 密钥 / 网络的 pytest 套件（`tests/`），改脚本后跑一遍：
+
+```bash
+python -m pytest tests/ -q
+```
+
+- 单元测试覆盖分句、编码探测、`.env` 解析、契约校验、时间轴构建、页面对齐门、
+  检查器解析器、导出帧计划等核心逻辑；
+- `narration.py`（TTS 编排，唯一需密钥的模块）用 fake client 零网络零密钥覆盖：
+  分块/对话展开/节拍全局换算、resume 缓存判定（指纹/失败占位/变速标记）、时序
+  累加、静音兜底、致命失败短路、worker 崩溃降级；
+- `tests/test_pipeline_smoke.py` 用范本页面 + 合成音频走完真实 CLI 全链路
+  （时间轴 → 组装 → 静态检查 → 浏览器冒烟 → 视频导出），并断言**成片时长 ≈ 旁白
+  音频时长**——这个断言在守着一条真实的回归：concat demuxer 对列表尾帧的时长处理
+  不可靠，曾让导出视频比音轨长出 4.6 秒；
+- 视频导出另守一条截图路径的回归：new-headless 的 `--window-size` 高度会被
+  浏览器内部 UI 吃掉一块（实测 Chromium 146 视口比窗口矮 87/139px），此前成片
+  字幕带恰好落在视口外、整段缺失。`export_video.py` 现在把截图页的 `#root`
+  钉成 block、窗口加高一个安全余量并在编码前裁回舞台盒（见
+  `scripts/export_video.py` 的 `WIN_HEIGHT_MARGIN` 注释），保证字幕进入成片；
+- `tests/test_narration_e2e.py` 把 fake OpenAI 注入 `sys.modules` 后跑
+  `narration.py main()` **完整 CLI**（此前 narration 只有函数级覆盖）：验证对话
+  展开、句级节拍（beat pause）、段级变速（--speed 后 duration 重测）、concat
+  时长与 manifest 精确一致，并把产物接入 build_timeline → build_page →
+  check_gates 真实下游；`--dry-run` 路径不需 key 不写音频；
+- `tests/test_build_timeline.py` / `test_check_gates.py` 另覆盖两个被 mutation
+  testing 抓出的假绿缺口：`_content_map` 必须滤掉空段再编号（否则 seg-N 与音频
+  侧错位、title/hl 静默丢失）；`_timeline_from_html` 对"script 块存在但 JSON
+  损坏"必须返回错误而非静默放行；
+- `tests/test_audio.py` 另覆盖 concat 的**混格式归一**路径（TTS 48kHz 立体声 +
+  静音占位 24kHz 单声道混列时必须先统一格式再拼接，否则时长错乱）；
+- **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
+  从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
+  `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴
+  一致、五类门禁真实开/锁/继续、答对后音频真实恢复（需 Chromium/Edge 与
+  websocket-client）：
+  ```bash
+  REALCLOCK=1 python -m pytest tests/test_pipeline_smoke.py::TestRealClockBrowser -q
+  ```
+- 没有 Chrome/Edge 时浏览器冒烟与导出用例自动跳过，静态链路仍必须通过；
+- CI（`.github/workflows/ci.yml`）在 Ubuntu 上装好 ffmpeg 与 Chrome 后全量执行。

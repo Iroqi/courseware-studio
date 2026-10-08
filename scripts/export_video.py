@@ -51,6 +51,13 @@ from check_gates import (  # noqa: E402
 STAGE_PAD = 10          # 标准骨架 .stage 的 padding；窗口按它留边
 EPS = 0.06              # 定格点相对句末的提前量
 SHOT_MODE_FLAG = '<script>window.__coursewareShotMode = true;</script>'
+# new-headless 的 --window-size 高度会被浏览器内部 UI（标签栏等）吃掉一块：
+# 实测 Chromium 146 在 scale=1/2 时布局视口比窗口矮 87/139px。截图页已把
+# #root 钉成 block（见 SNIPPET），舞台恒贴页面左上角，所以窗口高度加一个
+# 安全余量即可保证字幕带（舞台最底部）必然完整进入视口，编码时再按已知的
+# 舞台盒裁掉底部留白。余量必须 ≥ 实际偏移（0–200px 的常见区间都罩得住），
+# 否则字幕又会被视口下沿切掉、成片无声无息地缺字幕。
+WIN_HEIGHT_MARGIN = 300
 
 SNIPPET = """
 <script>
@@ -62,6 +69,7 @@ SNIPPET = """
     '*,*::before,*::after{transition:none!important;animation:none!important}' +
     'body{margin:0;background:#181c25}' +
     '.shell{display:block;padding:0;max-width:none;gap:0}' +
+    '#root{display:block;min-height:0}' +
     '.col-side,.chapter,.rack{display:none!important}' +
     '.stage{border:0!important;border-radius:0;padding:%(pad)dpx}' +
     '#gate,#pregate{display:none!important}';
@@ -380,12 +388,20 @@ def main() -> int:
     last_end = sentences[-1][0] + sentences[-1][1]
     if abs(last_end - wav_dur) > 0.5:
         print(f'[warn] 时间轴结束点 {last_end:.2f}s 与音频 {wav_dur:.2f}s 相差 '
-              f'{abs(last_end - wav_dur):.2f}s：-shortest 会截掉较长一侧，成片可能音画不齐')
+              f'{abs(last_end - wav_dur):.2f}s：-shortest 对 concat demuxer 并不可靠，'
+              '成片音画可能不齐（混流后有时长断言兜底，超 0.35s 会直接失败）')
     if last_end > wav_dur + 0.05:
         raise _fail(f'时间轴最后一句结束于 {last_end:.2f}s，但旁白只有 {wav_dur:.2f}s；拒绝导出截断音画')
     vw, vh = _view_box(src)
     win_w = int(args.width + STAGE_PAD * 2)
-    win_h = int(round(args.width * vh / vw + STAGE_PAD * 2))
+    # 舞台高 = viewBox 比例 × 画布宽 + 两倍 padding；窗口再加 WIN_HEIGHT_MARGIN
+    # 罩住 new-headless 的视口偏移（见常量注释），裁帧时按 stage_h 裁回。
+    stage_h = int(round(args.width * vh / vw + STAGE_PAD * 2))
+    win_h = stage_h + WIN_HEIGHT_MARGIN
+    # 裁剪盒 = 舞台盒 × 设备缩放。页面在截图模式下 #root 被钉成 block、舞台恒贴
+    # (0,0)，所以窗口里比舞台高的部分全是底部留白，裁掉即可得到精确的成品帧。
+    crop_w = win_w * args.scale
+    crop_h = stage_h * args.scale
 
     tmp = Path(tempfile.mkdtemp(prefix='courseware-video-'))
     try:
@@ -430,6 +446,19 @@ def main() -> int:
                 if log.exists():
                     err = log.read_text(encoding='utf-8', errors='replace')[-400:]
                 raise _fail(f'第 {i + 1} 帧截图失败 rc={rc_chrome} {err}')
+            # 裁掉窗口加高产生的底部留白：舞台被 #root{display:block} 钉在页面
+            # 左上角（见 SNIPPET），窗口里比舞台高的部分全是 new-headless 视口
+            # 偏移的余量，不裁会以留白进成片。ffmpeg 不接受输出覆盖自身输入，
+            # 先写临时文件再原子替换。
+            tmp_png = png.with_name(png.name + '.crop.png')
+            r_crop = subprocess.run([
+                ffmpeg, '-y', '-i', str(png), '-vf', f'crop={crop_w}:{crop_h}:0:0',
+                str(tmp_png)], capture_output=True, timeout=120)
+            if r_crop.returncode != 0:
+                err = (r_crop.stderr or b'').decode('utf-8', 'ignore')[-400:]
+                raise _fail(f'第 {i + 1} 帧裁剪失败（截图 {win_w}x{win_h} → '
+                            f'裁剪盒 {crop_w}x{crop_h}）：{err}')
+            os.replace(tmp_png, png)
             digests.append(hashlib.md5(png.read_bytes()).hexdigest())
             frame_scenes.append(scene_idx)
             lines.append(f"file '{quote_ffpath(png.as_posix())}'\nduration {show:.3f}")
@@ -451,11 +480,44 @@ def main() -> int:
             print(f'[warn] 第 {first_other + 1} 帧（已换场）与第 1 帧完全相同：'
                   '页面可能没等到音频就绪（seek 未生效），开头几秒会是静止画面；'
                   '用 --keep 复查帧，必要时放慢音频或预加载', file=sys.stderr)
+        # 帧列表必须覆盖整条音轨，且成片时长精确等于音频时长。concat demuxer 对
+        # 末尾条目的时长处理不可靠（末项 duration 被忽略、末帧按内部规则续播，
+        # 实测随条目数/前序时长漂移），因此：
+        #   1) 循环已给每帧写了 duration，这里再补一行"末帧无 duration"的重复项，
+        #      让视频流**只多不少**地覆盖到音轨末尾——缺它时末帧会被 demuxer 截短，
+        #      成片尾部音画错位（音频被一起截短是静默的，比多出静帧更难发现）；
+        #   2) 时长控制在下方"混流 + 流拷贝二次裁剪"两步完成（见该处注释），
+        #      这里不再用 -t / -shortest 参与混流。
         lines.append(f"file '{quote_ffpath((frames / f'shot_{len(plan) - 1:03d}.png').as_posix())}'")
         listf = tmp / 'list.txt'
         # 恒 LF：Windows 裸写会翻译 CRLF，concat demuxer 对行尾 \r 的容忍是
         # "实测恰好没事"级别的；与 _audio.concat_audio 同一约定。
         write_text_atomic(str(listf), '\n'.join(lines))
+
+        # 混流先落隐藏临时文件、验证通过再原子替换：成片若带尾帧缺陷（视频比
+        # 音轨长出一截或短了一截）不能留在交付位置。
+        #   1) 帧列表结构：循环给每帧写了 duration，末尾再补一行"末帧无 duration"
+        #      的重复项——concat demuxer 会忽略**列表最后一条**的 duration（实测按
+        #      条目数/前序时长给末帧续播一个不确定的时长），补重复项能让"真正的
+        #      末帧"退居倒数第二条，其 duration 被 demuxer 用作重复项的起始时间，
+        #      从而保证视频流 ≥ 音轨长度（只多不少）；
+        #   2) 混流不要带 -t / -shortest：-shortest 对 concat demuxer 实测不裁尾巴
+        #      （"最短输入"判定拿不到可靠 EOF）；-t 会让 concat 视频流提前结束
+        #      （115.2s 的合成被截成 112.73s）；二者同用触发提前截断更严重
+        #      （112.77s）。正确做法是先无约束混流，再用流拷贝二次裁剪；
+        #   3) 二次裁剪：ffmpeg -t <wav_dur> -c copy（只重封装、秒级完成），
+        #      把视频精确压到音频长度（末尾最多多一帧 0.03s 的容差）；
+        #   4) 裁剪后断言 |成片时长 − 音频时长| ≤ 0.35s：若 concat 把视频流压得
+        #      比音频还短，裁剪救不了（会把音频一起截短），必须显式失败而非静默交付。
+        mux_tmp = out.with_name(out.name + '.mux.tmp.mp4')
+        trim_tmp = out.with_name(out.name + '.trim.tmp.mp4')
+
+        def _cleanup_tmp():
+            for p in (mux_tmp, trim_tmp):
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
 
         try:
             r = subprocess.run([
@@ -465,13 +527,40 @@ def main() -> int:
                 '-r', str(args.fps), '-pix_fmt', 'yuv420p',
                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
                 '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
-                '-shortest', str(out)], capture_output=True, timeout=1800)
+                str(mux_tmp)], capture_output=True, timeout=1800)
         except subprocess.TimeoutExpired:
+            _cleanup_tmp()
             raise _fail('最终编码超过 1800s 未归，中止（--keep 复查帧与 list.txt）')
         if r.returncode != 0:
+            _cleanup_tmp()
             err = (r.stderr or b'').decode('utf-8', 'ignore')[-1200:]
             raise _fail(f'ffmpeg 编码失败：{err}')
-        print(f'[done] {out}  {_media_dur(out, ffmpeg):.1f}s  '
+        try:
+            r2 = subprocess.run([
+                ffmpeg, '-y', '-i', str(mux_tmp), '-t', f'{wav_dur:.3f}',
+                '-c', 'copy', str(trim_tmp)], capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            _cleanup_tmp()
+            raise _fail('成片时长裁剪超过 600s 未归，中止（--keep 复查帧与 list.txt）')
+        if r2.returncode != 0:
+            _cleanup_tmp()
+            err = (r2.stderr or b'').decode('utf-8', 'ignore')[-1200:]
+            raise _fail(f'ffmpeg 时长裁剪失败：{err}')
+        out_dur = _media_dur(trim_tmp, ffmpeg)
+        if abs(out_dur - wav_dur) > 0.35:
+            _cleanup_tmp()
+            direction = '比旁白音频长' if out_dur > wav_dur else '比旁白音频短'
+            raise _fail(f'成片时长 {out_dur:.2f}s {direction} {wav_dur:.2f}s '
+                        f'（相差 {abs(out_dur - wav_dur):.2f}s）：画面与音轨不同步。'
+                        '请用 --keep 复查 concat 列表（list.txt）与帧计划——'
+                        '若视频比音频短，说明 concat demuxer 截短了末帧，'
+                        '成片尾部旁白会被一起截掉，必须修复后重导')
+        os.replace(trim_tmp, out)
+        try:
+            mux_tmp.unlink()
+        except OSError:
+            pass
+        print(f'[done] {out}  {out_dur:.1f}s  '
               f'{out.stat().st_size / 1e6:.1f} MB')
     finally:
         if args.keep:

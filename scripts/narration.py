@@ -699,6 +699,24 @@ def _mk_hidden_wav(directory, prefix):
     return path
 
 
+def _accumulate_start_times(sentence_data, gaps):
+    """每句起始时间：拼接实测时长 + 逐边界静音累加（时间轴的唯一来源）。
+
+    与 concat_audio 的列表构造共用同一份 gap 语义：gaps[i] 插在片段 i 与
+    i+1 之间（_audio.concat_audio 每写一条 clip 后跟一条对应静音）。抽出成
+    纯函数供测试直接断言，_finalize_audio 只负责把它落进 manifest。
+    返回与 sentence_data 等长的起始时间列表。
+    """
+    cumulative = 0.0
+    starts = []
+    for i, sd in enumerate(sentence_data):
+        starts.append(round(cumulative, 3))
+        cumulative += sd["duration"]
+        if i < len(gaps):
+            cumulative += gaps[i]
+    return starts
+
+
 def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
                     silence_fallback_count, total_sentences, cached_count,
                     sentence_pauses=None):
@@ -745,12 +763,10 @@ def _finalize_audio(args, ffmpeg_path, sentence_data, source_data, seg_config,
     print(f"[done] 总时长 {total_dur:.2f}s", flush=True)
 
     # 每句起始时间：拼接实测时长 + 逐边界静音累加（时间轴的唯一来源）。
-    cumulative = 0.0
-    for i, sd in enumerate(sentence_data):
-        sd["start_time"] = round(cumulative, 3)
-        cumulative += sd["duration"]
-        if i < len(gaps):
-            cumulative += gaps[i]
+    starts = _accumulate_start_times(sentence_data, gaps)
+    for sd, start in zip(sentence_data, starts):
+        sd["start_time"] = start
+    cumulative = starts[-1] + sentence_data[-1]["duration"] if sentence_data else 0.0
 
     # 时间轴按各句实测时长累加，combined.wav 由 concat 产出（_audio 探测到格式
     # 不统一会自动重编码）。两者对不上说明拼接或测时有问题——逐句时间会整体漂移。

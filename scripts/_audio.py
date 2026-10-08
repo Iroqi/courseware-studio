@@ -42,12 +42,16 @@ def _wav_duration(audio_path):
     （调用方回退 ffmpeg -i 路径）。
     """
     try:
-        with wave.open(audio_path, "rb") as w:
+        # wave.open 只认 str（Python 3.12 起把 Path 当文件对象直接 .read() 崩
+        # AttributeError，且它不在 (wave.Error, OSError) 捕获内）——调用方可能
+        # 传 Path（export_video._media_dur 显式 str()，但 narration 内部路径多为
+        # str/Path 混用），这里 os.fspath 归一，解析失败按契约返回 None 而非裸崩。
+        with wave.open(os.fspath(audio_path), "rb") as w:
             frames = w.getnframes()
             rate = w.getframerate()
             if frames > 0 and rate > 0:
                 return frames / float(rate)
-    except (wave.Error, OSError):
+    except (wave.Error, OSError, TypeError):
         pass
     return None
 
@@ -65,6 +69,11 @@ def measure_duration(ffmpeg_path, audio_path):
     wav_dur = _wav_duration(audio_path)
     if wav_dur is not None:
         return wav_dur
+    # WAV 精确路径没走到 → 需要 ffmpeg -i 兜底；ffmpeg 缺失时按契约返回 0.0
+    # （调用方视 0.0 为无效），而不是让 subprocess 拿 None 当命令裸崩 TypeError——
+    # _run_ffmpeg 只接 TimeoutExpired/OSError，接不住 TypeError。
+    if not ffmpeg_path:
+        return 0.0
     result = _run_ffmpeg([ffmpeg_path, "-i", audio_path], 30)
     if result is None:
         print(f"  [duration] ffmpeg -i 超时或无法运行 on {audio_path}",
@@ -92,18 +101,21 @@ def generate_silence(ffmpeg_path, duration, out_path, rate=24000, channels=1):
     已经按"异常=兜底失败"处理，能正确走 skip 路径，不会带着坏文件错位时间轴。
     """
     layout = {1: "mono", 2: "stereo"}.get(channels, f"{channels}c")
-    result = _run_ffmpeg([
-        ffmpeg_path, "-y", "-f", "lavfi",
-        "-i", f"anullsrc=r={rate}:cl={layout}",
-        "-t", str(duration), "-ar", str(rate), "-ac", str(channels), out_path
-    ], 30)
-    if (result is not None and result.returncode == 0
-            and os.path.exists(out_path) and os.path.getsize(out_path) > 0):
-        return
+    if ffmpeg_path:
+        result = _run_ffmpeg([
+            ffmpeg_path, "-y", "-f", "lavfi",
+            "-i", f"anullsrc=r={rate}:cl={layout}",
+            "-t", str(duration), "-ar", str(rate), "-ac", str(channels), out_path
+        ], 30)
+        if (result is not None and result.returncode == 0
+                and os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+            return
     # Fallback: write silent WAV via Python wave module (no ffmpeg lavfi needed)
     try:
         n_frames = int(duration * rate)
-        with wave.open(out_path, "wb") as w:
+        # wave.open 只认 str/文件对象（Path 会当文件对象用直接崩），与
+        # _wav_duration 同一处 os.fspath 归一。
+        with wave.open(os.fspath(out_path), "wb") as w:
             w.setnchannels(channels)
             w.setsampwidth(2)  # 16-bit
             w.setframerate(rate)
@@ -147,7 +159,9 @@ def apply_speed(ffmpeg_path, wav_path, speed):
     ——那套机制是为"反复在同一文件上换速"设计的，而那种情况在本流程里不会出现。
     """
     filt = build_atempo_filter(speed)
-    tmp = wav_path + ".spd.tmp.wav"
+    # 路径拼接必须落 str：wav_path 可能是 Path（调用方混用 str/Path），
+    # Path + str 会裸崩 TypeError——与 _wav_duration 同一处 os.fspath 归一。
+    tmp = os.fspath(wav_path) + ".spd.tmp.wav"
     result = _run_ffmpeg([
         ffmpeg_path, "-y", "-i", wav_path,
         "-filter:a", filt,
