@@ -9,6 +9,8 @@
 
 不需要服务器、不需要构建、不需要账号——成品是一个目录，双击 `index.html` 就能放。
 
+![CI](https://github.com/Iroqi/courseware-studio/actions/workflows/ci.yml/badge.svg)
+
 这是一个 Claude Code / Agent 环境的 **skill**：`SKILL.md` 是给模型读的契约，本 README 是
 给人的。你不需要理解它内部怎么拼页面，只需要知道**该给它什么信息**。
 
@@ -241,4 +243,16 @@ python -m pytest tests/ -q
   REALCLOCK=1 python -m pytest tests/test_pipeline_smoke.py::TestRealClockBrowser -q
   ```
 - 没有 Chrome/Edge 时浏览器冒烟与导出用例自动跳过，静态链路仍必须通过；
-- CI（`.github/workflows/ci.yml`）在 Ubuntu 上装好 ffmpeg 与 Chrome 后全量执行。
+- **无 TTS key 看成品**：`scripts/demo_lesson.py` 用范本讲稿 + ffmpeg 合成占位音轨
+  跑通真实 CLI 全链路（时间轴 → 组装 → 交付检查 → 可选导出），不需要 MiMo key、
+  不碰网络——输出目录默认在系统临时目录，显式 `--out` 也不能落在技能目录内：
+  ```bash
+  python scripts/demo_lesson.py                     # 成品在系统临时目录
+  python scripts/demo_lesson.py --out ./demo        # 成品在 ./demo/lesson/
+  python scripts/demo_lesson.py --out ./demo --export   # 额外导出 ./demo/lesson.mp4
+  ```
+  占位音轨只保证时长与时间轴一致，听感不真实，用途是"本地看成品结构"；
+- CI（`.github/workflows/ci.yml`）在 Ubuntu 上装好 ffmpeg 与 Chrome 后全量执行：
+  Python 3.10 / 3.11 / 3.12 矩阵跑完整套件（含浏览器冒烟与导出），并额外以
+  `REALCLOCK=1` 跑真实时钟回归（字幕翻句延迟、任意采样点字幕一致、门禁真实
+  开/锁/继续、seek 门禁语义与截图模式）。变更记录见 `CHANGELOG.md`。

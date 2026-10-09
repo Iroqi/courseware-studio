@@ -189,6 +189,7 @@ python scripts/export_video.py <页面目录> -o out.mp4 --keep   # 保留逐帧
 | `scripts/interactive_runtime.js` | 交互手势与放行 runtime |
 | `scripts/check_gates.py` | 交付检查（静态 + 浏览器冒烟） |
 | `scripts/export_video.py` | 逐句截帧导出 MP4 |
+| `scripts/demo_lesson.py` | 无 TTS key 构建样例课件（开发 / 演示用，不属于课件制作工作流） |
 
 ## 11. 交付前检查
 
