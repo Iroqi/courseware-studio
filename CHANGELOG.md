@@ -3,6 +3,17 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.3.1] - 2026-10-10
+
+### 修复
+
+- **CI 工作流实际跑不通**（0.2.0 引入）：`actions/setup-python@v5` 的 `cache: pip`
+  要求仓库存在 `requirements.txt` 或 `pyproject.toml`（此前两者皆无），且工作流漏装
+  `pytest`（runner 镜像不自带）——两轮推送的 CI 全部在 `Set up Python` 步失败。
+  修复：新增 `requirements-dev.txt`（pytest + websocket-client），
+  `setup-python` 配 `cache-dependency-path`，安装步骤改 `pip install -r`；
+  并补 `workflow_dispatch` 手动触发入口。
+
 ## [0.3.0] - 2026-10-10
 
 ### 新增

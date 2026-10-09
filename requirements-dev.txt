@@ -1,0 +1,5 @@
+# 开发 / 测试依赖（CI 与本地跑 tests/ 共用；产品脚本零第三方依赖——
+# narration.py 的 openai 客户端在测试里用 fake 注入，不在此列）。
+# 安装：pip install -r requirements-dev.txt
+pytest
+websocket-client

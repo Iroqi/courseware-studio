@@ -208,6 +208,7 @@ lesson/
 仓库自带一套不依赖 TTS 密钥 / 网络的 pytest 套件（`tests/`），改脚本后跑一遍：
 
 ```bash
+pip install -r requirements-dev.txt   # 首次：pytest + websocket-client（真实时钟回归用）
 python -m pytest tests/ -q
 ```
 
