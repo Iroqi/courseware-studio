@@ -182,7 +182,11 @@ def test_speaker_label_renders(speaker_lesson):
             try:
                 tabs = json.load(urllib.request.urlopen(
                     f"http://127.0.0.1:{port}/json", timeout=2))
-                tab = [t for t in tabs if t.get("type") == "page"][0]
+                # 优先选中目标页：headless 可能带出 about:blank 等附加 page tab，
+                # 只认 URL 含 index.html 的那一个（首个 page tab 可能是空页）。
+                pages = [t for t in tabs if t.get("type") == "page"]
+                tab = next((t for t in pages if "index.html" in t.get("url", "")),
+                           pages[0] if pages else None)
                 ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
                 break
             except Exception:
@@ -197,8 +201,15 @@ def test_speaker_label_renders(speaker_lesson):
                 if m.get("id") == 1:
                     return m["result"].get("result", {}).get("value")
 
-        assert ev("document.querySelector('#lesson-timeline') !== null"), \
-            "页面未就绪"
+        # 页面就绪要轮询：CI 上页面解析可能比 CDP 连上慢一拍，单次断言会假失败。
+        ready = None
+        for _ in range(60):
+            ready = ev("document.readyState === 'complete' && "
+                       "document.querySelector('#lesson-timeline') !== null")
+            if ready:
+                break
+            time.sleep(0.4)
+        assert ready, "页面未就绪"
         # 探针：桩住 currentTime（与 check_gates 同一手法），seek 到 seg-1 第一句
         probe = r"""
 (function(){

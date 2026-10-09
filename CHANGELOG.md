@@ -13,6 +13,9 @@
   修复：新增 `requirements-dev.txt`（pytest + websocket-client），
   `setup-python` 配 `cache-dependency-path`，安装步骤改 `pip install -r`；
   并补 `workflow_dispatch` 手动触发入口。
+- **speaker 浏览器测试在 CI 慢环境下假失败**：页面就绪改为轮询
+  （`readyState === 'complete'` + 时间轴已注入），并按 URL 选中目标 tab
+  （headless 可能带出 about:blank 附加页）。
 
 ## [0.3.0] - 2026-10-10
 
