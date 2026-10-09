@@ -81,7 +81,8 @@ def test_demo_page_uses_template_contract(tmp_path):
     r = _run_demo(tmp_path / "out")
     assert r.returncode == 0, r.stderr + r.stdout
     html = (tmp_path / "out" / "lesson" / "index.html").read_text(encoding="utf-8")
-    for hook in ('id="lesson-timeline"', 'id="cap-text"', 'id="main-audio"',
-                 'id="gate"', 'id="gate-host"', 'id="gate-next"', 'id="gate-go"',
-                 'id="pregate"', 'id="stage"', "window.__coursewareRenderTrace"):
+    for hook in ('id="lesson-timeline"', 'id="cap-text"', 'id="cap-speaker"',
+                 'id="main-audio"', 'id="gate"', 'id="gate-host"', 'id="gate-next"',
+                 'id="gate-go"', 'id="pregate"', 'id="stage"',
+                 "window.__coursewareRenderTrace"):
         assert hook in html, f"成品页缺少 QA 钩子：{hook}"

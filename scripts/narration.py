@@ -490,15 +490,18 @@ def _resume_decision(out_path, ffmpeg_path, text, voice_id, voice_style, model,
 # ===================================================================
 def _build_parser():
     parser = argparse.ArgumentParser(description="courseware-studio TTS 能力（旁白 → 音频 + 时间轴）")
-    parser.add_argument("--source", required=True,
+    parser.add_argument("--source", default=None,
                         help="旁白脚本 JSON（{title, segments:[{id,title,text}]}）。"
-                             "逐段独立分句，直接产出带段落分组的时间轴，Agent 手写即可。")
+                             "逐段独立分句，直接产出带段落分组的时间轴，Agent 手写即可。"
+                             "（--list-voices 时不需要）")
     parser.add_argument("-o", "--output", default=None, help="输出目录")
     parser.add_argument("--api-key", default=None,
                         help="MiMo TTS API key。建议不传、由 .env 提供 MIMO_API_KEY："
                              "命令行参数会出现在进程列表与 shell 历史里，等于泄密")
     parser.add_argument("--voice-id", default="冰糖", choices=VOICE_IDS,
                         help="音色（默认 冰糖）")
+    parser.add_argument("--list-voices", action="store_true",
+                        help="列出内置音色并退出（不需要 --source、不调 TTS、不需要 key）")
     parser.add_argument("--voice-style",
                         default="专业新闻播报，语速适中，语气沉稳自信，中英文表达流畅自然",
                         help="音色风格描述")
@@ -530,6 +533,10 @@ def _build_parser():
 
 
 def _validate_args(parser, args):
+    if not args.source and not args.list_voices:
+        parser.error("缺少 --source（旁白脚本 JSON；--list-voices 不需要它）")
+    if args.list_voices:
+        return
     try:
         validate_speed(args.speed)
     except ValueError as e:
@@ -1040,6 +1047,12 @@ def main():
     parser = _build_parser()
     args = parser.parse_args()
     _validate_args(parser, args)
+
+    if args.list_voices:
+        print("内置音色（--voice-id 可选项，--voice-style 可自由描述风格）：")
+        for v in VOICE_IDS:
+            print(f"  · {v}" + ("  ← 默认" if v == "冰糖" else ""))
+        return 0
 
     if not args.output and not args.dry_run:
         parser.error("缺少 -o/--output（--dry-run 不需要）")

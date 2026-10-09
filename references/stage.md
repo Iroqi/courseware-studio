@@ -173,9 +173,16 @@ if (step === 4) flashOnce();
 
 ```html
 <text id="cap-text" data-courseware-caption="1"></text>
+<text id="cap-speaker"></text>   <!-- 可选：对话课的说话人标签 -->
 ```
 
 每次 `sentAt(t)` 返回当前句时，把该句对象交给 `capShow()`。页面不维护第二份字幕表。
+
+说话人标签（`#cap-speaker`）是同一句数据的**派生视图**：`capShow()` 把
+`s.speaker`（对话讲稿经 `build_timeline.py` 透传的说话人 label，见 `script.md` §1）
+写进标签，句子没有 `speaker` 时留空。它**不碰 `#cap-text`**——QA 比对的是字幕
+节点本身，标签不改变"字幕唯一来源"的契约；标签文案也只是称呼（人名 / 角色），
+不得复制旁白正文。
 
 两条 QA 会机械校验的约定：
 

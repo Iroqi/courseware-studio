@@ -426,6 +426,7 @@
      例外：字幕 17→26 只提 ×1.53——整行长文，按 1.7 档放到 29px 就会换行压图。
      这里只读 html[data-compact]；开关的唯一判定与理由见 JS 的 setCompact()。 */
   html[data-compact="1"] #cap-text{font-size:26px}
+  html[data-compact="1"] #cap-speaker{font-size:24px}
   html[data-compact="1"] .stage svg text[font-size="14"]{font-size:28px}
   html[data-compact="1"] .stage svg text[font-size="17"]{font-size:29px}
   html[data-compact="1"] .stage svg text[font-size="27"]{font-size:35px}
@@ -563,6 +564,8 @@
                宽度撑满、居中，像视频硬字幕 —— 它是画面的一部分，不是页面元素。 -->
           <g id="cap" class="el">
             <line x1="40" y1="404" x2="960" y2="404" stroke="#232a38" stroke-width="1"/>
+            <text id="cap-speaker" x="44" y="438" text-anchor="start"
+                  font-size="15" font-weight="700" fill="#8fa1b8"></text>
             <text id="cap-text" data-courseware-caption="1" x="500" y="438" text-anchor="middle"
                   font-size="17" font-weight="600" fill="#c9d1e0"></text>
           </g>
@@ -1317,12 +1320,17 @@
   // 红/绿那套语义色留给画面本身，字幕带不做第二套颜色编码。
   /** 写一条字幕：**文案就是这一句本身**，页面里不留第二份。
    *  只有开场前 / 课程结束时传 null 收起；场景与句间空档不调用本函数，
-   *  字幕停在上一句上（不清空、不闪白，见 stage.md §4） */
+   *  字幕停在上一句上（不清空、不闪白，见 stage.md §4）。
+   *  说话人标签是同一句数据的派生视图：`#cap-speaker` 显示 `s.speaker`
+   *  （对话讲稿由 build_timeline 从 speakers[label] 透传，见 script.md §1），
+   *  无 speaker 时留空——它不碰 `#cap-text`，字幕唯一来源的契约不受影响。 */
   function capShow(s){                     // s = sentAt() 返回的当前句；null = 收起
     if (!s || !s.text){ show('cap', false); return; }
     var t = el('cap-text');
     t.textContent = s.text;
     t.setAttribute('fill', s.hl ? '#f5a623' : '#c9d1e0');
+    var sp = el('cap-speaker');
+    if (sp){ sp.textContent = s.speaker || ''; }
     show('cap', true);
   }
 

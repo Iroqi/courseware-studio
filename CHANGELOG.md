@@ -3,6 +3,30 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.3.0] - 2026-10-10
+
+### 新增
+
+- **范本落地多说话人标签**（`references/template.html`）：字幕带新增
+  `#cap-speaker`，`capShow()` 按句子的 `speaker`（对话讲稿经 build_timeline 透传）
+  显示说话人，无 speaker 时留空；与 `#cap-text` 分离，字幕唯一来源契约不受影响
+  （`references/stage.md` §4 与 `script.md` §1 同步说明）。
+- **`narration.py --list-voices`**：无 key、无讲稿即可列出内置八种音色与默认值
+  （此前音色表只藏在 argparse choices 里）。
+- **`.editorconfig`**：全仓统一 UTF-8 / LF / 尾随空白与末行换行规范。
+- **契约锁定测试**（`tests/test_iteration_round2.py`）：
+  - `check_gates.py` 对范本页面的文档化行为（恰好 3 条 error + 超 3 道门禁
+    warning）——防检查器漂移把范本误判成可交付；
+  - speaker 标签真实浏览器渲染（CDP 驱动，字幕纯净 + 标签正确）；
+  - `--list-voices` 的 CLI 承诺（无需 key / source / output）。
+
+### 变更
+
+- CI：新增 `concurrency`（同分支新推送取消旧一轮）与 `timeout-minutes: 30`。
+- `README.md`：特性清单补说话人标签；音色说明补 `--list-voices` 提示。
+- `references/script.md`：TTS 开关补 `--list-voices`；对话段落补范本落地说明。
+- `tests/test_demo_lesson.py`：QA 钩子清单加入 `#cap-speaker`。
+
 ## [0.2.0] - 2026-10-09
 
 ### 新增

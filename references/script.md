@@ -65,7 +65,8 @@
 在 turn 对象上自写 `voice_id` / `voice_style` 会被**当场拒收**（键名与 speakers 里
 完全同款，静默丢弃等于"以为换了声、成品里听不出"——要换声改 speakers 配置）。
 落成的时间轴句子条目带 `speaker`（即 `label`），
-`build_timeline.py` 透传为 `runtime.narration[i].speaker`，页面可用它标"谁在说"；
+`build_timeline.py` 透传为 `runtime.narration[i].speaker`；范本字幕带已实现说话人标签
+（`#cap-speaker`，见 `stage.md` §4——标签与 `#cap-text` 分离，不破坏字幕唯一来源）；
 manifest 的句子条目另带该句**实际使用**的 `voice_id`（顶层 `voice_id` 只是 CLI 默认值，
 多说话人成品要审计"这句是谁的声音"看逐句字段；`build_timeline.py` 不透传它进页面时间轴）；
 `hl` 仍按**整段总句序**从 1 数起，跨轮连续计数。
@@ -156,7 +157,8 @@ audio/narration_timing.json
 常用开关：`--dry-run`、`--resume`、`--clean-output`、`--speed`、`--gap`（句间静音，默认 0.4s，上限
 10s——超过直接拒绝，别指望用它做长停顿）、段级 `speed` / `voice_id` / `voice_style`、`--on-fail silence`；
 其余开关（`--workers`、`--api-timeout`、`--model`、`--base-url` 等）见 `--help`。
-`voice_id` 会对着内置音色表校验（段落与 `speakers` 都查），写错立即失败并列出可用音色。
+`voice_id` 会对着内置音色表校验（段落与 `speakers` 都查），写错立即失败并列出可用音色；
+不确定选哪个音色先用 `python scripts/narration.py --list-voices` 看全表（无 key、无讲稿即可）。
 
 语速优先级：`segments[].beat[句].speed` > `segments[].speed` > 全局 `--speed`；
 `opening_speed` / `closing_speed`（顶层键）单独覆盖开场与收尾，缺省时它们**跟随全局 `--speed`**（不钉死 1.0）。要"开场略慢"就写一个小于当前语速的值。
