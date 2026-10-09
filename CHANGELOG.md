@@ -16,6 +16,14 @@
 - **speaker 浏览器测试在 CI 慢环境下假失败**：页面就绪改为轮询
   （`readyState === 'complete'` + 时间轴已注入），并按 URL 选中目标 tab
   （headless 可能带出 about:blank 附加页）。
+- **测试浏览器优先级与生产查找器错位**：`HAVE_CHROME` 此前把
+  `/usr/bin/chromium`（Ubuntu 24.04 的 snap 过渡包，冷启动不稳）排第一，
+  导致同一台机器上部分用例连不上 CDP。统一改为 google-chrome 优先
+  （与 `check_gates._find_chrome` 一致）；连接循环加进程存活检查并把
+  stderr 落盘供诊断，`finally` 清理不再掩盖真实失败（kill + 静默超时）。
+- **真实时钟回归的翻句延迟断言在 CI 负载下假阳**：单点 204ms 超 200ms
+  硬上限。改为 90 分位 ≤200ms + 硬上限 500ms——仍拦"秒级卡死"类回归，
+  但不因 4ms 抖动红掉整个 job。
 
 ## [0.3.0] - 2026-10-10
 

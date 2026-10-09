@@ -23,7 +23,10 @@ import pytest
 
 from conftest import REPO, SCRIPTS, TEMPLATE_HTML
 
-HAVE_CHROME = shutil.which("chromium") or shutil.which("google-chrome") \
+# 浏览器优先级与生产查找器（check_gates._find_chrome）一致：google-chrome 在前。
+# Ubuntu 24.04 runner 的 /usr/bin/chromium 是 snap 过渡包，冷启动/稳定性不如
+# google-chrome——此前把 chromium 排第一导致同一台机器上部分用例连不上 CDP。
+HAVE_CHROME = shutil.which("google-chrome") or shutil.which("chromium") \
     or shutil.which("chromium-browser") or shutil.which("chrome") \
     or shutil.which("microsoft-edge")
 HAVE_FFMPEG = shutil.which("ffmpeg") is not None
@@ -169,16 +172,22 @@ def test_speaker_label_renders(speaker_lesson):
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
     s.close()
+    chrome_err = page_dir / "_spk-stderr.log"
     chrome = subprocess.Popen(
         [str(HAVE_CHROME), "--headless=new", "--disable-gpu", "--no-sandbox",
          "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
          "--remote-allow-origins=*", "--autoplay-policy=no-user-gesture-required",
          f"--remote-debugging-port={port}", "--user-data-dir=" + str(page_dir / "_spkprof"),
          (page_dir / "index.html").as_uri()],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL, stderr=open(chrome_err, "wb"))
     try:
         ws = None
-        for _ in range(40):
+        die_reason = None
+        for _ in range(60):
+            if chrome.poll() is not None:
+                die_reason = (chrome_err.read_text(encoding="utf-8", errors="replace")
+                              if chrome_err.exists() else "") or "<无 stderr>"
+                break
             try:
                 tabs = json.load(urllib.request.urlopen(
                     f"http://127.0.0.1:{port}/json", timeout=2))
@@ -191,7 +200,10 @@ def test_speaker_label_renders(speaker_lesson):
                 break
             except Exception:
                 time.sleep(0.4)
-        assert ws is not None, "无法连接 CDP"
+        if ws is None:
+            detail = f"浏览器进程已退出：{die_reason}" if die_reason else \
+                f"CDP 端口 {port} 一直无响应"
+            raise AssertionError(f"无法连接 CDP（{HAVE_CHROME}）：{detail}")
 
         def ev(expr):
             ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
@@ -236,5 +248,10 @@ def test_speaker_label_renders(speaker_lesson):
         assert rep["cap"] == "seg-1第1句。", f"未命中 speaker 句：{rep['cap']!r}"
         assert rep["spk"] == "小明", f"说话人标签未渲染：{rep['spk']!r}"
     finally:
-        chrome.terminate()
-        chrome.wait(timeout=10)
+        # 清理不得掩盖原始失败：kill + 短等待，超时也静默（chromium 曾拒绝在
+        # 10s 内退出，把"无法连接 CDP"这类真失败吞成 TimeoutExpired）。
+        chrome.kill()
+        try:
+            chrome.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
