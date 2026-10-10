@@ -1,10 +1,12 @@
 """demo_lesson.py：无 TTS key 构建样例课件的回归。
 
 demo 脚本是"给开发/使用者本地看成品"的开发工具，不是课件自建验证器——
-测试只守两条：它能产出结构完整、通过 check_gates 的成品；它拒绝把产物
-写进本技能目录（与各写盘入口共用同一道守卫）。
+测试只守三条：它能产出结构完整、通过 check_gates 的成品；它拒绝把产物
+写进本技能目录（与各写盘入口共用同一道守卫）；有 Chrome 时生产检查器的
+浏览器冒烟与 `--require-browser`（CI 严格模式，SKILL.md §8）必须真跑。
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -13,9 +15,11 @@ import pytest
 
 from conftest import REPO, SCRIPTS, TEMPLATE_NARRATION
 
-HAVE_CHROME = shutil.which("chromium") or shutil.which("google-chrome") \
+# 与生产查找器（check_gates._find_chrome）同序：google-chrome 在前。
+HAVE_CHROME = shutil.which("google-chrome") or shutil.which("chromium") \
     or shutil.which("chromium-browser") or shutil.which("chrome") \
     or shutil.which("microsoft-edge")
+HAVE_FFMPEG = shutil.which("ffmpeg") is not None
 
 
 def _run_demo(out_dir, *extra):
@@ -35,6 +39,11 @@ def test_demo_builds_lesson(tmp_path):
     assert (page / "audio" / "narration_timing.json").is_file()
     # 交付检查真的跑了：静态 + 浏览器冒烟都要过（无 Chrome 时静态也必须过）
     assert "[static] scenes=8" in r.stdout
+    # 有 Chrome 时必须真做了浏览器冒烟（CI 装了 Chrome，锁"生产检查器的
+    # 浏览器路径真的执行过"，而不是静默退化成静态检查）。
+    if HAVE_CHROME:
+        assert "[browser] captions=" in r.stdout, \
+            "浏览器冒烟未执行：CI 有 Chrome 时 demo 的检查必须走浏览器路径"
     assert "完成" in r.stdout
 
 
@@ -61,12 +70,50 @@ def test_demo_timing_matches_template_narration(tmp_path):
 
 
 @pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
 def test_demo_export_flag(tmp_path):
-    """--export 时额外产出 lesson.mp4（依赖本机 Chrome + ffmpeg）。"""
+    """--export 时产出 lesson.mp4，且成片真实含视频流、时长与时间轴一致。"""
     r = _run_demo(tmp_path / "out", "--export")
     assert r.returncode == 0, r.stderr + r.stdout
-    assert (tmp_path / "out" / "lesson.mp4").is_file()
+    mp4 = tmp_path / "out" / "lesson.mp4"
+    assert mp4.is_file()
     assert "[demo] 完成" in r.stdout
+
+    # 时长契约：成片时长 ≈ 时间轴 total_duration（±0.6s）。
+    # 只断言"mp4 存在"拦不住"画面全空/只混了音轨"这类回归。
+    timing = json.loads(
+        (tmp_path / "out" / "lesson" / "audio" / "narration_timing.json")
+        .read_text(encoding="utf-8"))
+    ff = subprocess.run(["ffmpeg", "-i", str(mp4)], capture_output=True, text=True)
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", ff.stderr)
+    assert m, f"无法从 ffmpeg 解析 mp4 时长：{ff.stderr}"
+    h, mi, s = (int(m.group(1)), int(m.group(2)), float(m.group(3)))
+    got = h * 3600 + mi * 60 + s
+    assert abs(got - timing["total_duration"]) <= 0.6, \
+        f"成片时长 {got:.2f}s 与时间轴 {timing['total_duration']}s 不符"
+    # 必须真有视频流：纯音频 mux 或截图全失败都会在这里现形。
+    assert re.search(r"Stream #\d+:\d+.*Video:", ff.stderr), \
+        "mp4 里没有视频流（成片缺帧）"
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+def test_demo_check_gates_require_browser(tmp_path):
+    """SKILL §8 的"CI 严格模式"契约：--require-browser 必须真实执行浏览器冒烟。
+
+    demo_lesson 内部调 check_gates 时不带该开关（本地无 Chrome 也要能过），
+    CI 严格模式因此从未被任何测试锁过——这里直接补上：有 Chrome 时，
+    --require-browser 必须返回 0 且报告浏览器冒烟数据。
+    """
+    r = _run_demo(tmp_path / "out")
+    assert r.returncode == 0, r.stderr + r.stdout
+    page = tmp_path / "out" / "lesson"
+    cg = subprocess.run(
+        [sys.executable, str(SCRIPTS / "check_gates.py"),
+         str(page), "--require-browser"],
+        capture_output=True, text=True, cwd=str(REPO), timeout=600)
+    assert cg.returncode == 0, cg.stderr + cg.stdout
+    assert "[browser] captions=" in cg.stdout, "浏览器冒烟未执行"
+    assert "浏览器冒烟通过" in cg.stdout
 
 
 def test_demo_rejects_skill_dir():

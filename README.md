@@ -255,6 +255,10 @@ python -m pytest tests/ -q
   python scripts/demo_lesson.py --out ./demo --export   # 额外导出 ./demo/lesson.mp4
   ```
   占位音轨只保证时长与时间轴一致，听感不真实，用途是"本地看成品结构"；
+  对应测试还锁两条契约：有 Chrome 时 demo 的交付检查必须真跑浏览器冒烟
+  （`[browser] captions=` 标记），且 `check_gates.py --require-browser`（SKILL §8
+  的"CI 严格模式"）必须返回 0；`--export` 的成片必须含视频流、时长与时间轴
+  `total_duration` 一致（±0.6s），拦"mp4 存在但画面全空 / 只混音轨"类回归；
 - CI（`.github/workflows/ci.yml`）在 Ubuntu 上装好 ffmpeg 与 Chrome 后全量执行：
   Python 3.10 / 3.11 / 3.12 矩阵跑完整套件（含浏览器冒烟与导出），并额外以
   `REALCLOCK=1` 跑真实时钟回归（字幕翻句延迟、任意采样点字幕一致、门禁真实
