@@ -48,6 +48,17 @@ _CAP_LEN_MIN = 10
 _CAP_SIM_MIN = 0.75
 _CAP_PUNCT = set("，。！？、：；“”‘’「」『』·→—…（）() .,!?;:\"'…")
 
+# 画布字幕带的安全上限。范本的字幕带是 SVG <text>：横跨 x=40..960（920px）、
+# 字号 17——CJK 字形约 1em ≈ 17px，即纯中文一行约 54 字。SVG <text> 不换行，
+# 超长句会沿中线双向溢出舞台并被 .stage overflow:hidden 裁掉（无声的缺陷）。
+# 56 留出窄字符（数字/标点/拉丁）的余量；这是交付物级独立闸门——narration.py
+# 的 >45 字告警管写稿，这里管**成片**（外部 timing / 事后改稿都可能绕过前者）。
+_CAP_LEN_MAX = 56
+
+# references/template.html 的默认 <title>。作者照抄范本后最容易忘改的就是它
+# （build_page --title 已提供注入口）；标题串到别人的课程上比"没写标题"更误导。
+TEMPLATE_TITLE = "JavaScript 的 sort() 到底怎么排序"
+
 
 def _cap_norm(text: str) -> str:
     for c in _CAP_PUNCT:
@@ -612,6 +623,14 @@ def static_check(src: str, *, allow_degraded: bool,
         errors.append('页面缺少 __coursewareRenderTrace：无法验证每个句子是否真正驱动了 renderer')
     if not re.search(r'window\.__coursewareResetRenderTrace\s*=\s*(?:function|\(|(?!(?:null|undefined|true|false)\b)[\w$])', stripped_html):
         errors.append('页面缺少 __coursewareResetRenderTrace：无法安全重置逐句 renderer QA 状态')
+    # <title> 仍是范本默认标题 = 照抄范本后忘改（build_page --title 已提供注入
+    # 口）。只精确匹配范本那一行，不猜其它标题；误报代价只是多一条 warn。
+    title_m = re.search(r'<title\b[^>]*>(.*?)</title>', src, re.S | re.I)
+    if title_m and title_m.group(1).strip() == TEMPLATE_TITLE:
+        warnings.append(
+            '页面 <title> 仍是范本默认标题（“' + TEMPLATE_TITLE + '”）——'
+            '照抄范本后忘改标题，浏览器标签 / 书签会串成范本课程。'
+            '用 build_page.py --title 注入，或直接改 <title>。')
     if audio_tag:
         # src 允许写在 <audio> 属性上或内嵌 <source> 子标签上，两种形态归一处理。
         ref: str | None = None
@@ -736,6 +755,11 @@ def static_check(src: str, *, allow_degraded: bool,
             if last_sent_end is not None and s_start < last_sent_end - TIMING_EPS:
                 errors.append(f'{sid}#{ni}: 与上一句旁白重叠 {last_sent_end - s_start:.3f}s')
             last_sent_end = s_end
+            if text and len(text) > _CAP_LEN_MAX:
+                warnings.append(
+                    f'{sid}#{ni}: 字幕 {len(text)} 字，超过画布字幕带安全上限 '
+                    f'{_CAP_LEN_MAX} 字——画布内字幕是 SVG <text>，不换行，'
+                    '超长句会被舞台裁掉。请拆句或精简文案。')
             stats["sentences"] += 1
             all_sentences.append((sid, ni, {**sentence, "start": s_start, "duration": s_dur, "end": s_end}))
 

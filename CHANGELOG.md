@@ -3,6 +3,41 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.6.0] - 2026-10-11
+
+### 新增
+
+- **`check_gates.py` 静态检查新增两条交付级告警**：
+  - **单句字幕超长**：画布字幕带是 SVG `<text>`（横跨 40→960px、字号 17、
+    不换行），超长句会沿中线双向溢出并被舞台裁掉——成片里无声地缺字。
+    超过 56 字报 `[warn]`（CJK 约 1em/字 ≈ 54 字上限，留窄字符余量）。
+    这是交付物级独立闸门：`narration.py` 的 >45 字告警管写稿，这里管
+    **成片**（外部 timing / 事后改稿都可能绕过前者）；
+  - **`<title>` 仍是范本默认标题**：精确匹配范本那一行（"JavaScript 的
+    sort() 到底怎么排序"），提示照抄范本后忘改——`build_page --title`
+    已提供注入口，串成范本标题比"没写标题"更误导。两条都只告警不拦截，
+    不破坏既有交付判定。
+- **`export_subtitles.py --from-page`**：直接读页面内联时间轴
+  （`<script id="lesson-timeline">`）导出字幕，无需 `audio/narration_timing.json`——
+  拿到别人的成品页面也能独立生成字幕。内联形状（`runtime.narration`）在
+  内部归一成 manifest 形状（`sentences`），与页面组装同一份解析
+  （复用 `build_page._timeline_json`）；无 status 字段按"外部 timing"处理。
+
+### 测试
+
+- `tests/test_check_gates.py`：超长句告警（>56 字）与正常句不告警；范本标题
+  泄漏告警与注入自定义标题后不告警。
+- `tests/test_export_subtitles.py`：`runtime.narration → sentences` 归一
+  （speaker / hl / synth_failed 透传）；`--from-page` 真实 CLI 子进程
+  （speaker + hl-mark 前缀顺序、默认 both、与 `--timing` 互斥）。
+
+### 文档
+
+- `SKILL.md`：§8 检查器能力补两条新告警；§8 字幕导出用法补 `--from-page`。
+- `README.md`：「开发与自测」补新测试说明。
+- `references/runtime.md`：§8 静态检查清单补两条新告警。
+- `references/script.md`：§4 字幕导出用法补 `--from-page`。
+
 ## [0.5.0] - 2026-10-10
 
 ### 新增

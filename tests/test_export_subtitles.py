@@ -219,3 +219,91 @@ class TestCli:
         body = out.read_text(encoding="utf-8")
         assert "小明：第二句。" in body
         assert "◆ 第三句。" in body
+
+
+def _inline_page(scenes):
+    """拼一页只含内联时间轴的成品页面（模拟没有 audio/ 目录的交付形态）。"""
+    timeline = {"schema_version": 1, "scenes": scenes}
+    payload = json.dumps(timeline, ensure_ascii=False)
+    return ('<!DOCTYPE html><html lang="zh-CN"><head><title>我的课</title>'
+            '</head><body>'
+            '<script type="application/json" id="lesson-timeline">'
+            + payload + "</script></body></html>")
+
+
+def _page_scenes():
+    return [{
+        "step_id": "seg-1",
+        "content": {"title": "开场", "tagline": ""},
+        "runtime": {"start": 0.0, "duration": 2.0, "end": 2.0,
+                    "narration": [
+                        {"start": 0.0, "duration": 1.0, "text": "第一句。",
+                         "speaker": "小明", "hl": True},
+                        {"start": 1.2, "duration": 0.8, "text": "第二句。"},
+                    ]},
+    }]
+
+
+class TestTimelineToManifest:
+    def test_runtime_narration_normalized(self):
+        m = es._timeline_to_manifest(
+            {"schema_version": 1, "scenes": _page_scenes()})
+        assert m["scenes"][0]["step_id"] == "seg-1"
+        sentences = m["scenes"][0]["sentences"]
+        assert sentences[0] == {"start": 0.0, "duration": 1.0, "text": "第一句。",
+                                "speaker": "小明", "hl": True}
+        assert sentences[1] == {"start": 1.2, "duration": 0.8, "text": "第二句。"}
+
+    def test_synth_failed_passthrough(self):
+        scenes = [{"step_id": "s",
+                   "runtime": {"narration": [
+                       {"start": 0.0, "duration": 1.0, "text": "t",
+                        "synth_failed": True}]}}]
+        m = es._timeline_to_manifest({"schema_version": 1, "scenes": scenes})
+        assert m["scenes"][0]["sentences"][0]["synth_failed"] is True
+
+
+class TestCliFromPage:
+    def test_from_page_cli(self, tmp_path):
+        page_dir = tmp_path / "lesson"
+        page_dir.mkdir()
+        (page_dir / "index.html").write_text(_inline_page(_page_scenes()),
+                                             encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(Path(es.__file__).resolve()),
+             str(page_dir), "--from-page", "--format", "srt",
+             "--speaker", "--hl-mark"],
+            capture_output=True, text=True, cwd=tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        srt = page_dir / "lesson.srt"
+        assert srt.is_file()
+        body = srt.read_text(encoding="utf-8")
+        assert "◆ 小明：第一句。" in body       # hl 标记在前、说话人紧随
+        assert "第二句。" in body
+
+    def test_from_page_defaults_both(self, tmp_path):
+        page_dir = tmp_path / "lesson"
+        page_dir.mkdir()
+        (page_dir / "index.html").write_text(_inline_page(_page_scenes()),
+                                             encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(Path(es.__file__).resolve()),
+             str(page_dir), "--from-page"],
+            capture_output=True, text=True, cwd=tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        assert (page_dir / "lesson.srt").is_file()
+        assert (page_dir / "lesson.vtt").is_file()
+
+    def test_from_page_with_timing_rejected(self, tmp_path):
+        page_dir = tmp_path / "lesson"
+        page_dir.mkdir()
+        (page_dir / "index.html").write_text(_inline_page(_page_scenes()),
+                                             encoding="utf-8")
+        timing = tmp_path / "t.json"
+        timing.write_text(json.dumps(minimal_manifest()), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(Path(es.__file__).resolve()),
+             str(page_dir), "--from-page", "--timing", str(timing)],
+            capture_output=True, text=True, cwd=tmp_path)
+        assert proc.returncode != 0
+        assert "--timing 与 --from-page 互斥" in proc.stderr

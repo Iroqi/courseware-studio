@@ -231,7 +231,7 @@ python -m pytest tests/ -q
   毫秒四舍五入、VTT 用点分毫秒）、逐句抽取与说话人 / 结论句标记 / 偏移、两道
   降级闸在库函数里生效（manifest 级 status 与句级 synth_failed，不只在 CLI）、
   SRT 序号连续、WebVTT 无序号、真实 CLI 子进程（页面目录默认命名、`--out`
-  与 both 互斥）；
+  与 both 互斥、`--from-page` 读页面内联时间轴并归一 `runtime.narration`）；
 - `tests/test_pipeline_smoke.py` 用范本页面 + 合成音频走完真实 CLI 全链路
   （时间轴 → 组装 → 静态检查 → 浏览器冒烟 → 视频导出），并断言**成片时长 ≈ 旁白
   音频时长**——这个断言在守着一条真实的回归：concat demuxer 对列表尾帧的时长处理
@@ -249,7 +249,9 @@ python -m pytest tests/ -q
 - `tests/test_build_timeline.py` / `test_check_gates.py` 另覆盖两个被 mutation
   testing 抓出的假绿缺口：`_content_map` 必须滤掉空段再编号（否则 seg-N 与音频
   侧错位、title/hl 静默丢失）；`_timeline_from_html` 对"script 块存在但 JSON
-  损坏"必须返回错误而非静默放行；
+  损坏"必须返回错误而非静默放行；`test_check_gates.py` 另锁两条交付级静态告警：
+  单句字幕超过画布字幕带安全上限（SVG `<text>` 不换行会被舞台裁掉）与
+  `<title>` 仍是范本默认标题（照抄范本忘改，`build_page --title` 可注入）；
 - `tests/test_audio.py` 另覆盖 concat 的**混格式归一**路径（TTS 48kHz 立体声 +
   静音占位 24kHz 单声道混列时必须先统一格式再拼接，否则时长错乱）；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，

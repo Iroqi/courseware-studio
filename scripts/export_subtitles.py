@@ -37,6 +37,34 @@ from _contracts import (TIMING_EPS, check_degraded_status,  # noqa: E402
                         require_finite_number, require_schema_version)
 from _script_utils import (guard_not_in_skill_dir, read_text,  # noqa: E402
                            setup_stdio, write_text_atomic)
+from build_page import _timeline_json  # noqa: E402  # 与页面同一份时间轴解析
+
+
+def _timeline_to_manifest(timeline: dict) -> dict:
+    """把页面内联时间轴（scenes[i].runtime.narration）归一成 manifest 形状
+    （scenes[i].sentences），复用 _cues 的同一道校验与抽取。
+
+    内联形状与 manifest 的字段名不同（runtime.narration vs sentences），
+    但 text / start / duration / speaker / hl / synth_failed 语义一致——
+    页面组装时 build_page 已核对过两者对齐（_validate_timing_alignment）。
+    """
+    scenes = []
+    for sc in timeline.get("scenes") or []:
+        runtime = sc.get("runtime") or {}
+        narration = runtime.get("narration") or []
+        sentences = []
+        for s in narration:
+            item = {"start": s.get("start"), "duration": s.get("duration"),
+                    "text": s.get("text")}
+            if s.get("speaker"):
+                item["speaker"] = s["speaker"]
+            if s.get("synth_failed"):
+                item["synth_failed"] = True
+            if s.get("hl"):
+                item["hl"] = True
+            sentences.append(item)
+        scenes.append({"step_id": sc.get("step_id"), "sentences": sentences})
+    return {"schema_version": timeline.get("schema_version"), "scenes": scenes}
 
 
 def _fmt_srt(seconds: float) -> str:
@@ -177,13 +205,17 @@ def main() -> int:
                    help="整体时间偏移（秒，可负），用于与外部音视频对齐")
     p.add_argument("--out", default=None,
                    help="输出路径；只能配合单一格式（--format srt 或 vtt）")
+    p.add_argument("--from-page", action="store_true",
+                   help="直接读页面内联时间轴（无需 audio/narration_timing.json；"
+                        "与 --timing 互斥）")
     p.add_argument("--allow-degraded", action="store_true",
                    help="允许导出 synth_failed 静音占位句（不建议用于最终交付）")
     args = p.parse_args()
 
     if args.page is None and args.timing is None:
         p.error("需要 <页面目录或 index.html> 位置参数，或 --timing 指定时间轴文件")
-
+    if args.timing is not None and args.from_page:
+        p.error("--timing 与 --from-page 互斥，只给一个")
     if args.out and args.format == "both":
         p.error("--out 只能配合单一格式（--format srt 或 --format vtt）")
 
@@ -192,25 +224,38 @@ def main() -> int:
         page_dir = page if page.is_dir() else page.parent
         if not page.exists():
             raise SystemExit(f"[error] 找不到页面：{page}")
-        if args.timing is None:
+        if args.timing is None and not args.from_page:
             args.timing = page_dir / "audio" / "narration_timing.json"
 
-    timing_path = Path(args.timing).resolve()
-    if not timing_path.is_file():
-        raise SystemExit(
-            f"[error] 找不到时间轴：{timing_path}\n"
-            "默认读取 <页面目录>/audio/narration_timing.json；"
-            "也可用 --timing 直接指定。")
-    manifest = _load_timing(timing_path)
-    if not isinstance(manifest, dict):
-        raise SystemExit("[error] narration_timing.json 顶层必须是 JSON 对象")
+    if args.from_page:
+        if args.page is None:
+            p.error("--from-page 需要 <页面目录或 index.html> 位置参数")
+        index = page_dir / "index.html" if page.is_dir() else page
+        if not index.is_file():
+            raise SystemExit(f"[error] 找不到页面：{index}")
+        timeline = _timeline_json(read_text(index), index)
+        # 页面内联时间轴没有 status 字段：check_degraded_status 会按
+        # "外部 timing"处理并给出 [warn]——语义正确，不要强加 status（强加
+        # 非 ok 的值会误触降级闸）。
+        manifest = _timeline_to_manifest(timeline)
+        label = f"页面内联时间轴 {index.name}"
+    else:
+        timing_path = Path(args.timing).resolve()
+        if not timing_path.is_file():
+            raise SystemExit(
+                f"[error] 找不到时间轴：{timing_path}\n"
+                "默认读取 <页面目录>/audio/narration_timing.json；"
+                "也可用 --timing 直接指定，或用 --from-page 读页面内联时间轴。")
+        manifest = _load_timing(timing_path)
+        if not isinstance(manifest, dict):
+            raise SystemExit("[error] narration_timing.json 顶层必须是 JSON 对象")
+        label = f"narration_timing.json {timing_path.name}"
     try:
-        require_schema_version(manifest, f"narration_timing.json {timing_path.name}")
+        require_schema_version(manifest, label)
     except ValueError as exc:
         raise SystemExit(f"[error] {exc}")
     try:
-        warn = check_degraded_status(manifest, args.allow_degraded,
-                                     f"narration_timing.json {timing_path.name}")
+        warn = check_degraded_status(manifest, args.allow_degraded, label)
     except ValueError as exc:
         raise SystemExit(f"[error] {exc}")
     if warn:
@@ -254,8 +299,8 @@ def main() -> int:
         write_text_atomic(path, body)
         print(f"[out] {path}  ({len(body)} chars)")
     total = cues[-1][1] if cues else 0.0
-    print(f"[note] {len(cues)} 条字幕，覆盖到 {total:.2f}s（时间轴 "
-          f"{timing_path.name}）")
+    source_name = index.name if args.from_page else timing_path.name
+    print(f"[note] {len(cues)} 条字幕，覆盖到 {total:.2f}s（来源 {source_name}）")
     return 0
 
 

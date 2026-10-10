@@ -156,6 +156,10 @@ python scripts/check_gates.py <页面目录或 index.html> --require-browser  # 
 ```
 
 能力与模式见 `references/runtime.md` §8；QA 依赖的 DOM 钩子见 §7。
+静态侧另有两条**只告警不拦截**的交付级提示：单句字幕超过画布字幕带安全上限
+（SVG `<text>` 不换行，超长句会被舞台裁掉）、`<title>` 仍是范本默认标题
+（照抄范本后忘改，`build_page --title` 可注入）——机器不管讲得好不好，
+但会把"成片无声缺字"和"标题串课"这类可判的缺陷指出来。
 
 **导出线性视频（可选）。** 画面全由 `audio.currentTime` 驱动、一句 = 一个稳定
 视觉步，所以不需要录屏：`export_video.py` 逐句截帧、按句长拼接、混入
@@ -175,13 +179,15 @@ python scripts/export_video.py <页面目录> -o out.mp4 --keep   # 保留逐帧
 python scripts/export_subtitles.py <页面目录或 index.html>          # 默认 both：同目录一份 .srt 一份 .vtt
 python scripts/export_subtitles.py <页面目录> --format srt --speaker --hl-mark
 python scripts/export_subtitles.py <页面目录> --out subtitles.vtt   # 单一格式 + 指定路径
+python scripts/export_subtitles.py <页面目录> --from-page           # 无 audio/ 也可：直接读页面内联时间轴
 ```
 
 `--speaker` 在说话人句前加「说话人：」前缀；`--hl-mark` 给结论句（hl）加 ◆ 标记
 （页面字幕不带，仅供导出）；`--offset` 整体时间偏移（秒，可负），用于与外部
-音视频对齐。降级闸与页面交付同一口径：manifest 状态非 ok 或含 `synth_failed`
-静音占位句默认拒收（"有字幕没声音"），确要导出降级成片的字幕才加
-`--allow-degraded`。
+音视频对齐；`--from-page` 直接从成品页面的内联时间轴导出（与 `--timing` 互斥），
+拿到别人交付的页面也能独立生成字幕。降级闸与页面交付同一口径：manifest 状态
+非 ok 或含 `synth_failed` 静音占位句默认拒收（"有字幕没声音"），确要导出降级
+成片的字幕才加 `--allow-degraded`。
 
 ## 9. 信源不可信
 

@@ -217,11 +217,14 @@ python scripts/build_timeline.py \
 ```bash
 python scripts/export_subtitles.py <页面目录或 index.html>          # 默认 both：.srt + .vtt
 python scripts/export_subtitles.py <页面目录> --format srt --speaker --hl-mark
+python scripts/export_subtitles.py <页面目录> --from-page           # 无 audio/ 也可：读页面内联时间轴
 ```
 
 `--speaker` 给说话人句加「说话人：」前缀；`--hl-mark` 给结论句（`hl`）加 ◆ 标记
 （页面字幕不带，仅供导出）；`--offset` 整体时间偏移（秒，可负），用于与外部
-音视频对齐。降级闸与交付同一口径：manifest 状态非 `ok` 或含 `synth_failed`
+音视频对齐；`--from-page` 直接从成品页面的内联时间轴导出（与 `--timing` 互斥），
+`runtime.narration` 在内部归一成 `sentences` 形状——拿到别人交付的页面也能独立
+生成字幕。降级闸与交付同一口径：manifest 状态非 `ok` 或含 `synth_failed`
 静音占位句默认拒收，确要导出降级成片的字幕才加 `--allow-degraded`。
 
 ## 5. TTS 配置

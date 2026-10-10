@@ -286,7 +286,7 @@ stage.md §4）。
 
 它是**课件交付检查器**（通用 QA，不是给某份课件单独维护的 SelfTest），四类检查：
 
-1. **时间轴 / 字幕**：schema version、时间合法、句子不重叠、字幕节点与 `#stage` 舞台钩子存在、`audio/` 交付目录无残留（只允许 `combined.wav` 与 `narration_timing.json`）；浏览器中逐句验证字幕精确等于时间轴原文、**真的可见**（沿祖先链查 `opacity` / `visibility` / `hidden`），并校验空档（换场与场景内句间）保留上一句字幕；
+1. **时间轴 / 字幕**：schema version、时间合法、句子不重叠、字幕节点与 `#stage` 舞台钩子存在、`audio/` 交付目录无残留（只允许 `combined.wav` 与 `narration_timing.json`）；**单句字幕超长告警**（>56 字：画布字幕带是 SVG `<text>` 不换行，超长句会溢出舞台被裁掉——narration.py 的 >45 字告警管写稿，这里是交付物级独立闸门）；**`<title>` 仍是范本默认标题告警**（照抄范本忘改，`build_page --title` 可注入）；浏览器中逐句验证字幕精确等于时间轴原文、**真的可见**（沿祖先链查 `opacity` / `visibility` / `hidden`），并校验空档（换场与场景内句间）保留上一句字幕；
 2. **画面文字复述**：renderer 里名为 `txt()` / `badge()` 的写字函数（按函数名匹配）、`textContent` / `innerHTML` / `createTextNode` 直接赋值的字符串字面量，以及页面静态 SVG `<text>`（整页收集、跨幕比对），与旁白高度相似时提示"双字幕"（口径详见 stage.md 纪律 3）；
 3. **门禁 / JS**：真实浏览器里自动走错答 → 正确答（recall 不判定，只走对照放行这一条路，且不算"错误路径未构造"警告），检查句子边界、`data-locked`、继续按钮；门禁检测**活动驱动**（真弹出就会被测，不依赖 `GATES` 字面量），配了却从未弹出的门禁会被报出；门禁打开期间若页面存在 `#rack` / `#veilplay` 且**它当前可达**（可见、且祖先链上没有 `inert`），未设 `inert` 判失败——不可见或祖先已 inert 时键盘本就够不到，豁免（键盘绕过义务见 layout.md §5，仅此浏览器模式断言）；逐句检查 `__coursewareRenderTrace`；
 4. **JS 错误**：探针注入 `<head>` 最前，页面**加载期**抛出的错误（早于任何业务脚本，含 runtime 契约错误）也进报告。

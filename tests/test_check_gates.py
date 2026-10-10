@@ -267,3 +267,45 @@ class TestStaticCheckIntegration:
         page = (built_lesson / "index.html").read_text(encoding="utf-8")
         result = cg.static_check(page, allow_degraded=False, page_dir=built_lesson)
         assert any("交付残留" in e for e in result["errors"])
+
+
+# ── 0.6.0：字幕超长与范本标题泄漏（交付物级静态告警）──────────────
+def _page_with_text(sentence_text, title=None):
+    """用范本拼一份成品页；第一场第一句文本可换，title 可注入。"""
+    manifest = _template_aligned_manifest()
+    manifest["scenes"][0]["sentences"][0]["text"] = sentence_text
+    content = {sc["step_id"]: {"title": sc["title"], "tagline": "", "hl": None}
+               for sc in manifest["scenes"]}
+    timeline = {"schema_version": 1, "scenes": bt.build(manifest, content)}
+    template = TEMPLATE_HTML.read_text(encoding="utf-8")
+    page = bp._embed_timeline(template, timeline)
+    page = bp._replace_audio_src(page)
+    if title:
+        page = bp._replace_title(page, title)
+    return page
+
+
+class TestCaptionLengthWarning:
+    def test_long_sentence_warns(self):
+        # 超过画布字幕带安全上限 56 字：SVG <text> 不换行会溢出舞台
+        page = _page_with_text("这是一句特别长的字幕内容需要拆成两句。" * 5)
+        result = cg.static_check(page, allow_degraded=False, page_dir=Path("x"))
+        assert any("超过画布字幕带安全上限" in w for w in result["warnings"])
+
+    def test_normal_sentence_no_warn(self):
+        page = _page_with_text("正常的一句话。")
+        result = cg.static_check(page, allow_degraded=False, page_dir=Path("x"))
+        assert not any("超过画布字幕带安全上限" in w for w in result["warnings"])
+
+
+class TestTemplateTitleWarning:
+    def test_template_title_warns(self):
+        # 范本 <title> 原样保留 = 照抄范本后忘改
+        page = _page_with_text("正常的一句话。")
+        result = cg.static_check(page, allow_degraded=False, page_dir=Path("x"))
+        assert any("仍是范本默认标题" in w for w in result["warnings"])
+
+    def test_custom_title_no_warn(self):
+        page = _page_with_text("正常的一句话。", title="我的排序算法课")
+        result = cg.static_check(page, allow_degraded=False, page_dir=Path("x"))
+        assert not any("仍是范本默认标题" in w for w in result["warnings"])
