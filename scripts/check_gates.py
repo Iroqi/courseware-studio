@@ -38,10 +38,18 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _audio import get_ffmpeg, measure_duration  # noqa: E402
 from _contracts import (SCHEMA_VERSION, SCENE_ALIGN_MAX, TAIL_DRIFT_MAX,  # noqa: E402
                         TIMING_EPS, require_finite_number)
 from _script_utils import (normalize_meta_charset, read_text,  # noqa: E402
                            setup_stdio)
+
+
+# 音频时长与时间轴结束点的容差。narration 的 concat 与 demo 的占位音轨都精确到
+# 毫秒级；外部"现成音频 + timing"的成片可能带尾部余音。短于时间轴是**内容缺失**
+# （error），长于时间轴只是余音（warn）。1.5s 罩得住 concat 的帧级抖动，又足够
+# 拦"音频与时间轴串批次"（README 明示的最常见装配错误）。
+AUDIO_LEN_TOL = 1.5
 
 
 _CAP_LEN_MIN = 10
@@ -671,6 +679,25 @@ def static_check(src: str, *, allow_degraded: bool,
                                       + '、'.join(extras))
 
     errors.extend(_timing_manifest_errors(page_dir, timeline))
+    # 音频时长与时间轴一致性（防"音频与时间轴串批次"）。WAV 走 wave 模块的
+    # 样本精确路径，不需要 ffmpeg；measure_duration 对解析失败返回 0.0（无效），
+    # 此时只告警跳过，不把"测不出来"误报成"时长不符"。
+    wav_path = page_dir / 'audio' / 'combined.wav'
+    if wav_path.is_file():
+        audio_dur = measure_duration(get_ffmpeg(), wav_path)
+        total = max((float(sc.get('runtime', {}).get('end') or 0.0)
+                     for sc in scenes if isinstance(sc, dict)), default=0.0)
+        if audio_dur <= 0:
+            warnings.append('无法测量 audio/combined.wav 的时长，音频-时间轴一致性检查已跳过')
+        elif total > 0 and audio_dur < total - AUDIO_LEN_TOL:
+            errors.append(
+                f'audio/combined.wav 时长 {audio_dur:.2f}s，比时间轴结束点 {total:.2f}s '
+                f'短 {total - audio_dur:.2f}s——最后几句旁白会没有声音（播放提前结束）。'
+                '音频与时间轴必须同一次生成，混用会串。')
+        elif total > 0 and audio_dur > total + AUDIO_LEN_TOL:
+            warnings.append(
+                f'audio/combined.wav 时长 {audio_dur:.2f}s，比时间轴结束点 {total:.2f}s '
+                f'长 {audio_dur - total:.2f}s（尾部余音）；确认是否为有意留白。')
     runtime_ref = RUNTIME_REF_RE.search(stripped_html)
     if not runtime_ref:
         errors.append('页面缺少 interactive_runtime.js 引用')

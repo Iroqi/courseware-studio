@@ -255,3 +255,138 @@ def test_speaker_label_renders(speaker_lesson):
             chrome.wait(timeout=10)
         except subprocess.TimeoutExpired:
             pass
+
+
+# ── 4. 进度条键盘可达 + ended 重播（0.7.0）──────────────────────────
+
+def test_progress_slider_and_replay_hooks_present():
+    """模板结构契约：slider 钩子与重播路径必须长在范本里（无浏览器也可锁）。"""
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # slider：role/tabindex 写在标记里（a11y 树早可见），min/max/now 由 JS
+    # 在 TOTAL 就绪后写真实值（占位 0 在标记里）。
+    assert 'role="slider"' in html
+    assert 'tabindex="0"' in html
+    assert 'aria-valuemax="0"' in html
+    assert 'barAria' in html
+    assert "ArrowRight" in html and "ArrowLeft" in html
+    # ended 重播：播放器行 ▶ 在 ended 态点按 = 从头重播，提示文案同步更新
+    assert "点 ▶ 重播" in html
+    assert "audio.ended" in html
+    assert "resetGates(); lastKey = '';" in html
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+def test_progress_slider_keyboard_and_replay(speaker_lesson):
+    """真实浏览器：焦点在进度条上 ←/→ 微调 1s（不叠加全局 ±8s）、
+    Home/End 到头/尾；ended 后点 ▶ 从头重播。"""
+    import websocket
+
+    page_dir = speaker_lesson
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    chrome_err = page_dir / "_sl-stderr.log"
+    chrome = subprocess.Popen(
+        [str(HAVE_CHROME), "--headless=new", "--disable-gpu", "--no-sandbox",
+         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+         "--remote-allow-origins=*", "--autoplay-policy=no-user-gesture-required",
+         f"--remote-debugging-port={port}", "--user-data-dir=" + str(page_dir / "_slprof"),
+         (page_dir / "index.html").as_uri()],
+        stdout=subprocess.DEVNULL, stderr=open(chrome_err, "wb"))
+    try:
+        ws = None
+        for _ in range(60):
+            if chrome.poll() is not None:
+                break
+            try:
+                tabs = json.load(urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/json", timeout=2))
+                pages = [t for t in tabs if t.get("type") == "page"]
+                tab = next((t for t in pages if "index.html" in t.get("url", "")),
+                           pages[0] if pages else None)
+                ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
+                break
+            except Exception:
+                time.sleep(0.4)
+        assert ws is not None, "无法连接 CDP"
+
+        def ev(expr):
+            ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                "params": {"expression": expr, "returnByValue": True}}))
+            while True:
+                m = json.loads(ws.recv())
+                if m.get("id") == 1:
+                    return m["result"].get("result", {}).get("value")
+
+        ready = None
+        for _ in range(60):
+            ready = ev("document.readyState === 'complete' && "
+                       "document.querySelector('#lesson-timeline') !== null")
+            if ready:
+                break
+            time.sleep(0.4)
+        assert ready, "页面未就绪"
+        # 探针：桩住 currentTime 与 ended（t >= TOTAL 即 ended），不真播音频
+        probe = r"""
+(function(){
+  var t = 0, TOTAL = (function(){
+    var tl = JSON.parse(document.getElementById('lesson-timeline').textContent);
+    return tl.scenes[tl.scenes.length-1].runtime.end;
+  })();
+  Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+    configurable: true, get(){ return t; }, set(v){ t = Number(v) || 0; }
+  });
+  Object.defineProperty(HTMLMediaElement.prototype, 'ended', {
+    configurable: true, get(){ return t >= TOTAL - 0.01; }
+  });
+  HTMLMediaElement.prototype.play = function(){ return Promise.resolve(); };
+  HTMLMediaElement.prototype.pause = function(){};
+  window.__t = function(){ return t; };
+  window.__set = function(v){ t = v; };
+  window.__TOTAL = TOTAL;
+  return 'stubbed';
+})()
+"""
+        assert ev(probe) == "stubbed"
+
+        # 进度条键盘：焦点在 bar 上按 →，跳 1s（不是 document 层的 8s）
+        rep = json.loads(ev(
+            "(function(){ var bar = document.getElementById('bar'); bar.focus();"
+            " bar.dispatchEvent(new KeyboardEvent('keydown',"
+            " {key:'ArrowRight', code:'ArrowRight', bubbles:true, cancelable:true}));"
+            " return JSON.stringify({t: window.__t(),"
+            " focused: document.activeElement === bar}); })()"))
+        assert rep["focused"], "进度条未能获得焦点"
+        assert abs(rep["t"] - 1.0) < 0.05, f"→ 应跳 1s，实际 {rep['t']}"
+        # 再按 ←，回到 0
+        t = ev("(function(){ document.getElementById('bar').dispatchEvent("
+               "new KeyboardEvent('keydown', {key:'ArrowLeft', code:'ArrowLeft',"
+               " bubbles:true, cancelable:true})); return window.__t(); })()")
+        assert abs(t - 0.0) < 0.05, f"← 应回到 0，实际 {t}"
+        # Home / End 到头/尾
+        ev("(function(){ window.__set(20); document.getElementById('bar').dispatchEvent("
+           "new KeyboardEvent('keydown', {key:'Home', code:'Home',"
+           " bubbles:true, cancelable:true})); })()")
+        assert abs(ev("window.__t()") - 0.0) < 0.05, "Home 应回到 0"
+        ev("(function(){ document.getElementById('bar').dispatchEvent("
+           "new KeyboardEvent('keydown', {key:'End', code:'End',"
+           " bubbles:true, cancelable:true})); })()")
+        assert abs(ev("window.__t()") - ev("window.__TOTAL")) < 0.05, "End 应到尾"
+
+        # ended 重播：走到课程结束，点 ▶ 应重置到 0 并重播
+        rep = json.loads(ev(
+            "(function(){ window.__set(window.__TOTAL);"
+            " document.getElementById('main-audio').dispatchEvent(new Event('ended'));"
+            " document.getElementById('pp').click();"
+            " return JSON.stringify({t: window.__t(),"
+            " step: document.getElementById('step').textContent}); })()"))
+        assert rep["t"] == 0, f"重播应回到 0，实际 {rep['t']}"
+        assert "重播" in rep["step"], f"ended 提示未更新：{rep['step']!r}"
+    finally:
+        chrome.kill()
+        try:
+            chrome.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass

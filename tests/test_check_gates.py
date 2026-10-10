@@ -228,8 +228,9 @@ def built_lesson(tmp_path):
     (page_dir / "audio" / "narration_timing.json").write_text(
         json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-                    "-i", "sine=frequency=440:duration=1", "-ar", "24000",
-                    "-ac", "1", str(page_dir / "audio" / "combined.wav")],
+                    "-i", f"sine=frequency=440:duration={manifest['total_duration']}",
+                    "-ar", "24000", "-ac", "1",
+                    str(page_dir / "audio" / "combined.wav")],
                    check=True)
     shutil.copy(Path(__file__).resolve().parents[1] / "scripts" / "interactive_runtime.js",
                 page_dir / "interactive_runtime.js")
@@ -309,3 +310,40 @@ class TestTemplateTitleWarning:
         page = _page_with_text("正常的一句话。", title="我的排序算法课")
         result = cg.static_check(page, allow_degraded=False, page_dir=Path("x"))
         assert not any("仍是范本默认标题" in w for w in result["warnings"])
+
+
+class TestAudioDurationCheck:
+    """音频时长与时间轴一致性：短→error（内容缺失）、长→warn（余音）。"""
+
+    def _replace_audio(self, page_dir, duration):
+        (page_dir / "audio" / "combined.wav").unlink()
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+             "-i", f"sine=frequency=440:duration={duration}", "-ar", "24000",
+             "-ac", "1", str(page_dir / "audio" / "combined.wav")],
+            check=True)
+
+    def test_short_audio_errors(self, built_lesson):
+        # 时间轴 ~34s，音频只有 10s：最后几句旁白必然没声音
+        self._replace_audio(built_lesson, 10)
+        page = (built_lesson / "index.html").read_text(encoding="utf-8")
+        result = cg.static_check(page, allow_degraded=False, page_dir=built_lesson)
+        assert any("比时间轴结束点" in e and "短" in e for e in result["errors"])
+
+    def test_long_audio_warns(self, built_lesson):
+        # 音频比时间轴长出 20s 的余音：只告警不拦截
+        manifest = json.loads(
+            (built_lesson / "audio" / "narration_timing.json").read_text(encoding="utf-8"))
+        total = manifest["total_duration"]
+        self._replace_audio(built_lesson, total + 20)
+        page = (built_lesson / "index.html").read_text(encoding="utf-8")
+        result = cg.static_check(page, allow_degraded=False, page_dir=built_lesson)
+        assert result["errors"] == []
+        assert any("尾部余音" in w for w in result["warnings"])
+
+    def test_matching_audio_passes(self, built_lesson):
+        page = (built_lesson / "index.html").read_text(encoding="utf-8")
+        result = cg.static_check(page, allow_degraded=False, page_dir=built_lesson)
+        assert result["errors"] == []
+        assert not any("音频" in w and ("时长" in w or "余音" in w)
+                       for w in result["warnings"])

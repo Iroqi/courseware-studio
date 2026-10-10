@@ -160,6 +160,10 @@ python scripts/check_gates.py <页面目录或 index.html> --require-browser  # 
 （SVG `<text>` 不换行，超长句会被舞台裁掉）、`<title>` 仍是范本默认标题
 （照抄范本后忘改，`build_page --title` 可注入）——机器不管讲得好不好，
 但会把"成片无声缺字"和"标题串课"这类可判的缺陷指出来。
+另有一条**会拦截**的一致性检查：`audio/combined.wav` 的时长比时间轴结束点
+短超过 1.5s 判 error（最后几句旁白没声音——音频与时间轴串批次是 README
+明示的最常见装配错误；WAV 走 wave 模块精确测量、不需要 ffmpeg），长超过
+1.5s 只告警（尾部余音）。
 
 **导出线性视频（可选）。** 画面全由 `audio.currentTime` 驱动、一句 = 一个稳定
 视觉步，所以不需要录屏：`export_video.py` 逐句截帧、按句长拼接、混入

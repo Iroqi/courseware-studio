@@ -699,7 +699,8 @@
       <div class="rack" id="rack">
         <button class="pp"  id="pp"  type="button" aria-label="播放 / 暂停">▶</button>
         <button class="rew" id="rew" type="button" aria-label="从头开始" title="从头开始">⟲</button>
-        <div class="bar" id="bar"><div class="bar-fill" id="fill"></div>
+        <div class="bar" id="bar" role="slider" tabindex="0"
+             aria-label="播放进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><div class="bar-fill" id="fill"></div>
           <div class="tip" id="bar-tip"></div></div>
         <div class="step" id="step"></div>
         <button class="spd" id="spd" type="button" aria-label="播放倍速 1×（点击切换）" title="倍速">1×</button>
@@ -1852,8 +1853,10 @@
     if (audio.paused) audio.play().catch(function(){}); else audio.pause();
   });
   // 播放器行上的播放/暂停：它就是那条常驻播放器的按钮。idle 时点它也能直接起播
-  // （音频 play 事件会切换页面播放态，播放层随后收起）。
+  // （音频 play 事件会切换页面播放态，播放层随后收起）。ended 后再点 = 从头重播：
+  // 学习者看完想重看，不该被迫拖进度条。
   el('pp').addEventListener('click', function(){
+    if (audio.ended){ audio.currentTime = 0; resetGates(); lastKey = ''; }
     if (audio.paused) audio.play().catch(function(){}); else audio.pause();
   });
   el('rew').addEventListener('click', function(){
@@ -1929,10 +1932,10 @@
   audio.addEventListener('ended', function(){
     setState('paused');
     // 结束态挂在这儿，不挂在 tick 的 `t >= end` 上（那个条件实测永不成立，见 §⑥）。
-    // 这句话写在播放器行的读数里——它就在进度条旁边，说"拖动重看"时手和眼在同一处；
+    // 这句话写在播放器行的读数里——它就在进度条旁边，说"点 ▶ 重播"时手和眼在同一处；
     // 字幕带则收起，因为旁白已经没声了。
     capShow(null);
-    el('step').textContent = '课程结束 · 拖动进度条可重看';
+    el('step').textContent = '课程结束 · 点 ▶ 重播，或拖动进度条重看';
   });
   audio.addEventListener('timeupdate', tick);          // 兜底：seek / 元数据就绪时也走一次
   audio.addEventListener('loadedmetadata', tick);
@@ -1953,7 +1956,29 @@
   // 进度条 seek：点一下跳过去，按住拖就是擦洗（实时跟着走，松手定住）。
   // setPointerCapture 让指针拖出条外也继续跟手；触屏靠 CSS 的 touch-action:none
   // 把横拖喂给这里（进度条只有几像素高，不让它起手滚页面是可接受的取舍）。
+  // 进度条键盘可达（role=slider + ←/→ ±1s、Home/End 到头/尾）。aria-valuemax
+  // 占位 0，TOTAL 就绪后由 JS 写真实值。方向键在本元素消费并 stopPropagation：
+  // 否则会再叠加 document 层的 ±8s 擦洗，同一按键跳两段——焦点在进度条上时，
+  // 1s 是"可预期的细调"，8s 是"快速擦洗"，两种手势不该互相打架。
   var barEl = el('bar');
+  barEl.setAttribute('aria-valuemax', String(Math.round(TOTAL)));
+  barEl.setAttribute('aria-valuenow', String(Math.round(audio.currentTime)));
+  var barAria = function(){ barEl.setAttribute('aria-valuenow',
+    String(Math.round(audio.currentTime))); };
+  audio.addEventListener('timeupdate', barAria);
+  audio.addEventListener('seeked', barAria);
+  barEl.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      e.preventDefault(); e.stopPropagation();
+      audio.currentTime = Math.max(0, Math.min(TOTAL,
+        audio.currentTime + (e.key === 'ArrowRight' ? 1 : -1)));
+      tick();
+    } else if (e.key === 'Home'){
+      e.preventDefault(); audio.currentTime = 0; tick();
+    } else if (e.key === 'End'){
+      e.preventDefault(); audio.currentTime = TOTAL; tick();
+    }
+  });
   barEl.addEventListener('pointerdown', function(e){
     if (!TOTAL || e.button !== 0) return;
     e.preventDefault();

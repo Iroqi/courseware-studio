@@ -3,6 +3,38 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.7.0] - 2026-10-11
+
+### 新增
+
+- **`check_gates.py` 音频时长与时间轴一致性检查**：`audio/combined.wav` 时长
+  比时间轴结束点**短**超过 1.5s 判 error（最后几句旁白没声音——音频与时间轴
+  串批次是 README 明示的最常见装配错误），**长**超过 1.5s 只告警（尾部余音），
+  测不出时长只告警跳过。WAV 走 wave 模块样本精确路径（帧数/帧率），**不依赖
+  ffmpeg**；非 WAV 或解析失败才回退 ffmpeg。
+- **模板进度条键盘可达（`role="slider"`）**：`.bar` 标记里写
+  `role="slider"` / `tabindex="0"` / `aria-label`，`aria-valuemin/max/now`
+  由 JS 在 `TOTAL` 就绪后写真实值并随播放/seek 同步；焦点在条上时
+  `←/→` 微调 ±1s、`Home/End` 到头/尾——方向键在本元素 `stopPropagation`，
+  不叠加 document 层的 ±8s 擦洗（细调与快擦是两种手势）。
+- **模板 ended 后一键重播**：课程播完点播放器行 ▶ = 从头重播
+  （`audio.currentTime = 0` + 清门禁状态），提示文案同步改为「点 ▶ 重播」。
+
+### 测试
+
+- `tests/test_check_gates.py`：占位音轨短于时间轴报 error、长出时间轴只告警、
+  匹配时无告警（fixture 音轨时长改为匹配 `total_duration`）。
+- `tests/test_iteration_round2.py`：slider 钩子与重播路径的静态断言（无浏览器
+  也可锁）；真实浏览器 CDP 测试（有 Chrome 才跑）——焦点在进度条上 ←/→ 跳
+  1s（不叠加全局 ±8s）、Home/End 到头/尾、ended 后点 ▶ 重置到 0 重播。
+
+### 文档
+
+- `SKILL.md`：§8 补音频时长一致性检查（会拦截的 error 路径）。
+- `README.md`：特性清单补键盘可达与重播；「开发与自测」补新测试说明。
+- `references/runtime.md`：§8 时间轴/字幕类检查补音频-时间轴一致性。
+- `references/layout.md`：播放器行一节补进度条 slider 的键盘契约。
+
 ## [0.6.0] - 2026-10-11
 
 ### 新增
