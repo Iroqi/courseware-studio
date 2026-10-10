@@ -170,6 +170,31 @@ def _replace_audio_src(template: str) -> str:
     return template[:match.start(1)] + tag + match.group(2) + template[match.end(2):]
 
 
+def _replace_title(page: str, title: str) -> str:
+    """可选注入页面 <title>：浏览器标签 / 导出工具名都读它，作者照抄范本
+    后最容易忘改的就是这一行——标题串到别人的课程上比"没写标题"更误导。"""
+    pattern = re.compile(r'(<title\b[^>]*>)(.*?)(</title>)', re.S | re.I)
+    if not pattern.search(page):
+        raise SystemExit('[error] 模板缺少 <title>，无法注入 --title')
+    return pattern.sub(lambda m: m.group(1) + html.escape(title) + m.group(3),
+                       page, count=1)
+
+
+def _replace_lang(page: str, lang: str) -> str:
+    """可选注入 <html lang>：默认范本写死 zh-CN，换语言课件时同步声明。"""
+    pattern = re.compile(r'(<html\b)([^>]*)(>)', re.I)
+    match = pattern.search(page)
+    if not match:
+        raise SystemExit('[error] 模板缺少 <html> 标签，无法注入 --lang')
+    attrs = match.group(2)
+    if re.search(r'\blang\s*=\s*["\'][^"\']*["\']', attrs, re.I):
+        attrs = re.sub(r'\blang\s*=\s*["\'][^"\']*["\']',
+                       f'lang="{lang}"', attrs, count=1, flags=re.I)
+    else:
+        attrs = ' lang="' + lang + '"' + attrs
+    return page[:match.start(2)] + attrs + page[match.end(2):]
+
+
 def _copy_atomic(src: Path, dst: Path) -> None:
     if not src.is_file():
         raise SystemExit(f"[error] 找不到输入文件：{src}")
@@ -199,6 +224,11 @@ def main() -> int:
     parser.add_argument("--timing", required=True, help="narration_timing.json；会复制到 output/../audio/")
     parser.add_argument("-o", "--output", required=True, help="输出 index.html 路径")
     parser.add_argument("--force", action="store_true", help="允许覆盖已有 index.html/runtime/audio")
+    parser.add_argument("--title", default=None,
+                        help="可选：注入页面 <title>（作者照抄范本后常忘改它，"
+                             "浏览器标签 / 导出会串成范本的标题）")
+    parser.add_argument("--lang", default=None,
+                        help="可选：注入 <html lang>（默认保留模板的 lang 声明）")
     parser.add_argument("--allow-degraded", action="store_true",
                         help="允许 narration_timing.json 处于 degraded 状态（默认拒绝，与 build_timeline.py 同一道门）")
     args = parser.parse_args()
@@ -241,6 +271,10 @@ def main() -> int:
         print(f"[warn] {warn}", file=sys.stderr)
     _validate_timing_alignment(timeline, manifest)
     page = _replace_audio_src(_embed_timeline(read_text(template), timeline))
+    if args.title:
+        page = _replace_title(page, args.title)
+    if args.lang:
+        page = _replace_lang(page, args.lang)
     # 资源先落盘、页面最后写：页面是 audio/runtime 的"总清单"，反过来写时
     # 任何一步复制失败都会留下一份引用缺失资源的坏页面。
     _copy_atomic(audio, audio_out)

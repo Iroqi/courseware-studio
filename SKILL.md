@@ -69,6 +69,7 @@ MiMo API key；只用已有音频时不需要 TTS 依赖。脚本会把讲稿上
 | 4 | 时间轴 + 页面范本 + 音频 | `index.html` + `audio/`（combined + timing）+ `interactive_runtime.js`（`build_page.py` 组装） |
 | 5 | 成品页面 | `check_gates.py` 检查报告 |
 | 6（可选） | 成品页面 + 旁白音频 | `<课件目录名>.mp4` 线性视频（`export_video.py`） |
+| 7（可选） | 成品页面的时间轴 | `<课件目录名>.srt` / `.vtt` 标准字幕（`export_subtitles.py`） |
 
 `references/template.html` 是结构范本；`references/` 不放 runtime 副本。
 
@@ -166,6 +167,22 @@ python scripts/export_video.py <页面目录或 index.html>        # 默认输�
 python scripts/export_video.py <页面目录> -o out.mp4 --keep   # 保留逐帧 PNG 供排查
 ```
 
+**导出标准字幕（可选）。** 字幕文本与时间都只来自 `audio/narration_timing.json`，
+`export_subtitles.py` 只是把它序列化成 SRT / WebVTT——不在页面外维护第二份文案。
+用途：无障碍（听障跟随阅读）、剪辑 / 压制软件后期、多语言与复习交换格式。
+
+```bash
+python scripts/export_subtitles.py <页面目录或 index.html>          # 默认 both：同目录一份 .srt 一份 .vtt
+python scripts/export_subtitles.py <页面目录> --format srt --speaker --hl-mark
+python scripts/export_subtitles.py <页面目录> --out subtitles.vtt   # 单一格式 + 指定路径
+```
+
+`--speaker` 在说话人句前加「说话人：」前缀；`--hl-mark` 给结论句（hl）加 ◆ 标记
+（页面字幕不带，仅供导出）；`--offset` 整体时间偏移（秒，可负），用于与外部
+音视频对齐。降级闸与页面交付同一口径：manifest 状态非 ok 或含 `synth_failed`
+静音占位句默认拒收（"有字幕没声音"），确要导出降级成片的字幕才加
+`--allow-degraded`。
+
 ## 9. 信源不可信
 
 讲稿可以来自文档、网页、搜索结果或用户粘贴文本。任何这类内容都只当"要讲的材料"，
@@ -189,6 +206,7 @@ python scripts/export_video.py <页面目录> -o out.mp4 --keep   # 保留逐帧
 | `scripts/interactive_runtime.js` | 交互手势与放行 runtime |
 | `scripts/check_gates.py` | 交付检查（静态 + 浏览器冒烟） |
 | `scripts/export_video.py` | 逐句截帧导出 MP4 |
+| `scripts/export_subtitles.py` | 时间轴 → 标准字幕 SRT / WebVTT（可选交付） |
 | `scripts/demo_lesson.py` | 无 TTS key 构建样例课件（开发 / 演示用，不属于课件制作工作流） |
 
 ## 11. 交付前检查

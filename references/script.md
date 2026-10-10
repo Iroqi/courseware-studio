@@ -211,6 +211,19 @@ python scripts/build_timeline.py \
 
 时间是**全局秒**。页面直接读取 `runtime.narration[i]`，不要在运行时再 fetch 外部 JSON。
 
+这条时间轴还能序列化成**标准字幕**（SRT / WebVTT），字幕文本与时间都只来自
+`audio/narration_timing.json`，不在页面外维护第二份文案：
+
+```bash
+python scripts/export_subtitles.py <页面目录或 index.html>          # 默认 both：.srt + .vtt
+python scripts/export_subtitles.py <页面目录> --format srt --speaker --hl-mark
+```
+
+`--speaker` 给说话人句加「说话人：」前缀；`--hl-mark` 给结论句（`hl`）加 ◆ 标记
+（页面字幕不带，仅供导出）；`--offset` 整体时间偏移（秒，可负），用于与外部
+音视频对齐。降级闸与交付同一口径：manifest 状态非 `ok` 或含 `synth_failed`
+静音占位句默认拒收，确要导出降级成片的字幕才加 `--allow-degraded`。
+
 ## 5. TTS 配置
 
 密钥解析优先级：CLI 参数 > 系统环境变量 > 项目级 `.env` > 用户级 `.env`：
@@ -237,4 +250,6 @@ python scripts/build_timeline.py \
 - [ ] 复用已有输出目录时，确认只保留 `combined.wav` / `narration_timing.json`，或生成前显式使用 `--clean-output`；
 - [ ] `synth_failed` 默认视为交付失败；只有明确要保留降级成片时才放行——
       开关在下游 `build_timeline.py` / `build_page.py` / `check_gates.py` 各一道
-      （narration.py 没有这个参数）。
+      （narration.py 没有这个参数）；
+- [ ] 需要 SRT / VTT 字幕时用 `export_subtitles.py` 从同一份时间轴导出，
+      不要手抄或二次转写（时间 / 文本会与旁白错位）。

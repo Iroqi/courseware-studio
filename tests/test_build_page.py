@@ -127,6 +127,46 @@ class TestEmbedAndReplace:
         with pytest.raises(SystemExit, match="缺少 #main-audio"):
             bp._replace_audio_src("<html></html>")
 
+    def test_replace_title(self):
+        page = "<html><head><title>旧标题</title></head><body></body></html>"
+        out = bp._replace_title(page, "新课：排序算法")
+        assert "<title>新课：排序算法</title>" in out
+        assert "旧标题" not in out
+
+    def test_replace_title_escapes(self):
+        page = "<html><head><title>x</title></head></html>"
+        out = bp._replace_title(page, "1 < 2 的真相")
+        assert "1 &lt; 2 的真相" in out
+
+    def test_replace_title_missing_hook(self):
+        with pytest.raises(SystemExit, match="缺少 <title>"):
+            bp._replace_title("<html></html>", "x")
+
+    def test_replace_lang_present(self):
+        page = '<html lang="zh-CN"><head></head></html>'
+        out = bp._replace_lang(page, "en")
+        assert '<html lang="en">' in out
+
+    def test_replace_lang_absent(self):
+        page = "<html><head></head></html>"
+        out = bp._replace_lang(page, "en")
+        assert '<html lang="en">' in out
+
+    def test_replace_lang_missing_hook(self):
+        with pytest.raises(SystemExit, match="缺少 <html>"):
+            bp._replace_lang("<body></body>", "en")
+
+    def test_meta_injection_roundtrip(self):
+        # 官方范本：注入 title/lang 后页面结构完好、时间轴仍可解析
+        src = TEMPLATE_HTML.read_text(encoding="utf-8")
+        out = bp._replace_title(bp._replace_lang(src, "zh-Hans"), "测试标题")
+        assert "<title>测试标题</title>" in out
+        assert '<html lang="zh-Hans">' in out
+        import re
+        m = re.search(r'<script\b[^>]*\bid=["\']lesson-timeline["\'][^>]*>(.*?)</script>',
+                      out, re.S)
+        assert json.loads(m.group(1))["scenes"]
+
     def test_real_template_roundtrip(self):
         # 官方范本：替换后时间轴可解析、audio src 被改写
         src = TEMPLATE_HTML.read_text(encoding="utf-8")

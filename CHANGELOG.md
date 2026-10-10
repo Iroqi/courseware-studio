@@ -3,6 +3,37 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.5.0] - 2026-10-10
+
+### 新增
+
+- **`scripts/export_subtitles.py`：时间轴 → 标准字幕文件（SRT / WebVTT）**。
+  从 `audio/narration_timing.json`（唯一时间来源）序列化逐句字幕，不在页面外
+  维护第二份文案：无障碍（听障跟随阅读）、剪辑 / 压制软件后期、多语言与复习
+  交换格式。支持 `--speaker`（说话人前缀）、`--hl-mark`（结论句 ◆ 标记，
+  页面字幕不带，仅供导出）、`--offset`（整体时间偏移，与外部音视频对齐）、
+  `--format srt|vtt|both`（默认 both）与 `--out`（单一格式专用）。
+- **`build_page.py --title` / `--lang`**：可选注入页面 `<title>` 与 `<html lang>`。
+  作者照抄范本后最容易忘改的就是 `<title>`——浏览器标签 / 导出工具会把范本的
+  标题串到别人的课程上，比"没写标题"更误导。默认不注入，行为与旧版完全一致。
+
+### 测试
+
+- `tests/test_export_subtitles.py`：时间戳格式（超小时进位、毫秒四舍五入、
+  VTT 用点分毫秒）、逐句抽取与说话人 / 结论句 / 偏移、两道降级闸
+  （manifest 级 status 与句级 synth_failed 都在库函数里生效，不只在 CLI）、
+  SRT 序号连续、WebVTT 无序号、真实 CLI 子进程（页面目录默认命名、
+  `--timing` + `--out` 单格式、`--out` 与 both 互斥、speaker/hl 透传）。
+- `tests/test_build_page.py`：title 替换与 HTML 转义、lang 替换（已有 /
+  缺失属性两种）、缺失钩子报错、官方范本注入后时间轴仍可解析。
+
+### 文档
+
+- `SKILL.md`：§3 工作流表补可选字幕导出步骤；§8 补 `export_subtitles.py`
+  用法与降级闸口径；§10 参考文件表登记新脚本。
+- `README.md`：特性清单与交付树补字幕文件；「开发与自测」补新测试说明。
+- `references/script.md`：时间轴一节补"导出标准字幕"路径。
+
 ## [0.4.0] - 2026-10-10
 
 ### 测试加固
