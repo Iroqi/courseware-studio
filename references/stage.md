@@ -151,6 +151,22 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 建档即入场，所以**要动的东西在它该动的那一步才建档**：早一步建好压着
 `opacity:0`，动画会在没人看见的那一步跑完，轮到时只剩淡入。
 
+**节奏是令牌，不是散落魔法数**：缓动与时长集中在模板 `:root` 的
+`--ease-out` / `--ease-in-out` / `--dur-in` / `--dur-move` / `--dur-pop` /
+`--dur-draw` / `--dur-gate` / `--dur-pulse` / `--dur-breathe` 上，词汇统一
+引用——改全局节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：
+入场与补间共用它，退场用 inOut。
+
+**错峰入场**：`.in` 支持 `--delay`（`animation-delay:var(--delay,0s)`），
+现成档位 `.st1/.st2/.st3`（60/120/180ms）。一组同幕图元按序上浮是前沿动效
+最常见的节奏手法（模板门禁卡片的 `nth-child` 延迟就是同款）；**错峰只建议
+用于同一步的一组图元，最晚元素延迟 ≤ 180ms**——单独截一帧仍然讲得清。
+
+**动效可及性兜底（WCAG 2.3.3）**：模板自带
+`@media (prefers-reduced-motion: reduce)`——入场/补间/呼吸全部关闭、
+循环动画停掉、终态保留。内容不依赖动效：关闭后每一帧仍是同一张正确定格，
+与导出截图页（`transition/animation:none`）同口径。
+
 导出边界（`export_video.py` 注入 `transition/animation:none`、每帧冷启动）：
 
 - 终态必须落在**属性**上，`animation-fill-mode` 用 `backwards` 或不写；

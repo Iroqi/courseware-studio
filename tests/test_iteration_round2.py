@@ -286,6 +286,28 @@ def test_mute_hooks_present():
     assert "e.key === 'm'" in html                 # M 键路径
 
 
+# ── 5. 动效设计令牌 + 错峰入场 + reduced-motion 兜底（0.10.0）──────────
+
+def test_motion_tokens_and_stagger_present():
+    """模板结构契约：动效令牌、.in 错峰原语与 reduced-motion 兜底必须长在范本里。"""
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # 设计令牌：缓动与时长集中在 :root，词汇统一引用
+    assert "--ease-out:cubic-bezier(.22,1,.36,1)" in html
+    assert "--ease-in-out:cubic-bezier(.65,0,.35,1)" in html
+    assert "--dur-in:.42s" in html and "--dur-move:.5s" in html
+    assert "--dur-gate:.3s" in html and "--dur-breathe:2.8s" in html
+    assert "var(--ease-out)" in html and "var(--dur-in)" in html
+    assert "var(--dur-gate)" in html and "var(--dur-breathe)" in html
+    # 错峰入场：.in 支持 --delay，.st1/.st2/.st3 是现成档位
+    assert "animation-delay:var(--delay,0s)" in html
+    assert ".st1{--delay:.06s}.st2{--delay:.12s}.st3{--delay:.18s}" in html
+    # reduced-motion 兜底：入场/补间/呼吸全部关闭，循环动画停掉、终态保留
+    assert "@media (prefers-reduced-motion: reduce)" in html
+    assert ".stage[data-state=\"idle\"] .veilplay{animation:none}" in html
+    assert "#cam,.nt{transition:none}" in html
+    assert ".in,.pop,.draw,.pulse,.gate,.gate.leaving,.gate .g-card>*{animation:none}" in html
+
+
 @pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
 @pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
 def test_progress_slider_keyboard_and_replay(speaker_lesson):
@@ -405,6 +427,19 @@ def test_progress_slider_keyboard_and_replay(speaker_lesson):
         ev("document.getElementById('mute').click()")
         assert ev("document.getElementById('main-audio').muted") is False
         assert ev("document.getElementById('mute').getAttribute('aria-pressed')") == "false"
+
+        # 动效可及性（0.10.0）：模拟 prefers-reduced-motion 后，舞台入场动画
+        # 被关闭（终态仍由属性决定，画面不受影响）
+        ws.send(json.dumps({"id": 99, "method": "Emulation.setEmulatedMedia",
+                            "params": {"features": [
+                                {"name": "prefers-reduced-motion", "value": "reduce"}]}}))
+        while True:
+            m = json.loads(ws.recv())
+            if m.get("id") == 99:
+                break
+        anim = ev("(function(){ var el = document.querySelector('#stage .in');"
+                  " return el ? getComputedStyle(el).animationName : 'no-el'; })()")
+        assert anim == "none", f"reduced-motion 下 #stage .in 应关闭动画，实际 {anim!r}"
     finally:
         chrome.kill()
         try:

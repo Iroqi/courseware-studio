@@ -3,6 +3,38 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.10.0] - 2026-10-12
+
+### 新增
+
+- **动效设计令牌（学习模仿前沿动画设计思路）**：缓动与时长集中到模板 `:root`
+  的 `--ease-out`（easeOutExpo `.22,1,.36,1`）/ `--ease-in-out` / `--dur-in` /
+  `--dur-move` / `--dur-pop` / `--dur-draw` / `--dur-gate` / `--dur-pulse` /
+  `--dur-breathe`，动效词汇（`.in/.pop/.draw/.pulse/.nt/#cam`、veilplay 呼吸、
+  门禁进出、卡片错峰）统一引用——改全局节奏只动一处，不再散落魔法数。
+- **错峰入场原语**：`.in` 支持 `--delay`（`animation-delay:var(--delay,0s)`），
+  新增 `.st1/.st2/.st3`（60/120/180ms）档位——一组同幕图元按序上浮，是前沿
+  动效最常见的节奏手法（模板门禁卡片的 `nth-child` 延迟同款推广为通用词汇）；
+  最晚元素延迟 ≤ 180ms，单独截一帧仍讲得清（导出边界不变）。
+- **`prefers-reduced-motion` 兜底（WCAG 2.3.3）**：模板新增词汇级媒体查询——
+  入场/补间/呼吸全部关闭、循环动画停掉、终态保留；内容不依赖动效，关闭后
+  每一帧仍是同一张正确定格（与导出截图页同口径）。
+
+### 测试
+
+- `tests/test_iteration_round2.py::test_motion_tokens_and_stagger_present`：
+  令牌值、词汇引用、`.in` 的 `--delay`、`.st1/.st2/.st3`、reduced-motion 块
+  的静态契约。
+- CDP 真实浏览器测试追加：`Emulation.setEmulatedMedia` 模拟
+  `prefers-reduced-motion: reduce` 后，`#stage .in` 的
+  `animationName === 'none'`（无 Chrome 自动跳过）。
+
+### 文档
+
+- `references/stage.md`：§3.4 补令牌、错峰与 reduced-motion 三小节。
+- `SKILL.md`：§5 画面渲染补动效令牌 / 错峰 / reduced-motion 一句。
+- `README.md`：「开发与自测」补 0.10.0 回归说明。
+
 ## [0.9.0] - 2026-10-11
 
 ### 新增

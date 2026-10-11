@@ -10,6 +10,11 @@
     --bg:#0d0f14; --panel:#181c25; --line:#252b37;
     --fg:#e9ecf3; --dim:#8d95a8; --dim2:#6b748a;
     --key:#f5a623; --ok:#2ecc71; --bad:#ef4d4d;
+    /* 动效设计令牌：缓动与时长集中在 :root 一处，作者改全局节奏不用翻词汇。
+       曲线是 easeOutExpo 家族（.22,1,.36,1）——入/补间共用它，退场用 inOut。 */
+    --ease-out:cubic-bezier(.22,1,.36,1);   --ease-in-out:cubic-bezier(.65,0,.35,1);
+    --dur-in:.42s;   --dur-move:.5s;   --dur-pop:.46s;   --dur-draw:.55s;
+    --dur-fast:.13s; --dur-gate:.3s;   --dur-pulse:2.4s; --dur-breathe:2.8s;
   }
   *{box-sizing:border-box}
   /* 背景光晕**不用 background-attachment:fixed**：iOS Safari 对它的支持是坏的
@@ -100,7 +105,7 @@
   .veilplay .vp-kbd{font-size:11px;color:var(--dim2);white-space:nowrap;
                     border-left:1px solid rgba(255,255,255,.14);padding-left:10px}
   /* idle：压暗 + 呼吸，明确"点这里开始" */
-  .stage[data-state="idle"] .veilplay{animation:breathe 2.8s ease-in-out infinite}
+  .stage[data-state="idle"] .veilplay{animation:breathe var(--dur-breathe) ease-in-out infinite}
   @keyframes breathe{0%,100%{background:rgba(10,12,17,.46)}50%{background:rgba(10,12,17,.22)}}
   /* playing / paused：整层收起。暂停时**不压暗**——要能看清停在哪一帧；
      恢复播放的入口在画布下面播放器行的 ▶ 上（就像普通播放器）。 */
@@ -122,22 +127,36 @@
        ② 入场用 animation 且 **fill-mode 用 backwards / 不写**——`both`/`forwards`
           会把终态钉在 CSS 上，之后 setAttribute 的 opacity/transform 全被压住；
        ③ 循环动效的 0% 必须等于静息态（导出切掉后落在属性上，不是随机相位）。 */
-  #cam{transition:transform .6s cubic-bezier(.22,1,.36,1)}
-  .nt{transition:transform .5s cubic-bezier(.22,1,.36,1),opacity .4s ease,
+  #cam{transition:transform .6s var(--ease-out)}
+  .nt{transition:transform var(--dur-move) var(--ease-out),opacity .4s ease,
        fill .35s ease,stroke .35s ease,stroke-width .3s ease}
-  /* 只写 from：to 取元素自身值，所以目标 opacity 是多少都接得住 */
-  .in{animation:ntIn .42s ease backwards}
+  /* 只写 from：to 取元素自身值，所以目标 opacity 是多少都接得住。
+     错峰入场：--delay 由 .st1/.st2/.st3 或作者直接写在元素上（如 style="--delay:.08s"），
+     一组同幕图元按序上浮——模板门禁卡片就用了同款节奏（见下方 nth-child 延迟）。 */
+  .in{animation:ntIn var(--dur-in) var(--ease-out) backwards;
+      animation-delay:var(--delay,0s)}
+  .st1{--delay:.06s}.st2{--delay:.12s}.st3{--delay:.18s}
   @keyframes ntIn{from{opacity:0}}
   /* 缩放入场只能挂在**没有 transform 属性**的节点上（CSS transform 会顶掉属性值），
      要位移又要点入场的，外层管位移、这一层管入场。 */
   .pop{transform-box:fill-box;transform-origin:50% 50%;
-       animation:ntPop .46s cubic-bezier(.22,1,.36,1) backwards}
+       animation:ntPop var(--dur-pop) var(--ease-out) backwards}
   @keyframes ntPop{from{opacity:0;transform:scale(.82)}}
   /* 画线：配 pathLength="1"，虚线偏移从整条藏到整条显；终态 = 满线 */
-  .draw{stroke-dasharray:1 1;animation:ntDraw .55s ease backwards}
+  .draw{stroke-dasharray:1 1;animation:ntDraw var(--dur-draw) var(--ease-out) backwards}
   @keyframes ntDraw{from{stroke-dashoffset:1}}
-  .pulse{animation:ntPulse 2.4s ease-in-out infinite}
+  .pulse{animation:ntPulse var(--dur-pulse) ease-in-out infinite}
   @keyframes ntPulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+  /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
+     入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
+     关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
+  @media (prefers-reduced-motion: reduce){
+    .stage[data-state="idle"] .veilplay{animation:none}
+    .el,.el.on{transition:none}
+    #cam,.nt{transition:none}
+    .in,.pop,.draw,.pulse,.gate,.gate.leaving,.gate .g-card>*{animation:none}
+  }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
      页面级常驻字幕条不属于当前结构；字幕统一留在画布内。
@@ -192,11 +211,11 @@
         border-radius:12px;overflow:auto;
         scrollbar-width:thin;scrollbar-color:#3a4359 transparent;
         background:rgba(6,8,12,.92);backdrop-filter:blur(4px);
-        animation:gateIn .3s ease both}
+        animation:gateIn var(--dur-gate) var(--ease-out) both}
   .gate[hidden]{display:none}
   /* 出场**不是硬切**：加 .leaving 淡出上移，动画走完再由 JS 盖上 hidden，然后才起播旁白
      （否则旁白在还压着暗的画布底下就开口了，听着像"上一句被切掉、下一句突然开始"） */
-  .gate.leaving{animation:gateOut .24s ease forwards;pointer-events:none}
+  .gate.leaving{animation:gateOut .24s var(--ease-in-out) forwards;pointer-events:none}
   @keyframes gateIn{from{opacity:0;transform:translateY(12px) scale(.985)}
                     to{opacity:1;transform:none}}
   @keyframes gateOut{to{opacity:0;transform:translateY(-8px) scale(.99)}}
@@ -210,7 +229,7 @@
   .gate .g-card{width:100%;max-width:660px;margin:auto;background:#1e2431;   /* 比 --panel 亮一档才压得住背景；居中靠 auto 边距，align-items:center 配 overflow 会把卡片顶部裁掉且滚不回来 */
         border:1px solid #3a4359;border-radius:14px;padding:18px 20px;
         box-shadow:0 20px 56px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.06)}
-  .gate .g-card>*{animation:cardIn .3s ease both}
+  .gate .g-card>*{animation:cardIn var(--dur-gate) var(--ease-out) both}
   .gate .g-card>*:nth-child(1){animation-delay:.04s}
   .gate .g-card>*:nth-child(2){animation-delay:.11s}
   .gate .g-card>*:nth-child(3){animation-delay:.18s}
