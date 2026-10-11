@@ -167,6 +167,11 @@ python scripts/check_gates.py <页面目录或 index.html> --require-browser  # 
 给自动化（CI / agent）消费时加 `--json`：整份结果（`verdict` / `static` /
 `browser` / `note` / `exit_code`）作为一个 JSON 文档打到 stdout，判绿红只看
 `exit_code` 或 `verdict`。
+静态检查还会做**页面本地资源引用完整性**：`link[href]` / `script[src]` /
+`img[src]` / `source[src]` / `use[href]` / `a[href]` 里的页面目录内相对引用
+必须指向真实存在的文件——防"引用了文件却忘了拷贝"的静默破损；外部 URL /
+data: / 纯锚点 / 模板占位符 / 跨目录引用不判（runtime 与 audio 用各自更严的
+规则单独校验）。
 
 **导出线性视频（可选）。** 画面全由 `audio.currentTime` 驱动、一句 = 一个稳定
 视觉步，所以不需要录屏：`export_video.py` 逐句截帧、按句长拼接、混入

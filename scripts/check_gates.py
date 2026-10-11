@@ -597,6 +597,47 @@ RUNTIME_REF_RE = re.compile(
 )
 
 
+# 页面本地资源引用完整性：`link[href]` / `script[src]` / `img[src]` /
+# `source[src]` / `use[href]` / `a[href]` 等属性里的本地相对引用必须指向
+# 页面目录内真实存在的文件。防的是"页面引用了文件却忘了拷贝"这类静默破损——
+# runtime 与 audio/combined.wav 已在上方用更严格的规则单独校验，这里跳过
+# 不再重复报。外部 URL / data: / 纯锚点 / 模板占位符 / 跨目录引用一律不判
+# （跨目录可能在交付目录之外，检查器管不到也不该误报）。
+_LOCAL_REF_RE = re.compile(
+    r'<\s*(?:link|script|img|source|use|a)\b[^>]*?(?<![-\w])(?:href|src)\s*=\s*["\']([^"\']*)["\']',
+    re.I,
+)
+
+
+def _local_ref_errors(html: str, page_dir: Path) -> list[str]:
+    errors: list[str] = []
+    seen: set[str] = set()
+    root = page_dir.resolve()
+    for m in _LOCAL_REF_RE.finditer(html):
+        ref = m.group(1).strip()
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', ref) or ref.startswith('//') \
+                or ref.startswith('#') or ref.startswith('{{') or ref.startswith('{%') \
+                or '${' in ref:
+            # 外部协议 / data: / 纯锚点 / 模板占位符：都不是"页面目录内文件"
+            continue
+        path_part = ref.split('?', 1)[0].split('#', 1)[0]
+        norm = path_part.replace('\\', '/')
+        if not norm or norm.startswith('/') or norm.startswith('../') or '/../' in norm:
+            # 绝对路径与越出页面目录的引用不判存在性（audio/runtime 有各自的严格规则）
+            continue
+        if norm.endswith('interactive_runtime.js') or norm.endswith('audio/combined.wav'):
+            continue  # 已在上方单独校验
+        target = (root / norm).resolve()
+        if not str(target).startswith(str(root)):
+            continue
+        if not target.is_file():
+            errors.append(f'页面引用的本地文件不存在：{norm}')
+    return errors
+
+
 def static_check(src: str, *, allow_degraded: bool,
                  page_dir: Path) -> dict[str, Any]:
     errors: list[str] = []
@@ -707,6 +748,7 @@ def static_check(src: str, *, allow_degraded: bool,
             errors.append('interactive_runtime.js 必须是页面目录内的本地相对文件')
         elif not (page_dir / ref).resolve().is_file():
             errors.append(f'页面引用的 runtime 不存在：{(page_dir / ref).resolve()}')
+    errors.extend(_local_ref_errors(stripped_html, page_dir))
 
     seen_ids: set[str] = set()
     prev_start: float | None = None

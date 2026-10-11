@@ -320,6 +320,15 @@ def _mux_command(ffmpeg: str, listf: Path, audio: Path, args, mux_tmp: Path) -> 
     return cmd + ['-movflags', '+faststart', str(mux_tmp)]
 
 
+def _validate_export_params(args) -> None:
+    """导出参数边界：fps/scale/crf/width 必须是正整数。负数或 0 会让 ffmpeg
+    静默产出坏成片（fps=0 直接失败、scale=0 画面消失），在进帧循环前拦下。"""
+    for name, val in (("--fps", args.fps), ("--scale", args.scale),
+                      ("--crf", args.crf), ("--width", args.width)):
+        if val <= 0:
+            raise _fail(f'{name} 必须是正整数，收到 {val}')
+
+
 def main() -> int:
     setup_stdio()   # 必须在 parse_args 之前：Windows 管道下 help/usage 也是中文
     ap = argparse.ArgumentParser(description='课件 → 线性 MP4（逐句定格 + 按时长拼接 + 旁白混音）')
@@ -337,6 +346,7 @@ def main() -> int:
     ap.add_argument('--keep', action='store_true',
                     help='保留临时目录（逐帧 PNG + 截图页副本 _shot.html）供排查；默认全部清理')
     args = ap.parse_args()
+    _validate_export_params(args)
 
     page = Path(args.page)
     # 传文件路径时 parent 若是相对的 '.'，默认输出名会取成 '.mp4'——

@@ -3,6 +3,39 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.9.0] - 2026-10-11
+
+### 新增
+
+- **`check_gates.py` 页面本地资源引用完整性检查**：`link[href]` /
+  `script[src]` / `img[src]` / `source[src]` / `use[href]` / `a[href]`
+  里的页面目录内相对引用必须指向真实存在的文件——防"引用了文件却忘了拷贝"
+  的静默破损；外部 URL / data: / 纯锚点 / 模板占位符 / 跨目录引用不判；
+  runtime 与 `audio/combined.wav` 已有更严的独立校验，这里不重复报。
+- **`demo_lesson.py --title / --lang` 透传**：透传 `build_page --title`
+  （HTML 转义）与 `--lang`——demo 也能带真实标题，`check_gates` 不再报
+  "照抄范本忘改"；默认行为不变（沿用范本标题与 lang）。
+- **`export_video.py` 导出参数边界校验**：`--fps` / `--scale` / `--crf` /
+  `--width` 非正数在进帧循环前拒收（负数 / 0 会让 ffmpeg 静默产出坏成片）。
+
+### 测试
+
+- `tests/test_check_gates.py::TestLocalRefErrors`：缺失报错、存在放行、外部
+  URL / data: / 纯锚点 / 模板占位符 / 跨目录不判、`data-src` 不误匹配、
+  SVG `use[href]` 去片段、query 剥离、runtime/audio 不重复报、static_check
+  集成（成品页零新错、人为悬空引用报错）。
+- `tests/test_export_video.py::TestValidateExportParams`：合法参数放行、
+  fps/scale/crf/width 非正数五例拒收。
+- `tests/test_demo_lesson.py`：`--title` 注入 `<title>` 且 check_gates 标题
+  告警消失；`--lang` 写入 `<html lang>`。
+
+### 文档
+
+- `README.md`：demo 用法补 `--title`/`--lang` 示例；「开发与自测」补 0.9.0
+  回归说明。
+- `SKILL.md`：§8 补页面本地资源引用完整性检查。
+- `references/runtime.md`：§8 模式说明补引用完整性检查。
+
 ## [0.8.0] - 2026-10-11
 
 ### 新增

@@ -270,6 +270,11 @@ python -m pytest tests/ -q
   `test_check_gates.py::TestCliJson` 锁 `--json` 单文档输出（通过 / 失败 /
   缺页三路径的 verdict 与 exit_code）；`test_iteration_round2.py` 锁静音按钮
   与 M 键钩子（静态断言 + CDP 里 M 键切 muted、按钮切回、aria-pressed 同步）；
+- 0.9.0 的回归：`test_check_gates.py::TestLocalRefErrors` 锁页面本地资源引用
+  完整性（缺失报错 / 存在放行 / 外部与锚点与占位符与跨目录不判 / data-src 不
+  误匹配 / runtime 与 audio 不重复报）；`test_export_video.py::TestValidateExportParams`
+  锁 fps/scale/crf/width 非正数拒收；`test_demo_lesson.py` 锁 `--title` 透传后
+  check_gates 不再报"范本标题泄漏"、`--lang` 透传写入 `<html lang>`；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴
@@ -286,8 +291,11 @@ python -m pytest tests/ -q
   python scripts/demo_lesson.py                     # 成品在系统临时目录
   python scripts/demo_lesson.py --out ./demo        # 成品在 ./demo/lesson/
   python scripts/demo_lesson.py --out ./demo --export   # 额外导出 ./demo/lesson.mp4
+  python scripts/demo_lesson.py --out ./demo --title "排序演示课"   # 注入真实 <title>
   ```
   占位音轨只保证时长与时间轴一致，听感不真实，用途是"本地看成品结构"；
+  demo 页面的 `<title>` 默认沿用范本标题（会触发"照抄范本忘改"告警）——
+  想看干净检查报告就传 `--title`；`--lang` 同理透传 build_page。
   对应测试还锁两条契约：有 Chrome 时 demo 的交付检查必须真跑浏览器冒烟
   （`[browser] captions=` 标记），且 `check_gates.py --require-browser`（SKILL §8
   的"CI 严格模式"）必须返回 0；`--export` 的成片必须含视频流、时长与时间轴

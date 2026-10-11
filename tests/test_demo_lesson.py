@@ -133,3 +133,28 @@ def test_demo_page_uses_template_contract(tmp_path):
                  'id="gate-go"', 'id="pregate"', 'id="stage"',
                  "window.__coursewareRenderTrace"):
         assert hook in html, f"成品页缺少 QA 钩子：{hook}"
+
+
+def test_demo_title_passthrough(tmp_path):
+    """--title 透传 build_page：注入真实标题，check_gates 不再报"范本标题泄漏"。"""
+    r = _run_demo(tmp_path / "out", "--title", "排序演示课")
+    assert r.returncode == 0, r.stderr + r.stdout
+    page = tmp_path / "out" / "lesson" / "index.html"
+    html = page.read_text(encoding="utf-8")
+    assert "<title>排序演示课</title>" in html
+    # 章节头 h1 是范本正文内容（build_page --title 只注入 <title>，不动正文）
+    # 标题告警消失：demo 过检查时不再是"照抄范本忘改"
+    cg = subprocess.run(
+        [sys.executable, str(SCRIPTS / "check_gates.py"),
+         str(tmp_path / "out" / "lesson"), "--no-browser", "--json"],
+        capture_output=True, text=True, encoding="utf-8", cwd=str(REPO), timeout=300)
+    doc = json.loads(cg.stdout)
+    assert doc["verdict"] == "pass-static"
+    assert not any("范本默认标题" in w for w in doc["static"]["warnings"])
+
+
+def test_demo_lang_passthrough(tmp_path):
+    r = _run_demo(tmp_path / "out", "--lang", "en")
+    assert r.returncode == 0, r.stderr + r.stdout
+    html = (tmp_path / "out" / "lesson" / "index.html").read_text(encoding="utf-8")
+    assert '<html lang="en">' in html

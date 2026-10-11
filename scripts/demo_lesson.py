@@ -122,6 +122,11 @@ def main():
         description="无 TTS key 构建样例课件：范本讲稿 → 成品目录（可双击打开）")
     p.add_argument("--out", default=None,
                    help="输出目录（默认系统临时目录；不得落在本技能目录内）")
+    p.add_argument("--title", default=None,
+                   help="页面 <title>（透传 build_page --title，HTML 转义）；"
+                        "默认沿用范本标题——demo 也要过 check_gates 的话建议传真实标题")
+    p.add_argument("--lang", default=None,
+                   help="<html lang>（透传 build_page --lang）；默认沿用范本 lang=zh-CN")
     p.add_argument("--export", action="store_true",
                    help="额外导出线性 mp4（需要本机 Chrome/Edge 与 ffmpeg）")
     args = p.parse_args()
@@ -164,12 +169,17 @@ def main():
     draft = proj / "page-draft.html"
     draft.write_text(TEMPLATE_HTML.read_text(encoding="utf-8"), encoding="utf-8")
     page_dir = out / "lesson"
-    r = _run([str(SCRIPTS / "build_page.py"),
-              "--template", str(draft),
-              "--timeline", str(proj / "timeline.html"),
-              "--audio", str(wav),
-              "--timing", str(timing_path),
-              "-o", str(page_dir / "index.html")], cwd=out)
+    bp_args = [str(SCRIPTS / "build_page.py"),
+               "--template", str(draft),
+               "--timeline", str(proj / "timeline.html"),
+               "--audio", str(wav),
+               "--timing", str(timing_path),
+               "-o", str(page_dir / "index.html")]
+    if args.title:
+        bp_args += ["--title", args.title]
+    if args.lang:
+        bp_args += ["--lang", args.lang]
+    r = _run(bp_args, cwd=out)
     if r.returncode != 0:
         raise SystemExit(f"[error] build_page 失败：\n{r.stderr}")
 

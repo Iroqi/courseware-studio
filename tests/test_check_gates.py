@@ -385,3 +385,67 @@ class TestCliJson:
         assert doc["verdict"] == "fail"
         assert doc["exit_code"] == 2
         assert any("找不到页面" in e for e in doc["static"]["errors"])
+
+
+# ── 页面本地资源引用完整性（0.9.0）────────────────────────────
+class TestLocalRefErrors:
+    def _errs(self, html, tmp_path, files=()):
+        for f in files:
+            p = tmp_path / f
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("x", encoding="utf-8")
+        return cg._local_ref_errors(html, tmp_path)
+
+    def test_missing_img_errors(self, tmp_path):
+        errs = self._errs('<img src="art/hero.png">', tmp_path)
+        assert errs == ["页面引用的本地文件不存在：art/hero.png"]
+
+    def test_present_img_passes(self, tmp_path):
+        errs = self._errs('<img src="art/hero.png">', tmp_path, files=["art/hero.png"])
+        assert errs == []
+
+    def test_external_and_anchor_skipped(self, tmp_path):
+        html = '<link href="https://fonts.example/x.css">' \
+               '<img src="//cdn.example/y.png">' \
+               '<a href="#section-2">锚点</a>' \
+               '<img src="data:image/png;base64,AAAA">'
+        assert self._errs(html, tmp_path) == []
+
+    def test_data_src_not_matched(self, tmp_path):
+        # data-src 是 0.5.0 起 audio 检查就防过的坑：属性名前缀不算引用
+        html = '<img data-src="lazy.png" src="real.png">'
+        assert self._errs(html, tmp_path) == ["页面引用的本地文件不存在：real.png"]
+
+    def test_runtime_and_audio_skipped(self, tmp_path):
+        # 这两个引用有各自的严格校验（引用规则、存在性），这里不重复报
+        html = '<script src="interactive_runtime.js"></script>' \
+               '<audio src="audio/combined.wav"></audio>' \
+               '<source src="audio/combined.wav">'
+        assert self._errs(html, tmp_path) == []
+
+    def test_svg_use_fragment_stripped(self, tmp_path):
+        html = '<use href="icons.svg#close">'
+        assert self._errs(html, tmp_path) == ["页面引用的本地文件不存在：icons.svg"]
+        assert self._errs(html, tmp_path, files=["icons.svg"]) == []
+
+    def test_cross_dir_and_placeholder_skipped(self, tmp_path):
+        html = '<img src="../shared/logo.png">' \
+               '<img src="/abs/logo.png">' \
+               '<img src="{{ asset_url }}">'
+        assert self._errs(html, tmp_path) == []
+
+    def test_query_string_stripped(self, tmp_path):
+        errs = self._errs('<script src="js/app.js?v=2"></script>', tmp_path)
+        assert errs == ["页面引用的本地文件不存在：js/app.js"]
+        assert self._errs('<script src="js/app.js?v=2"></script>', tmp_path,
+                          files=["js/app.js"]) == []
+
+    def test_static_check_integration(self, built_lesson):
+        # 成品页只引 runtime + audio（均已单独校验），引用检查不产生新错误
+        page = (built_lesson / "index.html").read_text(encoding="utf-8")
+        result = cg.static_check(page, allow_degraded=False, page_dir=built_lesson)
+        assert result["errors"] == []
+        # 人为加一个悬空引用 → error
+        broken = page.replace("</body>", '<img src="missing.png"></body>')
+        result = cg.static_check(broken, allow_degraded=False, page_dir=built_lesson)
+        assert any("本地文件不存在：missing.png" in e for e in result["errors"])

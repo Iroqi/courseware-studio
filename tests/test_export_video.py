@@ -175,3 +175,20 @@ class TestMuxCommand:
         assert "-c:a" not in cmd
         assert "-c:v" in cmd and "libx264" in cmd
         assert "-crf" in cmd and "20" in cmd
+
+
+class TestValidateExportParams:
+    def test_valid_passes(self):
+        import argparse
+        args = argparse.Namespace(fps=30, scale=2, crf=20, width=1000)
+        ev._validate_export_params(args)      # 不抛即通过
+
+    @pytest.mark.parametrize("field,bad", [
+        ("fps", 0), ("fps", -5), ("scale", 0), ("crf", 0), ("width", -1),
+    ])
+    def test_nonpositive_rejected(self, field, bad):
+        import argparse
+        args = argparse.Namespace(fps=30, scale=2, crf=20, width=1000)
+        setattr(args, field, bad)
+        with pytest.raises(SystemExit, match="必须是正整数"):
+            ev._validate_export_params(args)
