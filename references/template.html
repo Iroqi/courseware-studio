@@ -172,6 +172,9 @@
   .fs .ic-out{display:none}
   body[data-fs="1"] .fs .ic-in{display:none}
   body[data-fs="1"] .fs .ic-out{display:block}
+  .mute .ic-out{display:none}
+  body[data-muted="1"] .mute .ic-in{display:none}
+  body[data-muted="1"] .mute .ic-out{display:block}
   .rack .bar{flex:1;min-width:60px}
   .rack .step{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
   /* 门禁开着时本行变灰且不可点：门禁的语义是"答对才继续"，还让点 ▶ 就等于白设。
@@ -699,6 +702,16 @@
       <div class="rack" id="rack">
         <button class="pp"  id="pp"  type="button" aria-label="播放 / 暂停">▶</button>
         <button class="rew" id="rew" type="button" aria-label="从头开始" title="从头开始">⟲</button>
+        <button class="mute" id="mute" type="button" aria-label="静音" aria-pressed="false" title="静音 (M)">
+          <svg class="ic-in" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+          <svg class="ic-out" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/>
+            <line x1="16" y1="9" x2="22" y2="15"/></svg>
+        </button>
         <div class="bar" id="bar" role="slider" tabindex="0"
              aria-label="播放进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><div class="bar-fill" id="fill"></div>
           <div class="tip" id="bar-tip"></div></div>
@@ -1859,6 +1872,16 @@
     if (audio.ended){ audio.currentTime = 0; resetGates(); lastKey = ''; }
     if (audio.paused) audio.play().catch(function(){}); else audio.pause();
   });
+  // 静音（按钮 + M 键）：只切 audio.muted，与 currentTime 无关——"单一时钟"
+  // 只管进度，音量是独立的传输控制，任何状态都能用。muted 态用 body[data-muted]
+  // 切换两个 SVG 图标，与全屏按钮的 data-fs 同一套模式。
+  function setMuted(m){
+    audio.muted = m;
+    document.body.dataset.muted = m ? '1' : '0';
+    el('mute').setAttribute('aria-label', m ? '取消静音' : '静音');
+    el('mute').setAttribute('aria-pressed', m ? 'true' : 'false');
+  }
+  el('mute').addEventListener('click', function(){ setMuted(!audio.muted); });
   el('rew').addEventListener('click', function(){
     audio.currentTime = 0; resetGates(); lastKey = '';
   });
@@ -2003,6 +2026,13 @@
     barEl.addEventListener('pointercancel', stop);
   });
   document.addEventListener('keydown', function(e){
+    // M = 静音/取消静音：与门禁无关的传输控制，任何状态都能用。本页没有文本框，
+    // 但保留 input/textarea 豁免，防止将来加输入后 M 键被吞。
+    if (e.key === 'm' || e.key === 'M'){
+      if (e.target && e.target.closest && e.target.closest('input,textarea')) return;
+      setMuted(!audio.muted);
+      return;
+    }
     if (gateBusy()){
       if (e.code === 'Space'){
         // 与非门禁分支同一口径：落在按钮上的空格留给按钮自己。runtime 在条目

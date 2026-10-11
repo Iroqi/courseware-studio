@@ -2,6 +2,7 @@
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -347,3 +348,40 @@ class TestAudioDurationCheck:
         assert result["errors"] == []
         assert not any("音频" in w and ("时长" in w or "余音" in w)
                        for w in result["warnings"])
+
+
+# ── --json 结构化输出（0.8.0）──────────────────────────────────
+class TestCliJson:
+    def test_json_static_pass(self, built_lesson):
+        r = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "check_gates.py"),
+             str(built_lesson), "--no-browser", "--json"],
+            capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 0
+        doc = json.loads(r.stdout)
+        assert doc["verdict"] == "pass-static"
+        assert doc["exit_code"] == 0
+        assert doc["browser"] is None
+        assert doc["static"]["errors"] == []
+        assert "[static]" not in r.stdout      # 人类逐行输出被关闭，stdout 只有 JSON
+
+    def test_json_template_fails(self):
+        r = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "check_gates.py"),
+             str(TEMPLATE_HTML), "--no-browser", "--json"],
+            capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 1
+        doc = json.loads(r.stdout)
+        assert doc["verdict"] == "fail"
+        assert doc["static"]["errors"]
+
+    def test_json_missing_page(self):
+        r = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "check_gates.py"),
+             str(Path("/nonexistent-courseware/index.html")), "--json"],
+            capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 2
+        doc = json.loads(r.stdout)
+        assert doc["verdict"] == "fail"
+        assert doc["exit_code"] == 2
+        assert any("找不到页面" in e for e in doc["static"]["errors"])

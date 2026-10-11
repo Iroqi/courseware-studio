@@ -148,3 +148,30 @@ class TestAudioSrc:
     def test_real_template(self):
         src = TEMPLATE_HTML.read_text(encoding="utf-8")
         assert ev._audio_src(src) == "audio/combined.wav"
+
+
+class TestMuxCommand:
+    """--no-audio 只摘音轨，不动画面参数（0.8.0）。"""
+
+    def _cmd(self, tmp_path, no_audio):
+        import argparse
+        args = argparse.Namespace(no_audio=no_audio, crf=20, fps=30)
+        return ev._mux_command("ffmpeg", tmp_path / "list.txt",
+                               tmp_path / "a.wav", args, tmp_path / "m.mp4")
+
+    def test_with_audio_mixes_track(self, tmp_path):
+        cmd = self._cmd(tmp_path, no_audio=False)
+        assert cmd.count("-i") == 2           # concat 列表 + 音轨
+        assert str(tmp_path / "a.wav") in cmd
+        assert "-c:a" in cmd and "aac" in cmd
+        assert "-an" not in cmd
+        assert "-c:v" in cmd and "libx264" in cmd
+
+    def test_no_audio_keeps_video_args(self, tmp_path):
+        cmd = self._cmd(tmp_path, no_audio=True)
+        assert cmd.count("-i") == 1           # 只剩 concat 列表
+        assert str(tmp_path / "a.wav") not in cmd
+        assert "-an" in cmd
+        assert "-c:a" not in cmd
+        assert "-c:v" in cmd and "libx264" in cmd
+        assert "-crf" in cmd and "20" in cmd

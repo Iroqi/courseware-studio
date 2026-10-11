@@ -1553,6 +1553,23 @@ def browser_check(page: Path, keep: bool,
             print(f'[note] 已保留检查产物目录：{temp_root}（含 probe.html / dom.html / Chrome profile，用完请自行删除）')
 
 
+def _finish(args, *, page, static, browser=None, note=None, verdict, code):
+    """统一的收尾出口：--json 时把整份结果作为一个 JSON 文档打到 stdout
+    （人类路径的逐行输出在 main 里已按原样打印过，这里不再重复），
+    否则什么都不做。机器消费者拿 exit_code + verdict 即可判绿红。"""
+    if args.json:
+        doc = {
+            "page": str(page),
+            "verdict": verdict,
+            "static": static,
+            "browser": browser,
+            "note": note,
+            "exit_code": code,
+        }
+        print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return code
+
+
 def main() -> int:
     setup_stdio()   # 中文 Windows 管道重定向下 stdout 默认 gbk，中文章节标题会乱码
     ap = argparse.ArgumentParser(description='Courseware Studio 交付检查：字幕 + 时间轴 + 门禁 + JS')
@@ -1561,6 +1578,8 @@ def main() -> int:
     ap.add_argument('--keep', action='store_true', help='保留浏览器冒烟副本')
     ap.add_argument('--require-browser', action='store_true', help='浏览器冒烟未执行时返回失败（适合 CI）')
     ap.add_argument('--allow-degraded', action='store_true', help='允许时间轴含 synth_failed=true（不建议用于最终交付）')
+    ap.add_argument('--json', action='store_true',
+                    help='整份结果输出为一个 JSON 文档（stdout 只有 JSON，人类逐行输出关闭）')
     args = ap.parse_args()
     if args.no_browser and args.require_browser:
         # 两个开关同时给会在"跳过浏览器"分支直接返回 0：CI 拿到绿勾却零浏览器覆盖。
@@ -1571,6 +1590,11 @@ def main() -> int:
         page = page / 'index.html'
     page = page.resolve()
     if not page.exists():
+        if args.json:
+            return _finish(args, page=page,
+                           static={"errors": [f"找不到页面：{page}"],
+                                   "warnings": [], "stats": {}},
+                           browser=None, note=None, verdict="fail", code=2)
         print(f'[error] 找不到页面：{page}')
         return 2
 
@@ -1578,35 +1602,44 @@ def main() -> int:
     # 主音频引用合法性与文件存在性都在 static_check 里报（含页面目录）：
     # 早退会吞掉同页其它静态错误，存在性检查也不能当任意路径探针用。
     static = static_check(src, allow_degraded=args.allow_degraded, page_dir=page.parent)
-    print(f"[static] scenes={static['stats'].get('scenes',0)} sentences={static['stats'].get('sentences',0)}")
-    for w in static['warnings']:
-        print('[warn] ' + w)
-    for e in static['errors']:
-        print('[error] ' + e)
+    if not args.json:
+        print(f"[static] scenes={static['stats'].get('scenes',0)} sentences={static['stats'].get('sentences',0)}")
+        for w in static['warnings']:
+            print('[warn] ' + w)
+        for e in static['errors']:
+            print('[error] ' + e)
     if static['errors']:
-        return 1
+        return _finish(args, page=page, static=static, browser=None,
+                       note=None, verdict="fail", code=1)
 
     if args.no_browser:
-        print('[ok] 静态检查通过（已跳过浏览器字幕/门禁冒烟）')
-        return 0
+        if not args.json:
+            print('[ok] 静态检查通过（已跳过浏览器字幕/门禁冒烟）')
+        return _finish(args, page=page, static=static, browser=None,
+                       note=None, verdict="pass-static", code=0)
 
     report, note = browser_check(page, keep=args.keep,
                                  scene_count=static['stats'].get('scenes', 0))
     if report is None:
-        print(f'[note] 浏览器冒烟未执行：{note}。静态检查已通过。')
-        return 1 if args.require_browser else 0
-    for e in report.get('errors', []):
-        print('[error] ' + str(e))
-    for f in report.get('failures', []):
-        print('[fail] ' + str(f))
-    for w in report.get('warnings', []):
-        if w:
-            print('[warn] ' + str(w))
-    print(f"[browser] captions={report.get('captionChecks',0)} gates={len(report.get('gates',[]))}")
-    if report.get('ok'):
-        print('[ok] 字幕 / 时间轴 / 门禁 / JS 浏览器冒烟通过')
-        return 0
-    return 1
+        if not args.json:
+            print(f'[note] 浏览器冒烟未执行：{note}。静态检查已通过。')
+        return _finish(args, page=page, static=static, browser=None, note=note,
+                       verdict="browser-skipped",
+                       code=1 if args.require_browser else 0)
+    if not args.json:
+        for e in report.get('errors', []):
+            print('[error] ' + str(e))
+        for f in report.get('failures', []):
+            print('[fail] ' + str(f))
+        for w in report.get('warnings', []):
+            if w:
+                print('[warn] ' + str(w))
+        print(f"[browser] captions={report.get('captionChecks',0)} gates={len(report.get('gates',[]))}")
+        if report.get('ok'):
+            print('[ok] 字幕 / 时间轴 / 门禁 / JS 浏览器冒烟通过')
+    return _finish(args, page=page, static=static, browser=report, note=note,
+                   verdict="pass" if report.get('ok') else "fail",
+                   code=0 if report.get('ok') else 1)
 
 
 if __name__ == '__main__':

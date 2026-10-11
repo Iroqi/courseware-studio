@@ -300,6 +300,26 @@ def _frame_plan(sentences: list[tuple[float, float, int]], wav_dur: float) -> li
     return plan
 
 
+def _mux_command(ffmpeg: str, listf: Path, audio: Path, args, mux_tmp: Path) -> list[str]:
+    """最终混流命令（concat 帧列表 + 可选音轨）。
+
+    --no-audio 时不含音轨输入与音频编码参数（-an 显式声明不要音轨），
+    其余参数（x264 / fps / pix_fmt / 偶数宽高）与带音轨路径完全一致——
+    帧计划仍按旁白音频时长推进，只是成片没有声音。
+    """
+    cmd = [ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', str(listf)]
+    if not args.no_audio:
+        cmd += ['-i', str(audio)]
+    cmd += ['-c:v', 'libx264', '-crf', str(args.crf), '-preset', 'medium',
+            '-r', str(args.fps), '-pix_fmt', 'yuv420p',
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2']
+    if not args.no_audio:
+        cmd += ['-c:a', 'aac', '-b:a', '192k']
+    else:
+        cmd += ['-an']
+    return cmd + ['-movflags', '+faststart', str(mux_tmp)]
+
+
 def main() -> int:
     setup_stdio()   # 必须在 parse_args 之前：Windows 管道下 help/usage 也是中文
     ap = argparse.ArgumentParser(description='课件 → 线性 MP4（逐句定格 + 按时长拼接 + 旁白混音）')
@@ -311,6 +331,9 @@ def main() -> int:
     ap.add_argument('--scale', type=int, default=2, help='设备缩放系数，2 即输出约 2x 分辨率')
     ap.add_argument('--fps', type=int, default=30)
     ap.add_argument('--crf', type=int, default=20, help='x264 质量，越小越清晰（默认 20）')
+    ap.add_argument('--no-audio', action='store_true',
+                    help='成片不混音轨（纯画面）：预览画面、后期自行配音、或想去掉占位音轨时用。'
+                         '画面时序仍按旁白音频推进，只是输出不含音轨')
     ap.add_argument('--keep', action='store_true',
                     help='保留临时目录（逐帧 PNG + 截图页副本 _shot.html）供排查；默认全部清理')
     args = ap.parse_args()
@@ -520,14 +543,9 @@ def main() -> int:
                     pass
 
         try:
-            r = subprocess.run([
-                ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', str(listf),
-                '-i', str(audio),
-                '-c:v', 'libx264', '-crf', str(args.crf), '-preset', 'medium',
-                '-r', str(args.fps), '-pix_fmt', 'yuv420p',
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-                '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
-                str(mux_tmp)], capture_output=True, timeout=1800)
+            r = subprocess.run(
+                _mux_command(ffmpeg, listf, audio, args, mux_tmp),
+                capture_output=True, timeout=1800)
         except subprocess.TimeoutExpired:
             _cleanup_tmp()
             raise _fail('最终编码超过 1800s 未归，中止（--keep 复查帧与 list.txt）')

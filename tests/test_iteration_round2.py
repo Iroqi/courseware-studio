@@ -275,6 +275,17 @@ def test_progress_slider_and_replay_hooks_present():
     assert "resetGates(); lastKey = '';" in html
 
 
+def test_mute_hooks_present():
+    """模板结构契约：静音按钮与 M 键必须长在范本里（无浏览器也可锁）。"""
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    assert 'id="mute"' in html
+    assert 'aria-label="静音"' in html
+    assert 'aria-pressed' in html
+    assert 'body[data-muted="1"]' in html          # 图标切换状态钩子
+    assert 'function setMuted' in html
+    assert "e.key === 'm'" in html                 # M 键路径
+
+
 @pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
 @pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
 def test_progress_slider_keyboard_and_replay(speaker_lesson):
@@ -384,6 +395,16 @@ def test_progress_slider_keyboard_and_replay(speaker_lesson):
             " step: document.getElementById('step').textContent}); })()"))
         assert rep["t"] == 0, f"重播应回到 0，实际 {rep['t']}"
         assert "重播" in rep["step"], f"ended 提示未更新：{rep['step']!r}"
+
+        # 静音（M 键 + 按钮）：muted 态写 body[data-muted] 与 aria-pressed
+        ev("(function(){ document.dispatchEvent(new KeyboardEvent('keydown',"
+           " {key:'m', code:'KeyM', bubbles:true, cancelable:true})); })()")
+        assert ev("document.getElementById('main-audio').muted") is True
+        assert ev("document.body.dataset.muted") == "1"
+        assert ev("document.getElementById('mute').getAttribute('aria-pressed')") == "true"
+        ev("document.getElementById('mute').click()")
+        assert ev("document.getElementById('main-audio').muted") is False
+        assert ev("document.getElementById('mute').getAttribute('aria-pressed')") == "false"
     finally:
         chrome.kill()
         try:

@@ -3,6 +3,42 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.8.0] - 2026-10-11
+
+### 新增
+
+- **`check_gates.py --json` 结构化输出**：整份检查结果（`page` / `verdict` /
+  `static` / `browser` / `note` / `exit_code`）作为一个 JSON 文档打到 stdout，
+  人类逐行输出关闭——CI 报告与 agent 消费判绿红只看 `exit_code` / `verdict`；
+  人类阅读路径（默认）逐字节不变。
+- **模板静音（按钮 + M 键）**：播放器行新增 `#mute` 按钮（🔊/静音态两个 SVG
+  图标，`body[data-muted]` 切换，与全屏按钮同一套模式），快捷键 M 任意状态可
+  用（含门禁打开时）——只切 `audio.muted`，与"单一时钟"无关，音量是独立的
+  传输控制；`aria-pressed` 与 `aria-label` 同步，屏幕阅读器可感知。
+- **`export_video.py --no-audio` 纯画面成片**：不混音轨（`-an`），画面时序仍
+  按旁白音频推进、成片时长裁剪与校验逻辑不变——预览画面 / 后期自行配音 /
+  去掉占位音轨的场景用。
+
+### 测试
+
+- `tests/test_export_video.py::TestMuxCommand`：带音轨（`-c:a aac`、双 `-i`）
+  与 `--no-audio`（`-an`、无 `-c:a`、单 `-i`）的命令差异，画面参数（x264 /
+  crf / fps / 偶数宽高）两条路径完全一致。
+- `tests/test_check_gates.py::TestCliJson`：`--json` 通过（`pass-static` /
+  exit 0）、范本失败（`fail` / exit 1）、缺页（`fail` / exit 2）三路径，且
+  stdout 只有 JSON、人类逐行输出被关闭。
+- `tests/test_iteration_round2.py`：静音按钮与 M 键的静态钩子断言；
+  CDP 真实浏览器测试追加——M 键切 `muted`、点按钮切回、`body[data-muted]`
+  与 `aria-pressed` 同步（无 Chrome 自动跳过）。
+
+### 文档
+
+- `README.md`：特性清单补静音 / `--no-audio` / `--json`；「开发与自测」补
+  0.8.0 回归说明。
+- `references/layout.md`：§5 播放器行补 🔊 按钮与 M 键契约、窄屏控件枚举
+  四改五。
+- `references/runtime.md`：§8 模式说明补 `--json`。
+
 ## [0.7.0] - 2026-10-11
 
 ### 新增
