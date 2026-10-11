@@ -3,6 +3,34 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.11.0] - 2026-10-12
+
+### 新增（微动效层——现代交互的"手感"）
+
+- **进度条平滑补间**：`.bar-fill` 加 `transition:width var(--dur-fill) linear`
+  （新令牌 `--dur-fill:.25s`），播放与拖动时进度不再每拍跳变，而是连续滑动。
+- **字幕翻句微动效**：新令牌 `--dur-cap:.22s`；`#cap-text.capLift` 只在文本
+  真的变化时由 `capShow` 重触发（`remove + getBoundingClientRect + add`），
+  keyframes 纯上浮 6px——同句重显（pause 恢复）不重放，空档保留上一句不误
+  触发；纯 transform，不碰检查器判字幕可见性的 opacity/visibility 链。
+- **门禁反馈微动效**：新令牌 `--dur-fb:.32s`；答对 `fbOk` 轻弹入场（淡入 +
+  上移 4px）、答错 `fbBad` 横向抖动（±4px 两摆）。runtime 每次尝试都
+  remove+add 状态 class，动画天然重触发。
+- 以上三条全部纳入 `prefers-reduced-motion` 兜底（`animation/transition:none`）。
+
+### 测试
+
+- `tests/test_iteration_round2.py::test_micro_motion_present`：新令牌、三处
+  微动效的 CSS/JS 静态契约与 reduced-motion 扩展段。
+- CDP 真实浏览器测试追加：翻句后 `#cap-text` 带 `.capLift` 且
+  `animationName === 'capLift'`；reduced-motion 下字幕动画与舞台入场同关。
+
+### 文档
+
+- `references/stage.md`：§3.4 补"微动效"小节（三条的落点、触发与兜底）。
+- `SKILL.md`：§5 画面渲染补微动效层一句。
+- `README.md`：「开发与自测」补 0.11.0 回归说明。
+
 ## [0.10.0] - 2026-10-12
 
 ### 新增

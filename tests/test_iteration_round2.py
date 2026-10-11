@@ -247,6 +247,13 @@ def test_speaker_label_renders(speaker_lesson):
         assert rep["cap"] == rep["want"], f"字幕被改写：{rep['cap']!r}"
         assert rep["cap"] == "seg-1第1句。", f"未命中 speaker 句：{rep['cap']!r}"
         assert rep["spk"] == "小明", f"说话人标签未渲染：{rep['spk']!r}"
+        # 翻句微动效（0.11.0）：字幕文本变化后 .capLift 在类表里、动画生效
+        lift = json.loads(ev(
+            "(function(){ var t = document.getElementById('cap-text');"
+            " return JSON.stringify({cls: t.classList.contains('capLift'),"
+            " anim: getComputedStyle(t).animationName}); })()"))
+        assert lift["cls"] is True, "翻句后 #cap-text 应带 .capLift"
+        assert lift["anim"] == "capLift", f"字幕翻句动画应生效，实际 {lift['anim']!r}"
     finally:
         # 清理不得掩盖原始失败：kill + 短等待，超时也静默（chromium 曾拒绝在
         # 10s 内退出，把"无法连接 CDP"这类真失败吞成 TimeoutExpired）。
@@ -304,8 +311,31 @@ def test_motion_tokens_and_stagger_present():
     # reduced-motion 兜底：入场/补间/呼吸全部关闭，循环动画停掉、终态保留
     assert "@media (prefers-reduced-motion: reduce)" in html
     assert ".stage[data-state=\"idle\"] .veilplay{animation:none}" in html
-    assert "#cam,.nt{transition:none}" in html
+    assert "#cam,.nt,.bar-fill{transition:none}" in html
     assert ".in,.pop,.draw,.pulse,.gate,.gate.leaving,.gate .g-card>*{animation:none}" in html
+
+
+# ── 6. 微动效：进度条补间 / 字幕翻句 / 门禁反馈（0.11.0）────────────
+
+def test_micro_motion_present():
+    """模板结构契约：三处微动效与对应令牌必须长在范本里（无浏览器也可锁）。"""
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # 新令牌
+    assert "--dur-fill:.25s" in html and "--dur-cap:.22s" in html and "--dur-fb:.32s" in html
+    # 进度条平滑补间（不再每拍跳变）
+    assert "transition:width var(--dur-fill) linear" in html
+    # 字幕翻句微动效：class 重触发 + 纯 transform（不碰 opacity/visibility 链）
+    assert "#cap-text.capLift{animation:capLift var(--dur-cap) var(--ease-out) backwards}" in html
+    assert "@keyframes capLift{from{transform:translateY(6px)}}" in html
+    assert ("t.classList.remove('capLift'); void t.getBoundingClientRect();"
+            " t.classList.add('capLift');") in html
+    # 门禁反馈微动效：答对轻弹、答错抖动
+    assert "animation:fbOk var(--dur-fb) var(--ease-out) backwards" in html
+    assert "animation:fbBad var(--dur-fb) var(--ease-in-out)" in html
+    assert "translateX(-4px)" in html
+    # reduced-motion 覆盖新增动效
+    assert "#cap-text.capLift," in html
+    assert ".interaction-feedback.is-correct,.interaction-feedback.is-wrong{animation:none}" in html
 
 
 @pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
@@ -438,8 +468,12 @@ def test_progress_slider_keyboard_and_replay(speaker_lesson):
             if m.get("id") == 99:
                 break
         anim = ev("(function(){ var el = document.querySelector('#stage .in');"
-                  " return el ? getComputedStyle(el).animationName : 'no-el'; })()")
-        assert anim == "none", f"reduced-motion 下 #stage .in 应关闭动画，实际 {anim!r}"
+                  " var cap = document.getElementById('cap-text');"
+                  " return JSON.stringify({in_: el ? getComputedStyle(el).animationName : 'no-el',"
+                  " cap: getComputedStyle(cap).animationName}); })()")
+        motion = json.loads(anim)
+        assert motion["in_"] == "none" and motion["cap"] == "none", \
+            f"reduced-motion 下动画应全部关闭：{motion!r}"
     finally:
         chrome.kill()
         try:

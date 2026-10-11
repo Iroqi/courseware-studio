@@ -15,6 +15,7 @@
     --ease-out:cubic-bezier(.22,1,.36,1);   --ease-in-out:cubic-bezier(.65,0,.35,1);
     --dur-in:.42s;   --dur-move:.5s;   --dur-pop:.46s;   --dur-draw:.55s;
     --dur-fast:.13s; --dur-gate:.3s;   --dur-pulse:2.4s; --dur-breathe:2.8s;
+    --dur-fill:.25s; --dur-cap:.22s;   --dur-fb:.32s;
   }
   *{box-sizing:border-box}
   /* 背景光晕**不用 background-attachment:fixed**：iOS Safari 对它的支持是坏的
@@ -38,7 +39,7 @@
   /* 视觉高度 6px，但命中区上下各扩 7px——细条上瞄准点击太累 */
   .bar::before{content:"";position:absolute;left:0;right:0;top:-7px;bottom:-7px}
   .bar-fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;background:var(--key);
-            z-index:1}
+            z-index:1;transition:width var(--dur-fill) linear}
   /* 章节刻度：上下各探出 3px，一眼看出整门课被切成几段。
      2px 宽 / 比条底亮一档——1px 太细，暗底上基本看不见，那这一层信息就白放了。 */
   .bar .tick{position:absolute;top:-3px;width:2px;height:12px;background:#5f6a7d;
@@ -147,6 +148,11 @@
   @keyframes ntDraw{from{stroke-dashoffset:1}}
   .pulse{animation:ntPulse var(--dur-pulse) ease-in-out infinite}
   @keyframes ntPulse{0%,100%{opacity:1}50%{opacity:.45}}
+  /* 字幕翻句微动效：只在文本真的变化时由 capShow 重触发（.capLift），
+     纯 transform 上浮——检查器查的是 opacity/visibility 链，动效不影响
+     字幕可见性判定；空档保留上一句（capShow 不调用）也不会误触发。 */
+  #cap-text.capLift{animation:capLift var(--dur-cap) var(--ease-out) backwards}
+  @keyframes capLift{from{transform:translateY(6px)}}
 
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
@@ -154,8 +160,10 @@
   @media (prefers-reduced-motion: reduce){
     .stage[data-state="idle"] .veilplay{animation:none}
     .el,.el.on{transition:none}
-    #cam,.nt{transition:none}
+    #cam,.nt,.bar-fill{transition:none}
     .in,.pop,.draw,.pulse,.gate,.gate.leaving,.gate .g-card>*{animation:none}
+    #cap-text.capLift,
+    .interaction-feedback.is-correct,.interaction-feedback.is-wrong{animation:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -245,6 +253,14 @@
   .opt:disabled{cursor:default;opacity:.85}
   .opt[data-selected="1"]{border-color:var(--key)}
   .interaction-feedback{margin-top:9px;font-size:13.5px;color:var(--dim);min-height:18px}
+  /* 答对/答错微反馈：答对轻弹入场、答错横向抖动——现代表单反馈的标配手感。
+     runtime 每次尝试都 remove+add 状态 class，动画随之重触发；只动
+     transform/opacity，检查器读文本与放行状态不受影响。 */
+  .interaction-feedback.is-correct{animation:fbOk var(--dur-fb) var(--ease-out) backwards}
+  .interaction-feedback.is-wrong{animation:fbBad var(--dur-fb) var(--ease-in-out)}
+  @keyframes fbOk{from{opacity:0;transform:translateY(4px)}}
+  @keyframes fbBad{0%,100%{transform:none}20%,60%{transform:translateX(-4px)}
+                   40%,80%{transform:translateX(4px)}}
   .interaction-feedback.is-correct{color:var(--ok)}
   .interaction-feedback.is-wrong{color:var(--bad)}
   .gate-next{display:flex;align-items:center;gap:11px;margin-top:11px;padding-top:11px;
@@ -1360,7 +1376,12 @@
   function capShow(s){                     // s = sentAt() 返回的当前句；null = 收起
     if (!s || !s.text){ show('cap', false); return; }
     var t = el('cap-text');
-    t.textContent = s.text;
+    // 文本真的变化才重触发翻句微动效（.capLift）；同句重显（如 pause 后恢复）
+    // 不重放——空档保留上一句的契约下，别让字幕每停一句就"跳"一次。
+    if (t.textContent !== s.text){
+      t.textContent = s.text;
+      t.classList.remove('capLift'); void t.getBoundingClientRect(); t.classList.add('capLift');
+    }
     t.setAttribute('fill', s.hl ? '#f5a623' : '#c9d1e0');
     var sp = el('cap-speaker');
     if (sp){ sp.textContent = s.speaker || ''; }

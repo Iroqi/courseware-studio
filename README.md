@@ -280,6 +280,11 @@ python -m pytest tests/ -q
   错峰原语（`--delay` + `.st1/.st2/.st3`）与 `prefers-reduced-motion` 兜底
   （词汇全部 `animation:none`）；CDP 测试追加模拟 reduced-motion 后
   `#stage .in` 的 `animationName === 'none'`（无 Chrome 自动跳过）；
+- 0.11.0 的回归：`test_iteration_round2.py::test_micro_motion_present`
+  锁微动效层——进度条平滑补间（`--dur-fill` + `transition:width`）、字幕翻句
+  `.capLift`（纯 transform、class 重触发）、门禁反馈 `fbOk/fbBad`（答对轻弹 /
+  答错抖动）与 reduced-motion 扩展段；CDP 测试追加翻句后 `#cap-text` 带
+  `.capLift` 且 `animationName === 'capLift'`、reduced-motion 下字幕动画同关；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

@@ -162,6 +162,21 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 最常见的节奏手法（模板门禁卡片的 `nth-child` 延迟就是同款）；**错峰只建议
 用于同一步的一组图元，最晚元素延迟 ≤ 180ms**——单独截一帧仍然讲得清。
 
+**微动效（0.11.0，现代交互的"手感层"）**：三处小动画，全部只动
+transform/opacity——检查器判字幕可见性走 opacity/visibility 链，动效
+不影响判定；导出页禁动效，成片不受影响：
+
+- **进度条平滑补间**：`.bar-fill` 有 `transition:width var(--dur-fill) linear`
+  （`--dur-fill:.25s`），播放与拖动时进度不再每拍跳变，而是连续滑动；
+- **字幕翻句微动效**：`#cap-text` 文本真的变化时由 `capShow` 重触发
+  `.capLift`（`capLift` keyframes 只上浮 6px，`--dur-cap:.22s` + `--ease-out`）。
+  同句重显（pause 后恢复）不重放，空档保留上一句也不误触发；
+- **门禁反馈微动效**：答对 `fbOk` 轻弹入场（淡入 + 上移 4px）、答错 `fbBad`
+  横向抖动（±4px 两摆），`--dur-fb:.32s`。runtime 每次尝试都 remove+add
+  状态 class，动画天然重触发——这是现代表单反馈的标准手感。
+
+以上三条一并纳入 `prefers-reduced-motion` 兜底（`animation/transition:none`）。
+
 **动效可及性兜底（WCAG 2.3.3）**：模板自带
 `@media (prefers-reduced-motion: reduce)`——入场/补间/呼吸全部关闭、
 循环动画停掉、终态保留。内容不依赖动效：关闭后每一帧仍是同一张正确定格，
