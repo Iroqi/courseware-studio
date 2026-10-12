@@ -285,6 +285,12 @@ python -m pytest tests/ -q
   `.capLift`（纯 transform、class 重触发）、门禁反馈 `fbOk/fbBad`（答对轻弹 /
   答错抖动）与 reduced-motion 扩展段；CDP 测试追加翻句后 `#cap-text` 带
   `.capLift` 且 `animationName === 'capLift'`、reduced-motion 下字幕动画同关；
+- 0.12.0 的回归：`test_iteration_round2.py::test_player_motion_present`
+  锁弹簧缓动令牌（`--ease-spring` 的 `linear()`）、拖动跟手
+  （`.bar[data-drag]` 50ms 过渡与 data-drag 生命周期）、当前章节刻度点亮
+  （`.tick.on` 与 tick() 逐拍维护）；CDP 测试用 `Input.dispatchMouseEvent`
+  真实驱动按下/拖动/松手——跟手模式进入与退出、tip 拖动跟随报时间、seek 到
+  seg-1 后恰有一根 `.tick.on` 且 data-i=1（本机有 Chromium 时直接跑）；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

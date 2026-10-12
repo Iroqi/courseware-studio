@@ -3,6 +3,38 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.12.0] - 2026-10-12
+
+### 新增（播放器动效体验——手感层）
+
+- **弹簧缓动令牌 `--ease-spring`**：`linear()` 逐点近似"过冲回弹再落定"（前沿
+  缓动技术，模仿弹簧/橡皮筋物理手感）；浏览器不支持 `linear()` 时整条声明作废、
+  自动回退上一值。已应用于答对反馈 `fbOk`（答对轻弹现在是弹簧落定）。
+- **进度条拖动跟手模式**：按下进入（`.bar[data-drag]` 把填充过渡缩到 50ms，
+  指针在跑不拖后腿），松手退出恢复 `--dur-fill` 滑行到位。
+- **当前章节刻度点亮**：`.tick.on`（主题色 + 微光晕），由 tick() 按
+  `sceneIdxAt` 逐拍维护——常驻"你在哪"位置 cue，纯颜色变化非循环动画。
+- **窥探气泡改 pointer 事件**：指针捕获期间兼容 mouse 事件不可靠（自动化驱动
+  与部分嵌入式内核不合成），pointermove 在悬停与拖动中都稳定触发——拖动时
+  tip 一路跟随指针报"第 N 节 · 标题 · 时间"。
+
+### 测试
+
+- `tests/test_iteration_round2.py::test_player_motion_present`：`--ease-spring`
+  令牌、`.bar[data-drag]` 规则与 data-drag 生命周期、`.tick.on` 与 tick() 维护
+  循环的静态契约。
+- 新增 CDP 真实浏览器用例 `test_bar_drag_follow_tick_highlight`：
+  `Input.dispatchMouseEvent` 真实驱动按下/拖动/松手——跟手模式进入与退出
+  （过渡 0.05s ↔ 0.25s）、拖动中 tip 点亮并报时间、seek 进 seg-1 后恰有一根
+  `.tick.on` 且 `data-i=1`（本机有 Chromium 时直接跑，CI 兜底）。
+
+### 文档
+
+- `references/stage.md`：§3.4 补"播放器动效体验"小节。
+- `references/layout.md`：§5 播放器行补手感层三件套。
+- `SKILL.md`：§5 画面渲染补播放器动效一句。
+- `README.md`：「开发与自测」补 0.12.0 回归说明。
+
 ## [0.11.0] - 2026-10-12
 
 ### 新增（微动效层——现代交互的"手感"）

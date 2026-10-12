@@ -13,6 +13,9 @@
     /* 动效设计令牌：缓动与时长集中在 :root 一处，作者改全局节奏不用翻词汇。
        曲线是 easeOutExpo 家族（.22,1,.36,1）——入/补间共用它，退场用 inOut。 */
     --ease-out:cubic-bezier(.22,1,.36,1);   --ease-in-out:cubic-bezier(.65,0,.35,1);
+    /* 弹簧缓动：linear() 逐点近似"过冲回弹再落定"（前沿缓动技术，模仿弹簧/橡皮筋
+       的物理手感）；浏览器不支持 linear() 时整条声明作废，自动回退到上一值。 */
+    --ease-spring:linear(0,.05,.2 10%,.5 25%,.85 45%,1.08 60%,1.15 70%,1.05 82%,.98 92%,1);
     --dur-in:.42s;   --dur-move:.5s;   --dur-pop:.46s;   --dur-draw:.55s;
     --dur-fast:.13s; --dur-gate:.3s;   --dur-pulse:2.4s; --dur-breathe:2.8s;
     --dur-fill:.25s; --dur-cap:.22s;   --dur-fb:.32s;
@@ -40,10 +43,15 @@
   .bar::before{content:"";position:absolute;left:0;right:0;top:-7px;bottom:-7px}
   .bar-fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;background:var(--key);
             z-index:1;transition:width var(--dur-fill) linear}
+  /* 拖动跟手：指针在跑时填充过渡缩短到 50ms，不拖后腿；松手恢复 --dur-fill 滑行到位。 */
+  .bar[data-drag="1"] .bar-fill{transition-duration:.05s}
   /* 章节刻度：上下各探出 3px，一眼看出整门课被切成几段。
      2px 宽 / 比条底亮一档——1px 太细，暗底上基本看不见，那这一层信息就白放了。 */
   .bar .tick{position:absolute;top:-3px;width:2px;height:12px;background:#5f6a7d;
-             border-radius:1px;z-index:2;pointer-events:none}
+             border-radius:1px;z-index:2;pointer-events:none;transition:background .2s}
+  /* 当前章节刻度点亮：常驻的"你在哪"位置 cue，纯颜色变化不是循环动画。
+     tick.on 由 tick() 按 sceneIdxAt 逐拍维护（reduced-motion 下过渡被关掉）。 */
+  .bar .tick.on{background:var(--key);box-shadow:0 0 5px rgba(245,166,35,.55)}
   /* 悬停窥探：指着哪一段就报哪一段（连该处时间一起报）。点击仍是自由拖动。 */
   .bar .tip{position:absolute;bottom:15px;transform:translateX(-50%);white-space:nowrap;
             padding:3px 9px;border-radius:6px;background:#232a38;border:1px solid #3b4459;
@@ -256,7 +264,7 @@
   /* 答对/答错微反馈：答对轻弹入场、答错横向抖动——现代表单反馈的标配手感。
      runtime 每次尝试都 remove+add 状态 class，动画随之重触发；只动
      transform/opacity，检查器读文本与放行状态不受影响。 */
-  .interaction-feedback.is-correct{animation:fbOk var(--dur-fb) var(--ease-out) backwards}
+  .interaction-feedback.is-correct{animation:fbOk var(--dur-fb) var(--ease-spring) backwards}
   .interaction-feedback.is-wrong{animation:fbBad var(--dur-fb) var(--ease-in-out)}
   @keyframes fbOk{from{opacity:0;transform:translateY(4px)}}
   @keyframes fbBad{0%,100%{transform:none}20%,60%{transform:translateX(-4px)}
@@ -1849,6 +1857,10 @@
     var t = audio.currentTime;
     var hit = sentAt(t);
     el('fill').style.width = (TOTAL ? Math.min(100, t / TOTAL * 100) : 0) + '%';
+    // 当前章节刻度点亮（"你在哪"位置 cue）：与 tick/场景头同一个 sceneIdxAt
+    // （空档算前一场），纯颜色切换，逐拍幂等。
+    var si = sceneIdxAt(t);
+    for (var q=0;q<TICKS.length;q++) TICKS[q].classList.toggle('on', TICKS[q].dataset.i == si);
 
     if (hit.scene){
       var idx = hit.sceneIndex;
@@ -2047,6 +2059,7 @@
     e.preventDefault();
     barEl.setPointerCapture(e.pointerId);
     scrubbing = true;
+    barEl.dataset.drag = '1';           // 拖动跟手：填充过渡缩短，见 .bar[data-drag]
     var seek = function(x){
       var r = barEl.getBoundingClientRect();
       audio.currentTime = Math.max(0, Math.min(1, (x - r.left) / r.width)) * TOTAL;
@@ -2059,6 +2072,7 @@
       barEl.removeEventListener('pointerup', stop);
       barEl.removeEventListener('pointercancel', stop);
       scrubbing = false;
+      delete barEl.dataset.drag;        // 松手恢复 --dur-fill 滑行到位
       tick();                     // 松手补判：擦洗跨过的门禁锚点在这儿兑现
     };
     barEl.addEventListener('pointermove', move);
@@ -2104,12 +2118,15 @@
   });
 
   // 章节刻度：每节起点在进度条上留一根。第一根贴在 0%，不必画。
+  var TICKS = [];
   scenes.forEach(function(sc, i){
     if (i === 0 || !TOTAL) return;
     var tk = document.createElement('div');
     tk.className = 'tick';
     tk.style.left = (sc.runtime.start / TOTAL * 100) + '%';
+    tk.dataset.i = i;
     el('bar').appendChild(tk);
+    TICKS.push(tk);
   });
   // 章节归属与 tick/场景头用**同一个** sceneIdxAt（空档算前一场）：
   // 另写一份按 `t < end` 的判法，鼠标指在换场空档上时气泡报下一节、画面却还是上一节，两头对不上。
@@ -2119,7 +2136,10 @@
   }
   // 悬停窥探：指着进度条上哪一段，就报哪一段的章节名与该处时间。
   // 点击仍然是**自由拖动**（跟正常视频网站一样），章节刻度只负责"看得见边界"。
-  el('bar').addEventListener('mousemove', function(e){
+  // 用 pointer 事件而不是 mousemove：指针捕获期间的兼容 mouse 事件不可靠
+  // （CDP/自动化与部分嵌入式内核不合成），pointermove 在悬停和拖动中都稳定触发，
+  // 拖动时 tip 才能一路跟着指针报时间。
+  el('bar').addEventListener('pointermove', function(e){
     var r = el('bar').getBoundingClientRect();
     if (!r.width || !TOTAL) return;
     var ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
@@ -2130,7 +2150,7 @@
     tip.style.left = Math.max(half, Math.min(r.width - half, ratio * r.width)) + 'px';
     tip.dataset.on = '1';
   });
-  el('bar').addEventListener('mouseleave', function(){
+  el('bar').addEventListener('pointerleave', function(){
     delete el('bar-tip').dataset.on;
   });
 

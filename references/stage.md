@@ -177,6 +177,14 @@ transform/opacity——检查器判字幕可见性走 opacity/visibility 链，�
 
 以上三条一并纳入 `prefers-reduced-motion` 兜底（`animation/transition:none`）。
 
+**播放器动效体验（0.12.0）**：进度条是播放器里最常被碰的控件，动效落在"手感"
+而非花哨上——**弹簧缓动令牌 `--ease-spring`**（`linear()` 逐点近似过冲回弹，
+前沿缓动技术；浏览器不支持 `linear()` 时声明作废、自动回退上一值，已应用于答对
+反馈 `fbOk`）；**拖动跟手**（`.bar[data-drag]` 把填充过渡缩到 50ms、松手恢复
+`--dur-fill` 滑行到位）；**当前章节刻度点亮**（`.tick.on`，常驻"你在哪"位置 cue，
+纯颜色变化非循环动画）；**窥探气泡改 pointer 事件**（指针捕获期间兼容 mouse
+事件不可靠，pointermove 悬停/拖动都稳定触发）。
+
 **动效可及性兜底（WCAG 2.3.3）**：模板自带
 `@media (prefers-reduced-motion: reduce)`——入场/补间/呼吸全部关闭、
 循环动画停掉、终态保留。内容不依赖动效：关闭后每一帧仍是同一张正确定格，

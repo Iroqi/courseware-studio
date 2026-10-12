@@ -329,13 +329,31 @@ def test_micro_motion_present():
     assert "@keyframes capLift{from{transform:translateY(6px)}}" in html
     assert ("t.classList.remove('capLift'); void t.getBoundingClientRect();"
             " t.classList.add('capLift');") in html
-    # 门禁反馈微动效：答对轻弹、答错抖动
-    assert "animation:fbOk var(--dur-fb) var(--ease-out) backwards" in html
+    # 门禁反馈微动效：答对轻弹（弹簧缓动，见 0.12.0）、答错抖动
+    assert "animation:fbOk var(--dur-fb) var(--ease-spring) backwards" in html
     assert "animation:fbBad var(--dur-fb) var(--ease-in-out)" in html
     assert "translateX(-4px)" in html
     # reduced-motion 覆盖新增动效
     assert "#cap-text.capLift," in html
     assert ".interaction-feedback.is-correct,.interaction-feedback.is-wrong{animation:none}" in html
+
+
+# ── 7. 播放器动效体验：拖动跟手 / 章节刻度点亮 / 弹簧缓动（0.12.0）────
+
+def test_player_motion_present():
+    """模板结构契约：拖动跟手模式、当前章节 tick 点亮与 --ease-spring 令牌。"""
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # 弹簧缓动令牌：linear() 逐点近似，作者可直接引用
+    assert ("--ease-spring:linear(0,.05,.2 10%,.5 25%,.85 45%,1.08 60%,1.15 70%,"
+            "1.05 82%,.98 92%,1);" in html)
+    # 拖动跟手：pointerdown 打 data-drag、过渡缩到 50ms，松手删除恢复 --dur-fill
+    assert ".bar[data-drag=\"1\"] .bar-fill{transition-duration:.05s}" in html
+    assert "barEl.dataset.drag = '1';" in html and "delete barEl.dataset.drag;" in html
+    # 当前章节刻度点亮：tick 记 data-i，tick() 逐拍维护 .on（与 tick/场景头同源）
+    assert ".bar .tick.on{background:var(--key);box-shadow:0 0 5px rgba(245,166,35,.55)}" in html
+    assert "TICKS.push(tk);" in html
+    assert ("for (var q=0;q<TICKS.length;q++)"
+            " TICKS[q].classList.toggle('on', TICKS[q].dataset.i == si);") in html
 
 
 @pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
@@ -474,6 +492,144 @@ def test_progress_slider_keyboard_and_replay(speaker_lesson):
         motion = json.loads(anim)
         assert motion["in_"] == "none" and motion["cap"] == "none", \
             f"reduced-motion 下动画应全部关闭：{motion!r}"
+    finally:
+        chrome.kill()
+        try:
+            chrome.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+def test_bar_drag_follow_tick_highlight(speaker_lesson):
+    """真实浏览器：按下进度条进入跟手模式（填充过渡缩到 50ms、tip 跟随报时间），
+    松手恢复 250ms 滑行；当前章节刻度点亮（.tick.on 与场景索引一致）。"""
+    import websocket
+
+    page_dir = speaker_lesson
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    chrome_err = page_dir / "_drag-stderr.log"
+    chrome = subprocess.Popen(
+        [str(HAVE_CHROME), "--headless=new", "--disable-gpu", "--no-sandbox",
+         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+         "--remote-allow-origins=*", "--autoplay-policy=no-user-gesture-required",
+         f"--remote-debugging-port={port}", "--user-data-dir=" + str(page_dir / "_dragprof"),
+         (page_dir / "index.html").as_uri()],
+        stdout=subprocess.DEVNULL, stderr=open(chrome_err, "wb"))
+    try:
+        ws = None
+        for _ in range(60):
+            if chrome.poll() is not None:
+                break
+            try:
+                tabs = json.load(urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/json", timeout=2))
+                pages = [t for t in tabs if t.get("type") == "page"]
+                tab = next((t for t in pages if "index.html" in t.get("url", "")),
+                           pages[0] if pages else None)
+                ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
+                break
+            except Exception:
+                time.sleep(0.4)
+        assert ws is not None, "无法连接 CDP"
+
+        def ev(expr):
+            ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                "params": {"expression": expr, "returnByValue": True}}))
+            while True:
+                m = json.loads(ws.recv())
+                if m.get("id") == 1:
+                    return m["result"].get("result", {}).get("value")
+
+        ready = None
+        for _ in range(60):
+            ready = ev("document.readyState === 'complete' && "
+                       "document.querySelector('#lesson-timeline') !== null")
+            if ready:
+                break
+            time.sleep(0.4)
+        assert ready, "页面未就绪"
+
+        # 桩住 currentTime（与其它 CDP 用例同手法），暴露 __t/__set/__TOTAL
+        assert ev("""(function(){
+          var t = 0, TOTAL = 0;
+          var tl = JSON.parse(document.getElementById('lesson-timeline').textContent);
+          TOTAL = tl.scenes[tl.scenes.length-1].runtime.end;
+          Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+            configurable: true, get(){ return t; }, set(v){ t = Number(v) || 0; }
+          });
+          HTMLMediaElement.prototype.play = function(){ return Promise.resolve(); };
+          HTMLMediaElement.prototype.pause = function(){};
+          window.__t = function(){ return t; };
+          window.__set = function(v){ t = v; };
+          window.__TOTAL = TOTAL;
+          return 'stubbed';
+        })()""") == "stubbed"
+
+        # 拿到进度条在视口里的几何位置（headless 默认 800×600，先把条滚进视口）
+        ev("document.getElementById('bar').scrollIntoView({block:'center'})")
+        rect = json.loads(ev(
+            "(function(){ var r = document.getElementById('bar').getBoundingClientRect();"
+            " return JSON.stringify({x: r.left + r.width/2, y: r.top + r.height/2,"
+            " w: r.width, h: r.height}); })()"))
+        x0, y0 = rect["x"], rect["y"]
+
+        def mouse(ev_id, mtype, x, y, button="none", buttons=0):
+            ws.send(json.dumps({"id": ev_id, "method": "Input.dispatchMouseEvent",
+                                "params": {"type": mtype, "x": x, "y": y,
+                                           "button": button, "buttons": buttons,
+                                           "clickCount": 1}}))
+            while True:
+                m = json.loads(ws.recv())
+                if m.get("id") == ev_id:
+                    return
+
+        # 按下：进入跟手模式——data-drag=1、填充过渡 50ms、t 已 seek
+        mouse(101, "mousePressed", x0, y0, "left", 1)
+        st = json.loads(ev(
+            "(function(){ var b = document.getElementById('bar');"
+            " var f = document.getElementById('fill');"
+            " return JSON.stringify({drag: b.dataset.drag || '',"
+            " dur: getComputedStyle(f).transitionDuration,"
+            " t: window.__t()}); })()"))
+        assert st["drag"] == "1", "按下后应进入跟手模式（data-drag=1）"
+        assert st["dur"] == "0.05s", f"拖动中填充过渡应 50ms，实际 {st['dur']!r}"
+        assert st["t"] > 0, "按下即 seek，t 应 > 0"
+
+        # 拖动：tip 跟随显示（章节 · 标题 · 时间），seek 继续走
+        mouse(102, "mouseMoved", x0 + rect["w"] * 0.2, y0, "left", 1)
+        st2 = json.loads(ev(
+            "(function(){ var tip = document.getElementById('bar-tip');"
+            " return JSON.stringify({on: tip.dataset.on || '',"
+            " txt: tip.textContent, t: window.__t()}); })()"))
+        assert st2["on"] == "1", "拖动中 tip 应点亮（data-on=1）"
+        assert "·" in st2["txt"] and ":" in st2["txt"], f"tip 应报章节与时间：{st2['txt']!r}"
+        assert abs(st2["t"] - st["t"]) > 0.01, "拖动应继续 seek"
+
+        # 松手：退出跟手模式，恢复 --dur-fill 滑行
+        mouse(103, "mouseReleased", x0 + rect["w"] * 0.2, y0, "left", 0)
+        st3 = json.loads(ev(
+            "(function(){ var b = document.getElementById('bar');"
+            " return JSON.stringify({drag: b.dataset.drag || '',"
+            " dur: getComputedStyle(document.getElementById('fill')).transitionDuration}); })()"))
+        assert st3["drag"] == "", "松手后应退出跟手模式"
+        assert st3["dur"] == "0.25s", f"松手应恢复 250ms 滑行，实际 {st3['dur']!r}"
+
+        # 当前章节刻度点亮：seek 进 seg-1（scene 1）后 .tick.on 的 data-i 应 = 1
+        rep = json.loads(ev("""(function(){
+          var tl = JSON.parse(document.getElementById('lesson-timeline').textContent);
+          var s1 = tl.scenes[1];
+          window.__set(s1.runtime.narration[0].start);
+          document.getElementById('main-audio').dispatchEvent(new Event('timeupdate'));
+          var on = document.querySelectorAll('#bar .tick.on');
+          return JSON.stringify({n: on.length,
+            i: on.length ? on[0].dataset.i : null});
+        })()"""))
+        assert rep["i"] == "1" and rep["n"] == 1, \
+            f"seg-1 播放中应恰好点亮第 1 根刻度，实际 {rep!r}"
     finally:
         chrome.kill()
         try:

@@ -118,7 +118,9 @@ transition 补得到）、**世界层**（跨幕活着的主角，`POSE` + `WORL
 `:root` 的动效令牌（`--ease-out` / `--dur-in` / `--dur-move` 等），`.in` 支持
 `--delay` 错峰（`.st1/.st2/.st3` 档位）；模板自带 `prefers-reduced-motion`
 兜底（关闭动效、终态保留）与微动效层（进度条补间 / 字幕翻句 / 门禁反馈，均只
-动 transform/opacity，见 stage.md §3.4）。每个视觉步先过
+动 transform/opacity，见 stage.md §3.4）。播放器动效落在"手感"：弹簧缓动令牌
+`--ease-spring`（`linear()` 前沿缓动）、进度条拖动跟手（`.bar[data-drag]`）、
+当前章节刻度点亮（`.tick.on`）、窥探气泡用 pointer 事件。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 
