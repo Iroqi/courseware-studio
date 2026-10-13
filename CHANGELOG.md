@@ -3,6 +3,69 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.13.0] - 2026-10-13
+
+### 新增（注意力与手感原语——焦点弱化 / 按压 / 运镜模糊 / 章节翻场）
+
+- **焦点弱化（注册自定义属性补间 filter）**：`@property --dimmer{syntax:'<number>'}`
+  把 `--dimmer` 注册成数字，`transition` 才能逐帧补间它，`[data-dim="1"]` 用它驱动
+  `filter:saturate()/brightness()`。弱化是**材质变化而不是消失**——退居背景的
+  东西仍可当参照，比"opacity 压到一半卡住"更像"退到后面"。**只碰 filter 不碰
+  opacity**：CSS opacity 会盖掉 renderer 写在呈现属性上的逐句档位。范本两处消费：
+  seg-2 换组后的上一行、seg-3 被聚焦行挤到背景的对照组。不支持 `@property` 的
+  浏览器里不补间、直接跳档，终态一致。
+  注册名刻意避开调色板已有的 `--dim` 色值：`@property` 是整页生效的，把 `--dim`
+  声明成 `<number>` 会让十几处 `color:var(--dim)` 的灰字在计算值阶段判为非法、
+  整条作废回落到继承色（真实浏览器实测：`#8d95a8` → `#e9ecf3`）。这个坑是
+  本轮自己在 CDP 里撞出来才改的名。
+- **按压手感（`:active` + 独立 `scale`）**：选项 `.opt`、门禁/活动主按钮 `.go`
+  缩到 `.94`，播放器 `.rack button` 与热点 `.hs` 缩到 `.9`。用独立变换属性而不是
+  写进 `transform`：独立属性**先于** transform 合成，会连 transform 里的位移一起
+  缩放——实测 `.hs` 靠 `transform:translate(-50%,-50%)` 居中时按下去漂 2.2px，
+  改用 `translate:-50% -50%`（独立属性不参与缩放）后位移为 0。
+- **运镜运动模糊（速度决定模糊）**：`camBlur` keyframes（0%/100% = `blur(0)`，
+  中段 2.2px）由 `#cam.blurpass` 挂上，`--dur-blur:.42s` + `--ease-in-out`。
+  只在**真的发生一次大幅运镜**时触发：`camBlurOK` 按世界坐标位移 > 180 或倍率
+  相对变化 > 22% 判阈值；冷启动第一步、进度条擦洗期间（`scrubbing`）、导出截图
+  模式（`__coursewareShotMode`）下一律不糊；不达标的这一步主动 `remove`，避免
+  残留 class 让下一步白糊一次。0%/100% 落在 `blur(0)` 与"循环动画 0% = 静止态"
+  那条导出纪律同源，切掉 animation 仍是清晰定格。
+- **章节头翻场**：`#chapter` 换节时重放 `.chFlip`（6px 上浮 + 淡入，`--dur-ch:.22s`，
+  `backwards`）。判据是"换节"而非"换句"——`tick()` 的换句分支每句都进，另存
+  `lastSceneIdx` 比对；写成每句抖一下就成了闪烁。重触发口径与字幕翻句同款
+  （remove → 读一次几何 → add）。
+- **时长令牌收口**：把散落的魔法数补进 `:root`——`--dur-hover` / `--dur-cam` /
+  `--dur-veil` / `--dur-el` / `--dur-ch` / `--dur-blur` / `--dim-focus` /
+  `--dur-dim`；悬浮、幕布、元素淡入、热点、笔记头等一律引用令牌。
+- **reduced-motion 兜底同步**：`#cam.blurpass{animation:none}`、
+  `.chapter.chFlip{animation:none}`；按压手感与焦点弱化本是"状态即终态"，过渡被
+  `transition:none` 收掉后直接落档——关掉动效，画面信息一格不少。
+
+### 测试
+
+- `tests/test_iteration_round2.py::test_focus_dim_press_feel_and_camera_blur_present`：
+  `@property --dimmer`、`[data-dim="1"]` 的 filter 公式、`.nt` 的 `--dimmer` transition、
+  两处 renderer 消费、四处 `:active{scale}`、`.hs` 的 `translate` 属性居中、
+  `camBlur`/`blurpass`/`camBlurOK` 阈值与三种抑制、`chFlip` + `lastSceneIdx`、
+  新令牌与 reduced-motion 追加行的静态契约。
+- 新增 CDP 真实浏览器用例四条（配 `_cdp()` 连接助手 + `full_lesson` 夹具：时间轴
+  取范本自带那一份 33 句，才够到弱化与大运镜所在的步骤）：
+  `test_chapter_flip_only_on_scene_change`（换节翻场、同节换句不重放）、
+  `test_focus_dim_tweens_filter_not_opacity`（喂非法值落回 `initial 0` 证注册生效、
+  过渡中采到 `--dimmer` 中间值证真补间、终态 `filter` 生效且 `opacity .45` 未被接管）、
+  `test_camera_blur_threshold_and_shot_mode`（小步运镜不糊且 class 被摘、大幅推近
+  糊、落定回 `blur(0)`、截图模式一律不糊）、
+  `test_press_feedback_and_reduced_motion_fallback`（`Input.dispatchMouseEvent`
+  真按出 `scale .9` 并复原；`Emulation.setEmulatedMedia` 模拟系统减动效后翻场/
+  模糊不跑而弱化档位照落）。
+
+### 文档
+
+- `references/stage.md`：§3.4 动效原语表增补 `[data-dim]` / `#cam.blurpass` 两行，
+  令牌清单补齐，新增 0.13.0 小节（含独立变换属性合成顺序的实测坑）。
+- `references/layout.md`：§5 播放器行的手感层补按压下沉。
+- `SKILL.md`、`README.md`：动效条目一句话跟进。
+
 ## [0.12.0] - 2026-10-12
 
 ### 新增（播放器动效体验——手感层）

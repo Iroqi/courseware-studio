@@ -19,7 +19,20 @@
     --dur-in:.42s;   --dur-move:.5s;   --dur-pop:.46s;   --dur-draw:.55s;
     --dur-fast:.13s; --dur-gate:.3s;   --dur-pulse:2.4s; --dur-breathe:2.8s;
     --dur-fill:.25s; --dur-cap:.22s;   --dur-fb:.32s;
+    --dur-hover:.16s; --dur-cam:.6s;   --dur-veil:.32s; --dur-el:.38s;
+    --dur-ch:.22s; --dur-blur:.42s;
+    /* 焦点弱化：降饱和+微压暗的强度与补间时长（--dimmer 走 .nt 的 transition） */
+    --dim-focus:.62; --dur-dim:.45s;
   }
+  /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
+     未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
+     @property 的老浏览器里 filter 照常生效（calc 替换后就是合法值），只是没补间。
+       **名字必须避开调色板已有的 --dim**：注册是有全局副作用的——一旦
+     `syntax:'<number>'`，那十几处 `color:var(--dim)` 的灰色文字就会在计算值阶段
+     判为非法（数字填不进 color），整条声明作废、回落到继承色（实测 .step 的
+     #8d95a8 变成 #e9ecf3）。所以这里用 --dimmer，并在改任何注册属性名之前先
+     全仓 grep 一遍同名令牌。 */
+  @property --dimmer{syntax:'<number>';inherits:true;initial-value:0}
   *{box-sizing:border-box}
   /* 背景光晕**不用 background-attachment:fixed**：iOS Safari 对它的支持是坏的
      （键盘弹起/滚动时整层抖动或空白）。改成一条 position:fixed 的伪元素层，
@@ -57,7 +70,7 @@
             padding:3px 9px;border-radius:6px;background:#232a38;border:1px solid #3b4459;
             font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--fg);
             box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none;
-            opacity:0;transition:opacity .12s;z-index:3}
+            opacity:0;transition:opacity var(--dur-fast);z-index:3}
   .bar .tip[data-on="1"]{opacity:1}
   .step{font:12px/1.4 ui-monospace,Consolas,monospace;color:var(--dim);
         white-space:nowrap;text-align:right}
@@ -100,7 +113,7 @@
   .veilplay{position:absolute;inset:10px;z-index:5;display:flex;align-items:flex-end;
             justify-content:center;padding-bottom:64px;border:0;border-radius:12px;
             background:rgba(10,12,17,.46);color:var(--fg);cursor:pointer;font:inherit;
-            transition:opacity .32s ease,background .32s ease}
+            transition:opacity var(--dur-veil) ease,background var(--dur-veil) ease}
   .veilplay .vp{display:flex;align-items:center;gap:10px;padding:8px 16px 8px 10px;
             border-radius:999px;background:rgba(9,11,16,.74);
             border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.45)}
@@ -124,7 +137,7 @@
      两条会叠在一起。语义上也顺——字幕是跟着旁白出现的，旁白没响就没有字幕。 */
   .stage[data-state="idle"] #cap{opacity:0}
 
-  .el{opacity:0;transition:opacity .38s ease}
+  .el{opacity:0;transition:opacity var(--dur-el) ease}
   .el.on{opacity:1}
 
   /* ── 舞台运动学：图元常驻，一步只写"该是什么样" ──────────────────────
@@ -136,9 +149,31 @@
        ② 入场用 animation 且 **fill-mode 用 backwards / 不写**——`both`/`forwards`
           会把终态钉在 CSS 上，之后 setAttribute 的 opacity/transform 全被压住；
        ③ 循环动效的 0% 必须等于静息态（导出切掉后落在属性上，不是随机相位）。 */
-  #cam{transition:transform .6s var(--ease-out)}
+  #cam{transition:transform var(--dur-cam) var(--ease-out)}
+  /* 运镜运动模糊（0.13.0，"速度决定模糊"的前沿做法）：镜头**真的动了**才糊一下——
+     推拉摇移时画面短暂失焦、落定即清晰，这是真实摄影机的物理感，也是"观众该在哪
+     一步重新找重心"的暗示。三条边界：
+       · 只动 filter，不动几何：字幕带在 #cam 之外、取景框在父层裁切，模糊不会
+         溢出到字幕带上，也不会改变任何 getBBox / 命中区；
+       · 0% 与 100% 都是 blur(0)（循环动画 0% = 静止态那条纪律的同款要求），
+         导出截图页一刀切掉 animation 后落在"完全不糊"的定格上；
+       · 幅度不够就不糊（camSet 里按位移/倍率变化判阈值）——每步都糊等于没糊，
+         还会把注意力从内容上抢走。 */
+  @keyframes camBlur{0%{filter:blur(0)}38%{filter:blur(2.2px)}100%{filter:blur(0)}}
+  #cam.blurpass{animation:camBlur var(--dur-blur) var(--ease-in-out)}
   .nt{transition:transform var(--dur-move) var(--ease-out),opacity .4s ease,
-       fill .35s ease,stroke .35s ease,stroke-width .3s ease}
+       fill .35s ease,stroke .35s ease,stroke-width .3s ease,
+       --dimmer var(--dur-dim) var(--ease-out),filter var(--dur-dim) var(--ease-out)}
+  /* 焦点弱化（0.13.0，前沿做法：注册变量补间 filter）：同一层里"这一步该看的"
+     保持原样，其余图元降饱和 + 微压暗——弱化是**材质变化**而不是消失，观众仍
+     知道它在那儿当参照。只碰 filter，**不碰 opacity**：CSS 的 opacity 会盖掉
+     renderer 写在呈现属性上的逐句透明度（.45 / .7 这类档位是作者的话），两者
+     打架过；弱化强度全在 --dimmer 这一个数上，导出截图页一刀切掉
+     transition/animation（filter 不在切掉之列）后，落在的仍是同一张定格。
+       put(parent,'g',key,{'data-dim': dimmed ? 1 : 0, opacity: dimmed ? .45 : 1})
+     没实现 @property 的浏览器里 --dimmer 不补间、filter 直接跳档——终态一致。 */
+  [data-dim="1"]{--dimmer:var(--dim-focus);
+      filter:saturate(calc(1 - var(--dimmer) * .72)) brightness(calc(1 - var(--dimmer) * .26))}
   /* 只写 from：to 取元素自身值，所以目标 opacity 是多少都接得住。
      错峰入场：--delay 由 .st1/.st2/.st3 或作者直接写在元素上（如 style="--delay:.08s"），
      一组同幕图元按序上浮——模板门禁卡片就用了同款节奏（见下方 nth-child 延迟）。 */
@@ -156,6 +191,12 @@
   @keyframes ntDraw{from{stroke-dashoffset:1}}
   .pulse{animation:ntPulse var(--dur-pulse) ease-in-out infinite}
   @keyframes ntPulse{0%,100%{opacity:1}50%{opacity:.45}}
+  /* 章节头翻场微动效：只在**真的换节**时由 tick() 重触发（同字幕翻句的口径——
+     文本没变就不重放）。它是"你换了一节"的位置 cue，不承担信息：入场用
+     backwards，终态就是元素本来的样子，导出切掉动画后定格不变。 */
+  .chapter.chFlip{animation:chFlip var(--dur-ch) var(--ease-out) backwards}
+  @keyframes chFlip{from{opacity:0;transform:translateY(6px)}}
+
   /* 字幕翻句微动效：只在文本真的变化时由 capShow 重触发（.capLift），
      纯 transform 上浮——检查器查的是 opacity/visibility 链，动效不影响
      字幕可见性判定；空档保留上一句（capShow 不调用）也不会误触发。 */
@@ -170,8 +211,12 @@
     .el,.el.on{transition:none}
     #cam,.nt,.bar-fill{transition:none}
     .in,.pop,.draw,.pulse,.gate,.gate.leaving,.gate .g-card>*{animation:none}
+    #cam.blurpass{animation:none}   /* 运镜模糊同关：镜头照旧补间，只是不糊 */
     #cap-text.capLift,
     .interaction-feedback.is-correct,.interaction-feedback.is-wrong{animation:none}
+    /* 0.13.0 新增动效同口径兜底：章节头翻场关掉；按压手感（:active 的 scale）与
+       焦点弱化本来就是"状态即终态"，过渡被上面的 transition:none 收掉后直接落档。 */
+    .chapter.chFlip{animation:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -186,9 +231,12 @@
      所以画布上方不需要章节标签行。 */
   .rack{display:flex;align-items:center;gap:11px;padding:9px 14px;background:#101319;
         border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px}
+  /* 播放器行的按压手感：五个控件同款缩一下（scale 独立属性，不动布局）。
+     进度条不挂——它按下去是"擦洗"，跟手模式（.bar[data-drag]）已经说了这件事。 */
+  .rack button:active{scale:.9}
   .rack .pp{width:28px;height:28px;flex:none;border-radius:50%;border:0;cursor:pointer;
             background:var(--key);color:#1a1200;font-size:11px;line-height:1;padding-left:2px;
-            transition:filter .13s}
+            transition:filter var(--dur-fast)}
   .rack .pp:hover{filter:brightness(1.12)}
   .rack .rew{width:26px;height:26px;flex:none;border-radius:50%;border:0;cursor:pointer;
              background:rgba(255,255,255,.09);color:var(--fg);font-size:11px;line-height:1}
@@ -256,8 +304,21 @@
   /* 注意别写 `font:13.5px inherit`——font 简写缺字族是整条作废，
      按钮会悄悄回落到正文 15px。逐项写。 */
   .opt{background:var(--panel);color:var(--fg);border:1px solid #333b4d;border-radius:999px;
-       padding:7px 15px;cursor:pointer;font-size:13.5px;transition:.13s}
+       padding:7px 15px;cursor:pointer;font-size:13.5px;transition:var(--dur-fast)}
   .opt:hover:not(:disabled){border-color:var(--key);color:var(--key);background:#1e2431}
+  /* 按压手感（0.13.0）：按下去缩一点——指尖/鼠标按下那一下必须有形变，否则"点没
+     点上"只能等两百毫秒后的反馈文字。用**独立 scale 属性**而不是 transform：
+     transform 常常已经被控件自己的定位占着，写上去会顶掉位移（.pop 那条注释就是
+     这个坑）。实测三档，决定谁能挂：
+       · 没有 transform 的按钮（.opt / .rack button / 「继续」键）：中心位移 0；
+       · 靠 transform:translate(-50%,-50%) 居中的 .hs：缩到 .9 时中心漂 2.2px——
+         因为独立变换属性排在 transform **之前**，scale 把那条居中位移一起缩了；
+         下面把 .hs 的居中改用 translate 属性（实测位移 0）；
+       · SVG 常驻图元：位移挂在它自己的 transform 属性上，scale 挂同一个节点会
+         连"离原点 700"一起缩成 630（实测漂 50.4px，transform-box:fill-box 也救不了）。
+         位移挂外层 g、scale 挂内层形状才实测 0 位移——所以 **.pop 依旧只挂在
+         没有 transform 的节点**，scale 并没有解锁它，别想省事少画一层。 */
+  .opt:active:not(:disabled){scale:.94}
   .opt:disabled{cursor:default;opacity:.85}
   .opt[data-selected="1"]{border-color:var(--key)}
   .interaction-feedback{margin-top:9px;font-size:13.5px;color:var(--dim);min-height:18px}
@@ -277,7 +338,9 @@
   /* 「继续」键与卡里的提交键同款（.gate-next / .act-row 两条路径共用一套样式） */
   .gate-next .go,.act-row .go{background:var(--key);color:#14181f;border:0;border-radius:999px;
                  padding:8px 18px;cursor:pointer;font-weight:600;font-size:13.5px;
-                 transition:filter .13s}
+                 transition:filter var(--dur-fast)}
+  /* 提交/继续键同款按压手感：disabled 时不缩（点不动的东西不该有"按到了"的错觉） */
+  .gate-next .go:active:not(:disabled),.act-row .go:active:not(:disabled){scale:.94}
   .gate-next .go:hover:not(:disabled),.act-row .go:hover:not(:disabled){filter:brightness(1.1)}
   .gate-next .go:disabled,.act-row .go:disabled{background:#2b3242;color:var(--dim2);cursor:default}
   .gate-next .hint{font-size:12.5px;color:var(--dim2)}
@@ -289,10 +352,15 @@
      圈里不写字（写了等于给答案），虚线本身就是"这里可以点"的提示。 */
   .hotspot-stage{position:relative;margin:4px 0 12px}
   .hotspot-stage svg{display:block;width:100%;height:auto}
-  .hotspot-stage .hs{position:absolute;transform:translate(-50%,-50%);border-radius:50%;
+  /* 居中改用**独立 translate 属性**（原先是 transform:translate(-50%,-50%)）：
+     独立变换属性排在 transform 之前，所以按压缩放（下面 :active 的 scale）会把
+     挂在 transform 上的居中位移一起缩——实测缩到 .9 时圆心漂 2.2px；挪到
+     translate 属性上之后实测位移 0，按压时圈还在原位。视觉与命中区都不变。 */
+  .hotspot-stage .hs{position:absolute;translate:-50% -50%;border-radius:50%;
         border:1.6px dashed #62708c;background:rgba(245,166,35,.08);padding:0;
         display:flex;align-items:center;justify-content:center;cursor:pointer;
-        font-weight:700;font-size:15px;color:#98a2b8;transition:.16s}
+        font-weight:700;font-size:15px;color:#98a2b8;transition:var(--dur-hover)}
+  .hotspot-stage .hs:active{scale:.9}
   .hotspot-stage .hs:hover{border-color:var(--key);background:rgba(245,166,35,.16);color:var(--key)}
   .hotspot-stage .hs[data-hotspot-state="hit"]{border-style:solid;border-color:var(--ok);
         background:rgba(46,204,113,.18);color:var(--ok)}
@@ -379,10 +447,10 @@
   .note-h{display:flex;align-items:center;gap:9px;padding:10px 4px;width:100%;
           text-align:left;border:0;background:none;appearance:none;font:inherit;
           font-size:14px;font-weight:600;color:var(--fg);cursor:pointer;user-select:none;
-          border-radius:8px;transition:background .14s}
+          border-radius:8px;transition:background var(--dur-fast)}
   .note-h:hover{background:rgba(255,255,255,.035)}
   .note-h .n-ico{font-size:15px;line-height:1;flex:none;width:21px;text-align:center}
-  .note-h .n-caret{margin-left:auto;transition:transform .2s;color:var(--dim2);font-size:10px}
+  .note-h .n-caret{margin-left:auto;transition:transform var(--dur-hover);color:var(--dim2);font-size:10px}
   .note[data-open="0"] .n-caret{transform:rotate(-90deg)}
   /* 折叠必须 display:none：grid-template-rows:0fr 收不干净，卡片下沿会留一条 1px 残影 */
   .note[data-open="0"] .note-body{display:none}
@@ -518,7 +586,7 @@
 
       <!-- ① 章节头：回答"这一节讲什么"。**画布上方只留这一行**——
            "进行到哪一节、整门课多长"由画布下面的进度条承担（章节刻度 + 悬停显名）。 -->
-      <div class="chapter">
+      <div class="chapter" id="chapter">
         <span class="tag" id="ch-tag">准备</span>
         <h1 id="ch-title">JavaScript 的 sort() 到底怎么排序</h1>
         <p class="tagline" id="ch-tagline"></p>
@@ -1034,6 +1102,18 @@
     el('cam').setAttribute('transform',
       'translate(' + (500 - k * (f[0] + f[2] / 2)).toFixed(1) + ',' +
       (202 - k * (f[1] + f[3] / 2)).toFixed(1) + ') scale(' + k.toFixed(3) + ')');
+    // 把"镜头实际落在哪儿"回给调用方做幅值判断：k 的钳位公式只有这一处，
+    // camSet 自己再算一遍就是第二套口径，早晚和实际画面不一致。
+    return {cx:f[0] + f[2] / 2, cy:f[1] + f[3] / 2, k:k};
+  }
+  /** 运动模糊的判据：镜头**动了多少**才糊（不是每步都糊）。位移按世界坐标算，
+     倍率按相对变化算——推拉 22% 以上、或平移 180 单位以上才算"一次运镜"。
+     擦洗期间不糊：手指在进度条上跑的时候画面本来就在连续跳，糊只会变成一团糊。 */
+  var camAt = null;
+  function camBlurOK(prev, now){
+    if (!prev) return false;                       // 冷启动第一步不糊（没有"上一状态"）
+    var dx = now.cx - prev.cx, dy = now.cy - prev.cy;
+    return Math.sqrt(dx * dx + dy * dy) > 180 || Math.abs(now.k / prev.k - 1) > 0.22;
   }
   /** 可见内容的并集包围盒（窄屏兜底取景用）。世界层只在灯亮着时才计入——
    *  opacity:0 的主角不该把镜头拽向侧台。 */
@@ -1056,11 +1136,22 @@
    *  塞不下大窗，窗要重算，所以窄屏下这一步盖过 CAM）。 */
   function camSet(sid, step){
     var declared = (CAM[sid] || [])[step];
+    var now;
     if (!declared && compact()){
       var b = contentBox();
-      if (b) return camTo([b.x, b.y, b.w, b.h]);
+      now = camTo(b ? [b.x, b.y, b.w, b.h] : FULL);
+    } else {
+      now = camTo(declared || FULL);
     }
-    camTo(declared || FULL);
+    // 运镜模糊：只在**真的发生一次大幅运镜**时重触发（判据见 camBlurOK）。
+    // 重触发口径与字幕翻句同款：remove → 读一次几何 → add；不达标的这一步必须
+    // 主动 remove——否则上一次模糊的 class 还挂着，下一步小移动会再跑一遍动画。
+    var cam = el('cam');
+    if (camBlurOK(camAt, now) && !scrubbing && !window.__coursewareShotMode){
+      cam.classList.remove('blurpass'); void cam.getBoundingClientRect();
+      cam.classList.add('blurpass');
+    } else cam.classList.remove('blurpass');
+    camAt = now;
   }
 
   /** 舞台 A：三个数字块（4 句）——主角归**世界层**，这一幕只画"旁白正在指的那件事"
@@ -1105,8 +1196,12 @@
     var rows = [['1','10'], ['10','9']];
     rows.forEach(function(r, ri){
       var baseY = 165 + ri * 135;
+      // 换组时上一行不"消失"：挂焦点弱化档位（降饱和 + 微压暗）+ 退到 .45——
+      // 它还在那儿当参照，但明显不是这一步的话头（原写法只压 opacity，读起来像
+      // "淡出到一半卡住了"；材质变化才是"退居背景"）。
+      var offRow = (ri !== cur && step >= 4);
       var g = put('b-body', 'g', 'b-row' + ri,
-        {opacity: (ri !== cur && step >= 4) ? .28 : 1});
+        {'data-dim': offRow ? 1 : 0, opacity: offRow ? .45 : 1});
       r.forEach(function(s, cx){
         var ox = 330 + cx * 300;
         s.split('').forEach(function(ch, k){
@@ -1324,7 +1419,7 @@
    *  s1「这是巧合」→ 落一枚徽标
    *  s2「位数相同时恰好一致」→ 位数不同那一行**长出来**，原本居中的行让位上移——
    *     这是常驻图元才有的编排：建行是建档，让位是补间，不是整屏重画一次
-   *  s3「位数不同就破了」→ 聚焦破功那行，另一行压暗（镜头不管，靠明暗分主次）
+   *  s3「位数不同就破了」→ 聚焦破功那行，另一行焦点弱化（材质退档，镜头不管）
    *  s4「别让碰巧的成功骗过你」→ 两行都恢复正常，收一句判词 */
   function renderG(step){
     only('stG');
@@ -1336,9 +1431,11 @@
     groups.forEach(function(g, gi){
       if (step < g.from) return;
       var oy = two ? 232 + gi * 120 : 258;
+      // s3「位数不同就破了」：聚焦翻车那行——另一行走焦点弱化档位
+      // （filter 材质 + opacity 同步退档），镜头不管，靠明暗分主次。
       var dim = step === 3 && gi === 0;
       var G = put('g-body', 'g', 'g-' + g.k, {transform:'translate(0,' + oy + ')',
-        opacity: dim ? .28 : 1});
+        'data-dim': dim ? 1 : 0, opacity: dim ? .45 : 1});
       txt(G, 'g-' + g.k + '-lab', {x:500, y:-50, 'text-anchor':'middle', 'font-size':13,
         fill:g.col}, g.lab);
       var span = (g.nums.length - 1) * 132;
@@ -1846,6 +1943,7 @@
 
   // ══ ⑥ 主循环 ═══════════════════════════════════════════════════════════
   var lastKey = '';
+  var lastSceneIdx = -1;      // 章节头翻场的比对基准（-1 = 还没落过场景）
   // 浏览器 QA 在清空逐句 trace 前调用它：trace 与去重状态必须一起重置，
   // 否则单场景单句课件会把唯一一句误判为“没有再次驱动 renderer”。
   window.__coursewareResetRenderTrace = function(){
@@ -1880,6 +1978,15 @@
         el('ch-tag').textContent = segLabel(idx);
         el('ch-title').textContent = hit.scene.content.title || '';
         el('ch-tagline').textContent = hit.scene.content.tagline || '';
+        // 章节头翻场：**上面那个分支是"换句"，不是"换节"**——每句都会走进来，
+        // 所以这里另存一个场景号比对：只有真换节才抖一下，否则每句都在闪。
+        // 重触发口径与 capShow 同款（remove → 读一次几何 → add）。
+        if (lastSceneIdx !== idx){
+          lastSceneIdx = idx;
+          var ch = el('chapter');
+          ch.classList.remove('chFlip'); void ch.getBoundingClientRect();
+          ch.classList.add('chFlip');
+        }
       }
       // 读数与画面同生共死：index<0 的空档里（seek 进场景首句之前的缝隙时可能持续
       // 很久）整行**停在上一句上**，否则读数已翻到新场景、舞台还停在旧场景，两头对不上。

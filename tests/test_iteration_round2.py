@@ -11,6 +11,7 @@
     （字幕唯一来源契约不破，stage.md §4）。
 """
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -72,6 +73,77 @@ def _aligned_manifest(speaker=None):
         "degraded": {"tts_silence_fallback_count": 0, "dropped_sentence_count": 0},
         "scenes": scenes,
     }
+
+
+def _manifest_from(scenes_payload):
+    """范本内联时间轴 → narration_timing.json 形状（页面骨架与音频时长同源）。"""
+    scenes = []
+    for sc in scenes_payload:
+        r = sc["runtime"]
+        scenes.append({
+            "step_id": sc["step_id"],
+            "title": (sc.get("content") or {}).get("title") or sc["step_id"],
+            "tagline": (sc.get("content") or {}).get("tagline") or "",
+            "start": r["start"], "duration": r["duration"], "end": r["end"],
+            "sentences": [{"start": n["start"], "duration": n["duration"],
+                           "text": n["text"]} for n in r["narration"]],
+        })
+    return {
+        "schema_version": 1, "status": "ok", "title": "范本全量课",
+        "voice_id": "冰糖", "audio": "combined.wav",
+        "total_duration": round(scenes[-1]["end"], 3),
+        "degraded": {"tts_silence_fallback_count": 0, "dropped_sentence_count": 0},
+        "scenes": scenes,
+    }
+
+
+def _build_lesson(root, manifest):
+    """manifest → 成品页（build_timeline + build_page，与真实交付同一条 CLI 链）。"""
+    proj = root / "proj"
+    (proj / "audio").mkdir(parents=True, exist_ok=True)
+    timing_path = proj / "audio" / "narration_timing.json"
+    timing_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+         "-i", f"sine=frequency=440:duration={manifest['total_duration']}",
+         "-ar", "24000", "-ac", "1", str(proj / "audio" / "combined.wav")],
+        capture_output=True)
+    assert r.returncode == 0, r.stderr
+
+    def _run(args):
+        return subprocess.run([sys.executable, *args], capture_output=True,
+                              text=True, cwd=str(root), timeout=600)
+
+    r = _run([str(SCRIPTS / "build_timeline.py"), "--timing", str(timing_path),
+              "-o", str(proj / "timeline.html")])
+    assert r.returncode == 0, r.stderr
+    draft = proj / "page-draft.html"
+    draft.write_text(TEMPLATE_HTML.read_text(encoding="utf-8"), encoding="utf-8")
+    page_dir = root / "lesson"
+    r = _run([str(SCRIPTS / "build_page.py"), "--template", str(draft),
+              "--timeline", str(proj / "timeline.html"),
+              "--audio", str(proj / "audio" / "combined.wav"),
+              "--timing", str(timing_path), "--title", manifest["title"],
+              "-o", str(page_dir / "index.html")])
+    assert r.returncode == 0, r.stderr
+    return page_dir
+
+
+@pytest.fixture(scope="module")
+def full_lesson(tmp_path_factory):
+    """时间轴 = 范本自带的那一份（33 句）的成品页。
+
+    speaker_lesson 每场只喂 3 句，够不到 0.13.0 的动效现场：焦点弱化挂在
+    seg-2 第 5 句（换组）与 seg-3 第 4 句（聚焦翻车行），大幅运镜要 seg-1 s3 /
+    seg-2 s4 这种"真的挪了镜头"的步骤。用范本内联时间轴建页，步数与页面骨架同源。
+    """
+    root = tmp_path_factory.mktemp("full-lesson")
+    raw = TEMPLATE_HTML.read_text(encoding="utf-8")
+    m = re.search(r'<script\b[^>]*\bid=["\']lesson-timeline["\'][^>]*>(.*?)</script>',
+                  raw, re.S)
+    assert m, "范本缺少内联时间轴，无从派生全量页面"
+    payload = json.loads(m.group(1).strip())
+    return _build_lesson(root, _manifest_from(payload["scenes"]))
 
 
 @pytest.fixture(scope="module")
@@ -636,3 +708,433 @@ def test_bar_drag_follow_tick_highlight(speaker_lesson):
             chrome.wait(timeout=10)
         except subprocess.TimeoutExpired:
             pass
+
+# ── 8. 焦点弱化 / 按压手感 / 运镜模糊 / 章节翻场（0.13.0）────────────
+
+def test_focus_dim_press_feel_and_camera_blur_present():
+    """模板结构契约：0.13.0 四项动效的原语必须长在范本里（无浏览器也可锁）。
+
+    锁的是"口径"而不是数字：注册变量 --dimmer 必须注册（未注册的自定义属性不做
+    补间），且**不能占用调色板的 --dim 色值**（注册是有全局副作用的，见范本注释）、
+    弱化只碰 filter（opacity 归 renderer 的逐句档位）、模糊只在大幅运镜时触发
+    且导出模式抑制、翻场只对"换节"触发。这些漂回去以后页面会悄悄退化成
+    "每句都闪 / 每步都糊"，在成品里反而最难当场发现。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # 新令牌：悬浮 / 运镜 / 幕布 / 元素 / 翻场 / 模糊时长 + 弱化强度
+    assert "--dur-hover:.16s; --dur-cam:.6s;   --dur-veil:.32s; --dur-el:.38s;" in html
+    assert "--dur-ch:.22s; --dur-blur:.42s;" in html
+    assert "--dim-focus:.62; --dur-dim:.45s;" in html
+    # 焦点弱化：注册变量（名字避开调色板的 --dim 色值）+ 纯 filter + 走 .nt 的 transition
+    assert "@property --dimmer{syntax:'<number>';inherits:true;initial-value:0}" in html
+    # 调色板里有 --dim（灰字色），@property 是整页生效的：注册同名会把十几处
+    # color:var(--dim) 判成非法值、整条作废。注册名必须与色值令牌错开。
+    assert "--dim:#8d95a8" in html
+    assert "@property --dim{" not in html and "@property --dim " not in html
+    assert '[data-dim="1"]{--dimmer:var(--dim-focus);' in html
+    assert ("filter:saturate(calc(1 - var(--dimmer) * .72)) "
+            "brightness(calc(1 - var(--dimmer) * .26))}") in html
+    assert ("--dimmer var(--dur-dim) var(--ease-out),"
+            "filter var(--dur-dim) var(--ease-out)}") in html
+    # 两处原语消费者：换组的上一行、被聚焦行挤到背景的对照组
+    assert "{'data-dim': offRow ? 1 : 0, opacity: offRow ? .45 : 1});" in html
+    assert "'data-dim': dim ? 1 : 0, opacity: dim ? .45 : 1});" in html
+    # 按压手感：独立 scale 属性（不写进 transform，免得和既有位移互相缩放）
+    assert ".opt:active:not(:disabled){scale:.94}" in html
+    assert (".gate-next .go:active:not(:disabled),"
+            ".act-row .go:active:not(:disabled){scale:.94}") in html
+    assert ".rack button:active{scale:.9}" in html
+    assert ".hotspot-stage .hs:active{scale:.9}" in html
+    # .hs 靠 translate 属性居中：transform:translate(-50%,-50%) 会被独立 scale
+    # 连位移一起缩放（实测按下去漂 2.2px），translate 属性不参与缩放。
+    assert ".hotspot-stage .hs{position:absolute;translate:-50% -50%;" in html
+    # 运镜模糊：0% = blur(0)（导出切掉 animation 落在定格），阈值 + 三种抑制
+    assert ("@keyframes camBlur{0%{filter:blur(0)}38%{filter:blur(2.2px)}"
+            "100%{filter:blur(0)}}") in html
+    assert "#cam.blurpass{animation:camBlur var(--dur-blur) var(--ease-in-out)}" in html
+    assert "#cam{transition:transform var(--dur-cam) var(--ease-out)}" in html
+    assert "var camAt = null;" in html and "function camBlurOK(prev, now){" in html
+    assert ("return Math.sqrt(dx * dx + dy * dy) > 180 "
+            "|| Math.abs(now.k / prev.k - 1) > 0.22;") in html
+    assert ("if (camBlurOK(camAt, now) && !scrubbing "
+            "&& !window.__coursewareShotMode){") in html
+    # 不达标的这一步必须主动摘 class，否则上一次的 blurpass 还挂着
+    assert "} else cam.classList.remove('blurpass');" in html
+    # 章节头翻场：换节才触发，重触发口径与字幕翻句同款
+    assert (".chapter.chFlip{animation:chFlip var(--dur-ch) var(--ease-out)"
+            " backwards}") in html
+    assert "@keyframes chFlip{from{opacity:0;transform:translateY(6px)}}" in html
+    assert "var lastSceneIdx = -1;" in html
+    assert "if (lastSceneIdx !== idx){" in html
+    # 重触发三段式（remove → 读一次几何 → add），跨行写就按空白折叠匹配
+    assert re.search(r"ch\.classList\.remove\('chFlip'\);\s*void ch\.getBoundingClientRect"
+                     r"\(\);\s*ch\.classList\.add\('chFlip'\);", html), \
+        "章节翻场必须按 remove → 读几何 → add 的口径重触发"
+    # reduced-motion 兜底覆盖新增的两条动画
+    assert "#cam.blurpass{animation:none}" in html
+    assert ".chapter.chFlip{animation:none}" in html
+
+
+def _cdp(page_dir, tag, extra_flags=()):
+    """起一个 headless Chrome 连到页面 target，返回 (chrome, ev, send)。
+
+    手法与上面几个 CDP 用例一致（独立 profile、--remote-allow-origins=*、连
+    page target 而非 browser），只是把新用例共用的连接与 currentTime 桩收在一处。
+    --window-size 不能省：视口 ≤560 会让页面进 compact 档，camSet 改走"按内容
+    包围盒兜底取景"那条分支，测不到范本 CAM 表声明的运镜。
+    """
+    import websocket
+
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    chrome = subprocess.Popen(
+        [str(HAVE_CHROME), "--headless=new", "--disable-gpu", "--no-sandbox",
+         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+         "--remote-allow-origins=*", "--autoplay-policy=no-user-gesture-required",
+         "--window-size=1280,900", *extra_flags,
+         f"--remote-debugging-port={port}",
+         "--user-data-dir=" + str(page_dir / f"_prof-{tag}"),
+         (page_dir / "index.html").as_uri()],
+        stdout=subprocess.DEVNULL,
+        stderr=open(page_dir / f"_{tag}-stderr.log", "wb"))
+    ws = None
+    for _ in range(60):
+        if chrome.poll() is not None:
+            break
+        try:
+            tabs = json.load(urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/json", timeout=2))
+            pages = [t for t in tabs if t.get("type") == "page"]
+            tab = next((t for t in pages if "index.html" in t.get("url", "")),
+                       pages[0] if pages else None)
+            ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
+            break
+        except Exception:
+            time.sleep(0.4)
+    assert ws is not None, "无法连接 CDP"
+
+    mid = [0]
+
+    def _await(i):
+        while True:
+            m = json.loads(ws.recv())
+            if m.get("id") == i:
+                return m
+
+    def send(method, params=None):
+        mid[0] += 1
+        i = mid[0]
+        ws.send(json.dumps({"id": i, "method": method, "params": params or {}}))
+        m = _await(i)
+        assert "error" not in m, f"{method} 失败：{m.get('error')}"
+        return m["result"]
+
+    def ev(expr, await_promise=False):
+        mid[0] += 1
+        i = mid[0]
+        ws.send(json.dumps({"id": i, "method": "Runtime.evaluate",
+                            "params": {"expression": expr, "returnByValue": True,
+                                       "awaitPromise": await_promise}}))
+        r = _await(i)["result"]
+        # 表达式抛错时 CDP 回的是 exceptionDetails 而不是 error：不读它就会拿到
+        # None，下一句 json.loads(None) 把真因盖成 "must be str, not NoneType"。
+        assert not r.get("exceptionDetails"), \
+            f"页面 JS 抛错：{r.get('exceptionDetails')}\n表达式：{expr[:200]}"
+        # setter 一类的表达式没有返回值：CDP 连 value 键都不给，取 None 而非 KeyError
+        return r["result"].get("value")
+
+    for _ in range(60):
+        if ev("document.readyState === 'complete' && "
+              "document.getElementById('lesson-timeline') !== null"):
+            break
+        time.sleep(0.4)
+    else:
+        raise AssertionError("页面未就绪")
+
+    # 桩住 currentTime：seek = 写一个数 + 发一次 timeupdate（同既有 CDP 用例）
+    ev("""(function(){
+      window.__t = 0;
+      Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+        configurable: true, get(){ return window.__t; },
+        set(v){ window.__t = Number(v) || 0; } });
+      HTMLMediaElement.prototype.play = function(){ return Promise.resolve(); };
+      HTMLMediaElement.prototype.pause = function(){};
+      return 1;
+    })()""")
+    return chrome, ev, send
+
+
+_SEEK = """(function(){
+  window.__tl = JSON.parse(document.getElementById('lesson-timeline').textContent);
+  window.__jump = function(sid, k){          // k<0 → 场景起点，否则第 k 句起点
+    for (var i = 0; i < window.__tl.scenes.length; i++){
+      var sc = window.__tl.scenes[i];
+      if (sc.step_id !== sid) continue;
+      var r = sc.runtime;
+      window.__t = k < 0 ? r.start : r.narration[k].start;
+      document.getElementById('main-audio').dispatchEvent(new Event('timeupdate'));
+      return window.__t;
+    }
+    throw new Error('时间轴里没有这一场：' + sid);
+  };
+  return 1;
+})()"""
+
+# 取元素上正在跑的动画名（CSS 动画名是断言的主体：跑过 = 这一拍真的动了）
+_ANIMS = ("(function(){ var n = document.querySelector('%s');"
+          " return JSON.stringify((n.getAnimations() || []).map("
+          "function(a){ return a.animationName; })); })()")
+
+
+def _anims(ev, selector):
+    return json.loads(ev(_ANIMS % selector))
+
+
+def _wait_idle(ev, selector, timeout=2.5):
+    """等元素上的动画跑完，返回最后一次读到的动画名列表（应为空）。"""
+    deadline = time.time() + timeout
+    while True:
+        got = _anims(ev, selector)
+        if not got or time.time() >= deadline:
+            return got
+        time.sleep(0.05)
+
+
+def _kill(chrome):
+    chrome.kill()
+    try:
+        chrome.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_chapter_flip_only_on_scene_change(full_lesson):
+    """真实浏览器：章节头只在**换节**那一刻翻场，同节内换句不重放。
+
+    挂在"换句"分支上（最初写错的那版）每一句都会抖一下——那是闪烁，不是位置 cue。
+    class 翻完之后仍挂在元素上（下一次翻场前才摘），所以判据是 getAnimations()
+    里有没有 chFlip，不是 classList。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "flip")
+    try:
+        ev(_SEEK)
+        # 首帧（t=0 落在 opening 第 1 句）就该翻一次；等连上 CDP 时动画早跑完了
+        assert ev("document.getElementById('chapter')"
+                  ".classList.contains('chFlip')"), "首帧应已翻过一次场"
+        assert not _wait_idle(ev, "#chapter"), "翻场动画应在 .22s 内跑完"
+
+        # 同节内换句：不重放（seg-1 有 4 句，够走三步）
+        ev("window.__jump('seg-1', 0)")
+        assert "chFlip" in _anims(ev, "#chapter"), "换到 seg-1 应重新翻场"
+        assert not _wait_idle(ev, "#chapter"), "翻场动画应在 .22s 内跑完"
+        for k in (1, 2, 3):
+            ev(f"window.__jump('seg-1', {k})")
+            time.sleep(0.08)
+            got = _anims(ev, "#chapter")
+            assert "chFlip" not in got, f"seg-1 内部换到第 {k + 1} 句不该翻场：{got!r}"
+        ev("window.__jump('seg-2', 0)")
+        assert "chFlip" in _anims(ev, "#chapter"), "换到 seg-2 应再翻一次"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_focus_dim_tweens_filter_not_opacity(full_lesson):
+    """真实浏览器：焦点弱化是 --dimmer 的**逐帧补间**（材质变化），终态仍是定格。
+
+    一次锁三件事：① @property 生效（喂非法值落回 initial 0，而不是留住字符串）；
+    ② 档位切换时 --dimmer 走过中间值（未注册的自定义属性只会整档跳变）；
+    ③ 弱化只动 filter，renderer 写的 opacity .45 不被 CSS 盖掉。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "dim")
+    try:
+        ev(_SEEK)
+        # 调色板的 --dim 色值不能被注册吃掉：注册是整页生效的，同名会把
+        # `color:var(--dim)` 的灰字判成非法值、整条作废回落到继承色（实测踩过）。
+        grey = ev("(function(){ var n = document.querySelector('.step');"
+                  " return n ? getComputedStyle(n).color : ''; })()")
+        assert grey == "rgb(141, 149, 168)", \
+            f"--dim 灰字被注册属性顶掉了（#8d95a8 → {grey!r}），改名 --dimmer 的理由就在这"
+
+        ev("document.documentElement.style.setProperty('--dimmer','xyz')")
+        got = ev("getComputedStyle(document.documentElement).getPropertyValue('--dimmer')")
+        ev("document.documentElement.style.removeProperty('--dimmer')")
+        assert got.strip() == "0", f"--dimmer 未注册（非法值应落回 0，实得 {got!r}）"
+
+        probe = ("(function(){ var r = document.getElementById('b-row0');"
+                 " var cs = getComputedStyle(r);"
+                 " return JSON.stringify({attr: r.getAttribute('data-dim'),"
+                 " dim: cs.getPropertyValue('--dimmer').trim(), f: cs.filter,"
+                 " o: cs.opacity}); })()")
+
+        # seg-2 s1：第一位那一行是话头，不该带弱化
+        ev("window.__jump('seg-2', 1)")
+        time.sleep(0.7)
+        st = json.loads(ev(probe))
+        assert st["attr"] == "0" and st["dim"] == "0" and st["f"] == "none", \
+            f"聚焦行不该带弱化：{st!r}"
+
+        # s4 换组：--dimmer 从 0 补间到 .62——过渡中必须抓到中间值
+        ev("window.__jump('seg-2', 4)")
+        seen = []
+        for _ in range(12):
+            seen.append(float(json.loads(ev(probe))["dim"]))
+            time.sleep(0.03)
+        assert len(set(round(v, 4) for v in seen)) >= 2, \
+            f"--dimmer 没有逐帧补间（采样全为同值）：{seen!r}"
+        assert any(0.0 < v < 0.62 for v in seen), \
+            f"--dimmer 应走过 0→.62 的中间值：{seen!r}"
+        for _ in range(30):
+            st = json.loads(ev(probe))
+            if abs(float(st["dim"]) - 0.62) < 1e-9:
+                break
+            time.sleep(0.05)
+        assert st["attr"] == "1" and abs(float(st["dim"]) - 0.62) < 1e-6, st
+        assert st["f"].startswith("saturate(") and "brightness(" in st["f"], st
+        assert st["o"] == "0.45", f"弱化不该接管 opacity：{st!r}"
+
+        # 回到聚焦：材质与档位一起退干净（导出定格看的就是这个终态）
+        ev("window.__jump('seg-2', 1)")
+        time.sleep(0.7)
+        st = json.loads(ev(probe))
+        assert st["attr"] == "0" and st["f"] == "none" and st["o"] == "1", st
+
+        # 第二处消费者：seg-3 s3 聚焦翻车那行，对照组同样弱化
+        ev("window.__jump('seg-3', 3)")
+        time.sleep(0.7)
+        g = json.loads(ev("(function(){ var r = document.getElementById('g-same');"
+                          " var cs = getComputedStyle(r);"
+                          " return JSON.stringify({attr: r.getAttribute('data-dim'),"
+                          " f: cs.filter, o: cs.opacity}); })()"))
+        assert g["attr"] == "1" and g["f"].startswith("saturate(") and g["o"] == "0.45", g
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_camera_blur_threshold_and_shot_mode(full_lesson):
+    """真实浏览器：运动模糊只在"真的挪了一次镜头"时跑，导出截图模式一律不糊。
+
+    seg-1 的取景窗（范本 CAM 表）刚好给出两种步长：s1→s2 中心只挪 24、倍率差
+    .2，双双不过阈值 → 不该糊；s2→s3 倍率 1.28→1.8 → 该糊一下，落定回到 blur(0)。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "cam")
+    try:
+        ev(_SEEK)
+        cam = ("(function(){ var c = document.getElementById('cam');"
+               " return JSON.stringify({cls: c.classList.contains('blurpass'),"
+               " anim: (c.getAnimations() || []).map("
+               "function(a){ return a.animationName; })}); })()")
+
+        # 冷启动第一步没有"上一状态"，不该糊
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.06)
+        assert "camBlur" not in json.loads(ev(cam))["anim"], "冷启动第一步不该糊"
+
+        # s0→s1：倍率 1 → 1.48，过阈值 → 糊
+        ev("window.__jump('seg-1', 1)")
+        time.sleep(0.06)
+        assert json.loads(ev(cam))["cls"], "大幅推近应挂上运动模糊"
+        assert not _wait_idle(ev, "#cam"), "模糊应在 .42s 内跑完"
+
+        # s1→s2 小步：不糊，而且 class 必须被主动摘掉（残留会让下一步白糊一次）
+        time.sleep(0.5)
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.06)
+        st = json.loads(ev(cam))
+        assert not st["cls"] and "camBlur" not in st["anim"], \
+            f"小步运镜不该糊：{st!r}"
+
+        # s2→s3：倍率 1.28 → 1.8，再糊一下，然后落定即清晰
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.06)
+        st = json.loads(ev(cam))
+        assert st["cls"] and "camBlur" in st["anim"], f"推近应挂上运动模糊：{st!r}"
+        f = "unset"
+        for _ in range(40):
+            f = ev("getComputedStyle(document.getElementById('cam')).filter")
+            if f == "none":
+                break
+            time.sleep(0.05)
+        assert f == "none", f"运镜落定后不该残留模糊，实得 {f!r}"
+
+        # 导出截图模式：同样的大幅运镜，一律不糊（定格必须清晰）
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-1', 1)")
+        time.sleep(0.7)
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.06)
+        st = json.loads(ev(cam))
+        assert not st["cls"] and "camBlur" not in st["anim"], \
+            f"截图模式不该糊：{st!r}"
+        ev("delete window.__coursewareShotMode")
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_press_feedback_and_reduced_motion_fallback(full_lesson):
+    """真实浏览器：按住播放器按钮有下沉（独立 scale）；关掉动效后新动画全停、状态照落。
+
+    :active 不能靠 JS 假装，必须用 CDP 发真鼠标事件；reduced-motion 用
+    Emulation.setEmulatedMedia 模拟系统开关——验的是"内容不依赖动效"：翻场与
+    模糊不再跑，但弱化档位与材质仍在（终态就是定格）。
+    """
+    chrome, ev, send = _cdp(full_lesson, "press")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('opening', 0)")
+        ev("document.getElementById('rack').scrollIntoView({block:'center'})")
+        rect = json.loads(ev("(function(){ var r = document.getElementById('pp')"
+                             ".getBoundingClientRect();"
+                             " return JSON.stringify({x: r.left + r.width / 2,"
+                             " y: r.top + r.height / 2}); })()"))
+        scale = "getComputedStyle(document.getElementById('pp')).scale"
+
+        def mouse(mtype, button="none", buttons=0):
+            send("Input.dispatchMouseEvent",
+                 {"type": mtype, "x": rect["x"], "y": rect["y"],
+                  "button": button, "buttons": buttons, "clickCount": 1})
+
+        assert ev(scale) == "none", f"静息不该缩放，实得 {ev(scale)!r}"
+        mouse("mousePressed", "left", 1)
+        time.sleep(0.15)
+        assert ev(scale) == "0.9", f"按下去应缩到 .9，实得 {ev(scale)!r}"
+        mouse("mouseReleased", "left", 0)
+        time.sleep(0.15)
+        assert ev(scale) == "none", f"松手应回到原样，实得 {ev(scale)!r}"
+
+        # 关掉动效：翻场与模糊都不再跑，但状态（弱化档位 / 材质）照落
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.1)
+        assert _anims(ev, "#chapter") == [], "reduced-motion 下章节头不该再翻场"
+        ev("window.__jump('seg-2', 1)")
+        time.sleep(0.1)
+        ev("window.__jump('seg-2', 4)")
+        time.sleep(0.2)
+        assert _anims(ev, "#cam") == [], "reduced-motion 下运镜不该糊"
+        assert ev("getComputedStyle(document.getElementById('cam')).filter") == "none"
+        st = json.loads(ev("(function(){ var r = document.getElementById('b-row0');"
+                           " var cs = getComputedStyle(r);"
+                           " return JSON.stringify({dim: cs.getPropertyValue('--dimmer').trim(),"
+                           " f: cs.filter, o: cs.opacity}); })()"))
+        # 弱化是"状态"不是"动效"：过渡被收掉后直接落档，定格与播放终态一致
+        assert abs(float(st["dim"]) - 0.62) < 1e-6, st
+        assert st["f"].startswith("saturate(") and st["o"] == "0.45", st
+    finally:
+        _kill(chrome)

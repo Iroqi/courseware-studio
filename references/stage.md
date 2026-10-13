@@ -147,15 +147,20 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 | `.pulse` | 呼吸 | 等点击、提示该看哪儿 |
 | `.nt` 属性补间 | 位置 / 尺寸 / 颜色滑动 | 常驻图元改状态（含世界层换姿势） |
 | `#cam` 补间 | 推拉摇移 | 换取景窗 |
+| `[data-dim="1"]` | 焦点弱化（降饱和 + 微压暗） | 这一步不是话头、但要留在画面里当参照的东西 |
+| `#cam.blurpass` | 运镜运动模糊 | 真的挪了一次镜头（阈值见 `camBlurOK`） |
 
 建档即入场，所以**要动的东西在它该动的那一步才建档**：早一步建好压着
 `opacity:0`，动画会在没人看见的那一步跑完，轮到时只剩淡入。
 
 **节奏是令牌，不是散落魔法数**：缓动与时长集中在模板 `:root` 的
-`--ease-out` / `--ease-in-out` / `--dur-in` / `--dur-move` / `--dur-pop` /
-`--dur-draw` / `--dur-gate` / `--dur-pulse` / `--dur-breathe` 上，词汇统一
-引用——改全局节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：
-入场与补间共用它，退场用 inOut。
+`--ease-out` / `--ease-in-out` / `--ease-spring` / `--dur-in` / `--dur-move` /
+`--dur-pop` / `--dur-draw` / `--dur-gate` / `--dur-pulse` / `--dur-breathe` /
+`--dur-fill` / `--dur-cap` / `--dur-fb` / `--dur-hover` / `--dur-cam` /
+`--dur-veil` / `--dur-el` / `--dur-ch` / `--dur-blur` / `--dim-focus` /
+`--dur-dim` 上，词汇统一引用——改全局节奏只动一处。曲线是 easeOutExpo 家族
+（`.22,1,.36,1`）：入场与补间共用它，退场用 inOut。悬浮/幕布/元素淡入这类
+"本来该有手感却写成魔法数"的地方也一律走令牌（0.13.0 收的口）。
 
 **错峰入场**：`.in` 支持 `--delay`（`animation-delay:var(--delay,0s)`），
 现成档位 `.st1/.st2/.st3`（60/120/180ms）。一组同幕图元按序上浮是前沿动效
@@ -184,6 +189,48 @@ transform/opacity——检查器判字幕可见性走 opacity/visibility 链，�
 `--dur-fill` 滑行到位）；**当前章节刻度点亮**（`.tick.on`，常驻"你在哪"位置 cue，
 纯颜色变化非循环动画）；**窥探气泡改 pointer 事件**（指针捕获期间兼容 mouse
 事件不可靠，pointermove 悬停/拖动都稳定触发）。
+
+**焦点弱化 / 按压手感 / 运镜模糊 / 章节翻场（0.13.0）**：这一轮把"注意力"和
+"手感"两件事做成了原语，四项都在真实 Chrome（CDP）里量过才写进范本：
+
+- **焦点弱化 = 材质变化，不是消失**（前沿做法：注册自定义属性补间 filter）。
+  `@property --dimmer{syntax:'<number>'}` 把 `--dimmer` 注册成数字，`transition`
+  才能逐帧补间它；`[data-dim="1"]` 用它驱动
+  `filter:saturate()/brightness()`。**只碰 filter，不碰 opacity**：CSS 的
+  opacity 会盖掉 renderer 写在呈现属性上的逐句档位（`.45` / `.7` 是作者的话，
+  两者打架过）。renderer 侧只写档位：
+  `put(parent,'g',key,{'data-dim': dimmed?1:0, opacity: dimmed?.45:1})`——
+  弱化退到背景的东西仍能被看见当参照，比"淡出到一半卡住"更像"退居背景"。
+  浏览器没实现 `@property` 时 `--dimmer` 不补间、filter 直接跳档，**终态一致**。
+  注册名**必须避开调色板已有的 `--dim` 色值**：`@property` 的作用域是整页，
+  一旦把 `--dim` 声明成 `<number>`，那十几处 `color:var(--dim)` 的灰字会在计算值
+  阶段判为非法、整条作废回落到继承色（实测 `#8d95a8` 变 `#e9ecf3`）。这类
+  "注册一个同名属性"的改动，动手前先全仓 grep 一遍同名令牌。
+- **按压手感**：可点的东西都有 `:active{scale:.9/.94}`（独立变换属性，不写进
+  `transform`）。注意独立 `scale` **先于** `transform` 合成，会连 transform 里的
+  位移一起缩放——实测 `.hs` 用 `transform:translate(-50%,-50%)` 居中时按下去
+  漂 2.2px，改成 `translate:-50% -50%`（独立属性不参与缩放）后位移为 0。
+  SVG 里同理：同节点写 `transform` 属性 + `scale` 会漂 50.4px，`transform-box:
+  fill-box` 救不了，得外层位移、内层缩放。
+- **运镜运动模糊**（"速度决定模糊"的真实摄影机手感）：`camBlur` 0%/100% 都是
+  `blur(0)`，只在中段糊一下——与循环动画 `0%` = 静止态那条导出纪律同源，截图页
+  一刀切掉 animation 落在清晰定格上。只在**真的挪了一次镜头**时触发
+  （`camBlurOK`：位移 > 180 世界单位，或倍率相对变化 > 22%）；冷启动第一步、
+  进度条擦洗期间、`__coursewareShotMode` 下一律不糊；不达标的这一步必须主动
+  `remove`，否则上一次的 class 还挂着，下一步小移动会再跑一遍。
+- **章节头翻场**：`#chapter` 换节时重放 `.chFlip`（6px 上浮，`--dur-ch:.22s`）。
+  判据是"换节"不是"换句"——`tick()` 那个分支每句都进，所以另存 `lastSceneIdx`
+  比对；写成每句抖一下就是闪烁。重触发口径与字幕翻句同款：remove → 读一次几何
+  → add。
+
+以上四条一并纳入 `prefers-reduced-motion` 兜底（`#cam.blurpass` /
+`.chapter.chFlip` 关动画）；按压手感与焦点弱化本来就是"状态即终态"，过渡被
+`transition:none` 收掉后直接落档——关掉动效，画面信息一格不少。
+
+用弱化时记住它是**真的把颜色变暗**，不是错觉：`saturate()`/`brightness()` 与
+`opacity` 一样按合成后的颜色吃对比度，被弱化的那一块仍要过 §8 的对比度三查。
+判据也简单——**只有"这一步不看它、但它是参照"才弱化**；该消失的东西就撤走
+（`begin()` 的自然退休），别留一块糊在背景里抢注意力。
 
 **动效可及性兜底（WCAG 2.3.3）**：模板自带
 `@media (prefers-reduced-motion: reduce)`——入场/补间/呼吸全部关闭、
