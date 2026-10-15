@@ -291,6 +291,16 @@ python -m pytest tests/ -q
   （`.tick.on` 与 tick() 逐拍维护）；CDP 测试用 `Input.dispatchMouseEvent`
   真实驱动按下/拖动/松手——跟手模式进入与退出、tip 拖动跟随报时间、seek 到
   seg-1 后恰有一根 `.tick.on` 且 data-i=1（本机有 Chromium 时直接跑）；
+- 0.14.0 的回归：`test_iteration_round2.py::test_parallax_transition_and_highlight_present`
+  锁三项原语的静态口径（视差层与 `#cam` 同级、位移取 `camTo` 回传 `tx/ty` 不留第二份
+  钳位公式、系数只在 `--par-far` 一处；换场只对"换节"触发且擦洗/截图双抑制；色带几何
+  从 `#cap-text` 现量、非结论句归零；五个新令牌与 reduced-motion 追加行）。四条 CDP
+  用例：远景与镜头**同向且更慢**（比值锁 .45）并把 `#depth` 推到极端验 `#world` 的
+  `getBBox()` 一格没动（视差不污染取景与 QA 几何）、前进 `swF` / 后退 `swB` 方向互斥
+  且同节换句不演 / 截图模式连 class 都不挂、色带采到**生长中的中间值**且终态等于
+  当句字宽（按 SVG→屏幕 CTM 缩放比换算，不手写第二个常数）、reduced-motion 下换场
+  与视差不演而色带终态照留。附带修一个重放坑：`only()` 退场图层摘掉 `swF`/`swB`，
+  否则下一次入镜会重放旧动画、截图帧停在半推半进的位移上。
 - 0.13.0 的回归：`test_iteration_round2.py::test_focus_dim_press_feel_and_camera_blur_present`
   锁焦点弱化原语（`@property --dim` 注册、`[data-dim="1"]` 的 filter 公式、只碰
   filter 不碰 opacity）、按压手感（四处 `:active{scale}`、`.hs` 改 `translate`

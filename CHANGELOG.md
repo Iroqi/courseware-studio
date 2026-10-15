@@ -3,6 +3,80 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.14.0] - 2026-10-15
+
+### 新增（空间与连续性——远景视差 + 方向感换场 + 结论句划重点）
+
+- **远景视差（`#depth`）**：取景框里多一层与 `#cam` **同级**的远景点阵，镜头每落
+  一次，它按 `--par-far`（.45）**同向**漂一小段——单层运镜只说明"看哪儿"，两层
+  速度差才说明"画布是有深度的空间"（真实摄影机摇镜时背景跟得少）。远景只跟着漂、
+  **不跟着放大**，这一条恰恰是"它很远"的线索。两个口径：① 同级而不是 `#cam` 的
+  子节点——`#cam` 自己带 `transform` 属性值，再叠一层会互相顶掉，同级也保证它
+  跟着被取景框裁切；② 位移取 `camTo()` 回传的 `tx/ty`（一并回传，倍率钳位公式
+  从此只有那一份），系数由 JS 从令牌读，`parseFloat` 得 NaN 时落回默认档。
+  实测（Chrome 152 CDP）：把 `#depth` 推到 `translate(-420,-260)`，`#world` 的
+  `getBBox()` 一格没动——**视差不污染取景、窄屏兜底与 QA 几何判定**。
+- **方向感换场（`.el.swF` / `.swB`）**：前进从右侧进、后退从左侧进。章节头已经
+  报了"换节"，画面这一层再给出"往哪儿换"——回拖进度条重看时方向相反，观众不用
+  读数字就知道自己在往前走还是往回走。判据与 `.chFlip` 同源（`lastSceneIdx`
+  比对，**换节不是换句**，挂在换句分支上就是每句推一下的闪烁）；冷启动第一步不演
+  （没有"上一节"可比）；擦洗与 `__coursewareShotMode` 下一律不演（与运镜模糊同
+  一口径）。位移写在**独立 `translate` 属性**上，沿用 0.13.0 那条"独立属性不参与
+  缩放、不顶掉作者写在 transform 上的位移"的教训，且不进 `getBBox()`。
+- **结论句划重点（`#cap-hl`）**：`hl:true` 那一句除了换主色，再沿自己的字宽划一道
+  半透明主色色带（kinetic typography 的克制版——给"这是结论"一个**连续动画**，
+  而不是只换个颜色）。几何**从 `#cap-text` 现量**（`capShow()` → `capHl()` 取
+  `getBBox()`）：字号有桌面 17 / 小屏 26 两套档位，写常数必错位。色带写在
+  `#cap-text` **之前**，字压在上面。`x` / `width` 是 SVG 的 CSS 几何属性
+  （Chrome 152 实测可补间：宽从 0 长到 136.4px），同时把值写进呈现属性兜底——
+  不支持的浏览器直接落终态。**非结论句一律写 0 宽**：收起与生长起点是同一次写，
+  否则上一句的色带会赖在下一句下面。色带是字幕带的派生视图，**不是第二份文案**，
+  QA 读的仍是 `#cap-text`。
+- **令牌收口**：新增 `--dur-swp` / `--dur-hl` / `--dur-tick` / `--dur-rack` /
+  `--par-far`，顺带把章节刻度点亮（`.2s`）、窄屏与全屏播放器行浮起（两处成对的
+  `.22s`）这几处残留魔法数收进令牌；悬浮/拖拽一类细手感统一到 `--dur-hover` /
+  `--dur-fast`。
+- **reduced-motion 兜底同步**：`.el.swF` / `.el.swB` 关动画、`#depth` 关补间、
+  `#cap-hl` **只关过渡**——色带承担"这是结论"的强调，属状态不属装饰，终态留在
+  属性上，关掉动效仍完整划在那一句上。
+
+### 修复
+
+- **换场 class 滞留导致旧动画重放**：`only()` 换幕时给退场图层一并摘掉 `swF`/`swB`。
+  滞留的话下一次入镜会重放一遍旧动画——正常播放时 `sceneSlide()` 自己摘重挂看不
+  出来，但导出是**每帧一次冷启动**且不跑 `sceneSlide()`，那一帧就停在半推半进的
+  位移上（CDP 用例先撞出来的：截图模式下 `#stB` 仍报 `swF` 在跑）。
+
+### 测试
+
+- `tests/test_iteration_round2.py::test_parallax_transition_and_highlight_present`：
+  三项原语的静态口径（视差层在 `#frameClip` 内且与 `#cam` 同级的**顺序断言**、
+  `camTo` 回传 `tx/ty`、`depthShift` 只从令牌读系数、换节判据与双抑制、色带在
+  `#cap-text` **之前**、几何现量 + 属性双写、五个新令牌与 reduced-motion 追加行）。
+- 新增四条 CDP 用例（配 `_motion()` 过滤——`getAnimations()` 把 CSS transition
+  也列进来而 transition 没有 `animationName`，不过滤会把幕布淡入误判成"演过了"）：
+  `test_parallax_depth_moves_less_than_camera`（FULL 窗不漂、运镜后同向且比值锁
+  .45、推到极端不改 `#world` bbox、回写落回同一档位）、
+  `test_scene_transition_direction_full_lesson`（前进 `swF` / 后退 `swB` 互斥、
+  同节换句不演、截图模式连 class 都不挂）、
+  `test_highlight_grows_and_clears`（非结论句归零、色带左缘贴 bbox 左缘、宽度等于
+  当句字宽、采到生长中的中间值、终态按 SVG→屏幕 CTM 缩放比换算后才比）、
+  `test_transition_parallax_highlight_reduced_motion`（换场与视差不演、色带终态照留）。
+- `full_lesson` 夹具改走 `build_timeline --source`：结论句 `hl` 只认旁白脚本里的
+  句序号，写在 manifest 句子上不会被读——不传讲稿，成品页就没有 hl 句，划重点那条
+  用例会空跑（与 `demo_lesson.py` 同一条真路）。
+
+### 文档
+
+- `references/stage.md`：§3 舞台模型图补 `#depth` 一行，§3.4 原语表增补三行 +
+  新增 0.14.0 小节（含同级/回传口径、重放坑、色带归零），令牌清单补齐，§9 自检
+  加三条对应勾。
+- `references/layout.md`：§2 舞台补视差层的挂载位置与理由；§4 字幕补结论句色带
+  （派生视图、不进 `#cap` 显隐链、不改变 QA 比对节点）。
+- `references/runtime.md`：§7 导出旗标义务新增一条（方向感换场见旗不演；视差与
+  色带照常落终态）。
+- `SKILL.md`、`README.md`：动效原语与回归清单跟进。
+
 ## [0.13.0] - 2026-10-13
 
 ### 新增（注意力与手感原语——焦点弱化 / 按压 / 运镜模糊 / 章节翻场）

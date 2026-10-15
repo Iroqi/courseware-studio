@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO, SCRIPTS, TEMPLATE_HTML
+from conftest import REPO, SCRIPTS, TEMPLATE_HTML, TEMPLATE_NARRATION
 
 # 浏览器优先级与生产查找器（check_gates._find_chrome）一致：google-chrome 在前。
 # Ubuntu 24.04 runner 的 /usr/bin/chromium 是 snap 过渡包，冷启动/稳定性不如
@@ -76,7 +76,12 @@ def _aligned_manifest(speaker=None):
 
 
 def _manifest_from(scenes_payload):
-    """范本内联时间轴 → narration_timing.json 形状（页面骨架与音频时长同源）。"""
+    """范本内联时间轴 → narration_timing.json 形状（页面骨架与音频时长同源）。
+
+    这里**不带 hl**：结论句标记只认旁白脚本里的句序号（build_timeline 的
+    `--source`，见 script.md §1），写在 manifest 句子上不会被读——想要成品页
+    有 hl 句，把范本讲稿作为 source 传给 `_build_lesson` 才是那条真路。
+    """
     scenes = []
     for sc in scenes_payload:
         r = sc["runtime"]
@@ -97,8 +102,13 @@ def _manifest_from(scenes_payload):
     }
 
 
-def _build_lesson(root, manifest):
-    """manifest → 成品页（build_timeline + build_page，与真实交付同一条 CLI 链）。"""
+def _build_lesson(root, manifest, source=None):
+    """manifest → 成品页（build_timeline + build_page，与真实交付同一条 CLI 链）。
+
+    source 是给 build_timeline 的 `--source`：结论句 `hl` 只认旁白脚本里的句序号
+    （manifest 句子自带的 hl 会被忽略，见 script.md §1），所以想要成品页带 hl 句
+    就必须把讲稿一起传进来——demo_lesson.py 走的也是同一条路。
+    """
     proj = root / "proj"
     (proj / "audio").mkdir(parents=True, exist_ok=True)
     timing_path = proj / "audio" / "narration_timing.json"
@@ -114,8 +124,12 @@ def _build_lesson(root, manifest):
         return subprocess.run([sys.executable, *args], capture_output=True,
                               text=True, cwd=str(root), timeout=600)
 
-    r = _run([str(SCRIPTS / "build_timeline.py"), "--timing", str(timing_path),
-              "-o", str(proj / "timeline.html")])
+    tl_args = [str(SCRIPTS / "build_timeline.py"), "--timing", str(timing_path)]
+    if source is not None:
+        src = proj / "narration-source.json"
+        src.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+        tl_args += ["--source", str(src)]
+    r = _run([*tl_args, "-o", str(proj / "timeline.html")])
     assert r.returncode == 0, r.stderr
     draft = proj / "page-draft.html"
     draft.write_text(TEMPLATE_HTML.read_text(encoding="utf-8"), encoding="utf-8")
@@ -136,6 +150,9 @@ def full_lesson(tmp_path_factory):
     speaker_lesson 每场只喂 3 句，够不到 0.13.0 的动效现场：焦点弱化挂在
     seg-2 第 5 句（换组）与 seg-3 第 4 句（聚焦翻车行），大幅运镜要 seg-1 s3 /
     seg-2 s4 这种"真的挪了镜头"的步骤。用范本内联时间轴建页，步数与页面骨架同源。
+
+    讲稿一并作为 `--source` 传下去：范本那 7 句结论（hl）只有走这条路才进得了
+    成品页，而 0.14.0 的划重点就挂在那几句上。
     """
     root = tmp_path_factory.mktemp("full-lesson")
     raw = TEMPLATE_HTML.read_text(encoding="utf-8")
@@ -143,7 +160,8 @@ def full_lesson(tmp_path_factory):
                   raw, re.S)
     assert m, "范本缺少内联时间轴，无从派生全量页面"
     payload = json.loads(m.group(1).strip())
-    return _build_lesson(root, _manifest_from(payload["scenes"]))
+    source = json.loads(TEMPLATE_NARRATION.read_text(encoding="utf-8"))
+    return _build_lesson(root, _manifest_from(payload["scenes"]), source=source)
 
 
 @pytest.fixture(scope="module")
@@ -892,6 +910,13 @@ def _anims(ev, selector):
     return json.loads(ev(_ANIMS % selector))
 
 
+def _motion(ev, selector):
+    """只看**动画名**：getAnimations() 连 CSS transition 一起列，而 transition 没有
+    animationName（映射出来是 None）。0.14.0 的几条用例判的是"这个动画有没有跑"，
+    幕布淡入那类 transition 不该算进来——否则每次换场都会误报"演过了"。"""
+    return [n for n in _anims(ev, selector) if n]
+
+
 def _wait_idle(ev, selector, timeout=2.5):
     """等元素上的动画跑完，返回最后一次读到的动画名列表（应为空）。"""
     deadline = time.time() + timeout
@@ -1136,5 +1161,292 @@ def test_press_feedback_and_reduced_motion_fallback(full_lesson):
         # 弱化是"状态"不是"动效"：过渡被收掉后直接落档，定格与播放终态一致
         assert abs(float(st["dim"]) - 0.62) < 1e-6, st
         assert st["f"].startswith("saturate(") and st["o"] == "0.45", st
+    finally:
+        _kill(chrome)
+
+
+# ── 9. 空间与连续性：视差景深 / 方向感换场 / 结论句划重点（0.14.0）──
+
+def test_parallax_transition_and_highlight_present():
+    """模板结构契约：0.14.0 三项动效原语必须长在范本里（无浏览器也可锁）。
+
+    锁的是"口径"而不是像素：视差层必须与 #cam 同级同坐标系（放进 #cam 里会被
+    那层 transform 属性顶掉）、系数只从令牌读一处、位移取 camTo 回传的 tx/ty
+    （钳位公式只允许存在一份）；换场必须只对"换节"触发且擦洗/截图双抑制
+    （挂在换句分支上就成每句抖）；划重点的几何必须从字幕 bbox 现量（字号有
+    桌面/小屏两套档位，写常数必错位），且非结论句归零。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # 新令牌：换场 / 划重点 / 刻度点亮 / 播放器行浮起 / 视差系数
+    assert "--dur-swp:.34s; --dur-hl:.42s;" in html
+    assert "--dur-tick:.2s; --dur-rack:.22s; --par-far:.45;" in html
+    # 视差层：在 #cam **之外**（同级兄弟），且在取景框内（跟着画面一起被裁）
+    assert '<g id="depth"><rect' in html
+    depth_at = html.index('<g id="depth">')
+    assert html.index('<g clip-path="url(#frameClip)">') < depth_at < html.index('<g id="cam">')
+    assert "#depth{transition:transform var(--dur-cam) var(--ease-out)}" in html
+    # 位移量取自 camTo 的回传值：钳位公式不留第二套
+    assert "return {cx:f[0] + f[2] / 2, cy:f[1] + f[3] / 2, k:k, tx:tx, ty:ty};" in html
+    assert "function depthShift(now){" in html
+    assert "getPropertyValue('--par-far')" in html and "if (!isFinite(f)) f = .45;" in html
+    assert "now.tx * f" in html and "now.ty * f" in html
+    assert "depthShift(now);" in html            # camSet 里落一次
+    assert "var p = el('depth');\n    if (!p) return;" in html
+    # 方向感换场：独立 translate 属性 + 两个方向 + 只挂在 .el 上
+    assert "@keyframes swF{from{translate:26px 0}}" in html
+    assert "@keyframes swB{from{translate:-26px 0}}" in html
+    assert ".el.swF{animation:swF var(--dur-swp) var(--ease-out) backwards}" in html
+    assert ".el.swB{animation:swB var(--dur-swp) var(--ease-out) backwards}" in html
+    assert "function sceneSlide(dir){" in html
+    assert "n.classList.remove('swF', 'swB'); void n.getBoundingClientRect();" in html
+    assert "n.classList.add(dir > 0 ? 'swF' : 'swB');" in html
+    # 判据是"换节"（与 chFlip 同源），且擦洗 / 导出截图模式下不演
+    assert "var fwd = lastSceneIdx < 0 ? 0 : (idx > lastSceneIdx ? 1 : -1);" in html
+    assert "if (fwd && !scrubbing && !window.__coursewareShotMode) sceneSlide(fwd);" in html
+    # 结论句色带：写在 #cap-text 之前（字压在上面），几何现量 + 属性双写兜底
+    assert '<rect id="cap-hl" x="500" y="424" width="0" height="17" rx="2"/>' in html
+    assert html.index('id="cap-hl"') < html.index('id="cap-text"')
+    assert ("#cap-hl{fill:var(--key);opacity:.22;pointer-events:none;rx:2;\n"
+            "          transition:width var(--dur-hl) var(--ease-out),"
+            "x var(--dur-hl) var(--ease-out)}") in html
+    assert "function capHl(t, on){" in html and "capHl(t, !!s.hl);" in html
+    assert "var bb = t.getBBox();" in html
+    assert ("m.setAttribute('x', x.toFixed(1)); "
+            "m.setAttribute('width', w.toFixed(1));") in html
+    assert "m.style.x = x + 'px'; m.style.width = w + 'px';" in html
+    # 魔法时长收口：刻度点亮与窄屏/全屏播放器行都走令牌
+    assert "transition:background var(--dur-tick)}" in html
+    assert html.count("transition:opacity var(--dur-rack) ease,"
+                      "transform var(--dur-rack) ease}") == 2
+    # reduced-motion 兜底：换场与视差关掉，划重点关过渡但终态（属性）保留
+    assert ".el.swF,.el.swB{animation:none}" in html
+    assert "#depth{transition:none}" in html
+    assert "#cap-hl{transition:none}" in html
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_parallax_depth_moves_less_than_camera(full_lesson):
+    """真实浏览器：远景跟着镜头**同向漂一小段**（--par-far），且不改任何几何。
+
+    锁三条：① 位移比镜头小、同向（写成反向或等幅，画面就变成"背景在逃"或"同
+    一张纸"）；② 大窗（FULL）时远景不漂——没有运镜就没有视差；③ 位移挂在父层
+    transform 上，**不改变子节点的局部 getBBox()**（实测：手动把 #depth 推到
+    极端，#world 的包围盒一格没动）——所以相机取景、窄屏兜底与 QA 几何判定都
+    不受影响。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "par")
+    try:
+        ev(_SEEK)
+
+        def state():
+            return json.loads(ev("""(function(){
+              var d=document.getElementById('depth'), c=document.getElementById('cam');
+              var w=document.getElementById('world');
+              return JSON.stringify({depth:d.getAttribute('transform'),
+                                     cam:c.getAttribute('transform'),
+                                     wbox:[+w.getBBox().x.toFixed(2),
+                                          +w.getBBox().y.toFixed(2),
+                                          +w.getBBox().width.toFixed(2)]});
+            })()"""))
+
+        def parse_tx(s):
+            m = re.search(r"translate\((-?[\d.]+),(-?[\d.]+)\)", s or "")
+            return (float(m.group(1)), float(m.group(2))) if m else (0.0, 0.0)
+
+        ev("window.__jump('seg-1', 0)")          # FULL：不运镜
+        st0 = state()
+        assert parse_tx(st0["depth"]) == (0.0, 0.0), f"FULL 窗下远景不该漂：{st0}"
+
+        ev("window.__jump('seg-1', 3)")           # 推近：真的一次运镜
+        time.sleep(0.2)
+        st1 = state()
+        dtx, dty = parse_tx(st1["depth"])
+        ctx, cty = parse_tx(st1["cam"])
+        assert (dtx, dty) != (0.0, 0.0), f"大幅运镜后远景应跟着漂：{st1}"
+        assert dtx * ctx > 0, f"远景与镜头必须同向（镜头 {ctx} / 远景 {dtx}）"
+        assert abs(dtx) < abs(ctx) * 0.6, f"远景必须比镜头慢：{ctx} → {dtx}"
+        assert abs(abs(dtx) / abs(ctx) - 0.45) < 0.02, f"系数应读令牌 .45：{ctx} → {dtx}"
+        assert not _motion(ev, "#depth"), "远景走补间（transition），不该有动画在跑"
+
+        # 位移不进几何：把 #depth 推到极端，世界层局部 bbox 一格不动。
+        # 先等一切落定（--dur-cam .6s / .nt .5s 还在跑时 bbox 本来就在变，
+        # 那会被误读成"视差改变了几何"）。
+        time.sleep(1.0)
+        base = state()["wbox"]
+        ev("document.getElementById('depth')"
+           ".setAttribute('transform','translate(-420,-260)')")
+        assert state()["wbox"] == base, "父层 transform 不该改变子节点 getBBox()"
+        # 回写：先走到别的步（同一步重进不会调 camSet——renderer 只在步骤变化时跑，
+        # 那是纯函数纪律），再走回来，页面自己把位移落回声明档位。
+        ev("window.__jump('seg-1', 2)")
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.1)
+        assert parse_tx(state()["depth"]) == (dtx, dty), "回写后应落回同一档位"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_scene_transition_direction_full_lesson(full_lesson):
+    """真实浏览器：**前进从右进、后退从左进**，同节换句不演，截图模式不演。
+
+    方向反了（前进用 swB）读起来就是"往回翻"，比不演更糟；挂在换句分支上则每
+    句都推一下（那是闪烁）。class 会一直挂到下一次换节才摘，所以判据取
+    getAnimations() 里的**动画名**，不看 classList，也不把幕布淡入那类 transition
+    算成"演过了"（见 _motion）。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "swp")
+    try:
+        ev(_SEEK)
+        # 冷启动第一步不演：没有"上一节"可比，方向无从谈起
+        ev("window.__jump('opening', 0)")
+        assert _motion(ev, "#stF") == [], "opening 首步不该演换场"
+
+        ev("window.__jump('seg-1', 0)")           # 前进
+        assert "swF" in _motion(ev, "#stA"), "前进应从右侧进场"
+        time.sleep(0.42)                          # --dur-swp .34s：跑完就该收干净
+        assert _motion(ev, "#stA") == [], "换场跑完后不该留下在跑的动画"
+
+        for k in (1, 2, 3):                       # 同节换句：不重放
+            ev(f"window.__jump('seg-1', {k})")
+            time.sleep(0.08)
+            assert _motion(ev, "#stA") == [], f"seg-1 内部第 {k + 1} 句不该演换场"
+
+        ev("window.__jump('seg-2', 0)")           # 再前进
+        assert "swF" in _motion(ev, "#stB"), "前进到 seg-2 应从右侧进场"
+
+        ev("window.__jump('seg-1', 1)")           # 回拖 = 后退
+        assert "swB" in _motion(ev, "#stA"), "后退应从左侧进场"
+        # 上一头的 class 必须摘掉，否则两次方向同时挂在节点上
+        cls = ev("document.getElementById('stA').getAttribute('class')")
+        assert "swF" not in cls and "swB" in cls, f"方向 class 未互斥：{cls!r}"
+
+        # 导出截图模式：每帧一次冷启动，位移是直播的加护，不进成片
+        ev("window.__coursewareShotMode = true;")
+        ev("window.__jump('seg-2', 0)")
+        time.sleep(0.1)
+        cls2 = ev("document.getElementById('stB').getAttribute('class')")
+        assert "swF" not in cls2 and "swB" not in cls2, \
+            f"截图模式下连 class 都不该挂上（旧动画会在这一帧重放）：{cls2!r}"
+        assert _motion(ev, "#stB") == [], "截图模式下不演换场"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_highlight_grows_and_clears(full_lesson):
+    """真实浏览器：结论句划重点是**连续生长**的，且非结论句归零。
+
+    取中间值才证明确实在补间（CSS 几何属性 x/width 若不被支持，只会整档跳变——
+    那也是可接受的降级，但这条用例守着"现代浏览器里它是动画"这一半）。
+    收起与起点是同一次写：非 hl 句必须归零，否则上一句的色带会赖在下一句下面。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "hl")
+    try:
+        ev(_SEEK)
+
+        def box():
+            return json.loads(ev("""(function(){
+              var m=document.getElementById('cap-hl'), t=document.getElementById('cap-text');
+              var bb=t.getBBox();
+              return JSON.stringify({x:+m.style.x.replace('px',''),
+                                     w:+m.style.width.replace('px',''),
+                                     rectW:+m.getBoundingClientRect().width.toFixed(1),
+                                     attrW:m.getAttribute('width'),
+                                     cap:t.textContent, hlFill:t.getAttribute('fill'),
+                                     bbox:{x:+bb.x.toFixed(1), w:+bb.width.toFixed(1)}});
+            })()"""))
+
+        ev("window.__jump('seg-4', 0)")           # 非结论句
+        st = box()
+        assert st["w"] == 0 and float(st["attrW"]) == 0, f"非 hl 句色带应为 0：{st}"
+
+        ev("window.__jump('seg-4', 4)")           # hl 句（seg-4 第 5 句）
+        first = box()
+        assert first["w"] > 0, f"hl 句应划出色带：{first}"
+        assert first["hlFill"] == "#f5a623", f"hl 句应同时换主色：{first}"
+        # 几何从字幕自己量：色带的 x 与 bbox 左缘同一条线
+        assert abs(first["x"] - first["bbox"]["x"]) < 0.05, \
+            f"色带左缘应贴字幕 bbox：{first}"
+        assert abs(first["w"] - first["bbox"]["w"]) < 0.05, "色带宽应等于当句字宽"
+        # 中间值：正在长出来的那一刻，屏幕上的色带宽既不是 0 也不是终值。
+        # 量的是 getBoundingClientRect（已经过 SVG→屏幕缩放），终值也要用同一口径
+        # 比，不能拿 viewBox 单位里的 style.width 当尺子。
+        # 视口缩放比：色带宽写在 viewBox 单位里，量到屏幕上是另一个数，换算比取
+        # SVG 自己的 CTM（同一处口径，不手写第二个常数）。
+        scale = ev("(function(){var s=document.querySelector('#stage svg');"
+                   " return s.getScreenCTM().a;})()")
+        target = first["w"] * scale
+        mid, settled, deadline = None, None, time.time() + 3.0
+        while time.time() < deadline:
+            time.sleep(0.02)
+            cur = box()
+            cur_screen = cur["w"] * scale
+            if mid is None and 1.0 < cur["rectW"] < cur_screen - 1.0:
+                mid = dict(cur, screen=cur_screen)
+            settled = dict(cur, screen=cur_screen)
+            if abs(settled["rectW"] - settled["screen"]) < 1.5:
+                break
+        assert mid is not None, f"应采到生长中的中间值（首采 {first}）"
+        assert abs(settled["rectW"] - settled["screen"]) < 1.5, \
+            f"终态应落在完整色带：{settled}"
+
+        ev("window.__jump('seg-4', 5)")           # 连续两句 hl：色带照旧跟着字宽走
+        nxt = box()
+        assert nxt["w"] > 0 and abs(nxt["x"] - nxt["bbox"]["x"]) < 0.05, nxt
+
+        ev("window.__jump('seg-2', 0)")           # 换到非结论句：收起
+        time.sleep(0.1)
+        off = box()
+        assert off["w"] == 0, f"离开 hl 句色带应归零：{off}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_transition_parallax_highlight_reduced_motion(full_lesson):
+    """关掉动效：换场与视差不演，划重点**仍完整划在那一句上**。
+
+    前两项是纯装饰（关掉后每一帧仍是同一张正确定格）；色带承担"这是结论"的
+    强调，属于状态而非动效——所以关的是 transition，属性上的终态必须留着。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+
+        ev("window.__jump('seg-1', 0)")
+        assert _motion(ev, "#stA") == [], "reduced-motion 下不演换场"
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.1)
+        # 兜底口径：视差层的过渡被收掉（transition-property 归 none），
+        # 但镜头照旧落位——远景不再漂，画面一格信息也不少。
+        dp = json.loads(ev("""(function(){var cs=getComputedStyle(document.getElementById('depth'));
+          return JSON.stringify({p:cs.transitionProperty,d:cs.transitionDuration});})()"""))
+        assert dp["p"] == "none" or dp["d"].startswith("0s"), f"视差过渡应被收掉：{dp}"
+        assert _motion(ev, "#depth") == []
+        ev("window.__jump('seg-4', 4)")
+        time.sleep(0.1)
+        st = json.loads(ev("""(function(){
+          var m=document.getElementById('cap-hl'), t=document.getElementById('cap-text');
+          var bb=t.getBBox();
+          return JSON.stringify({w:+m.getAttribute('width'), bw:+bb.width.toFixed(1),
+                                 tp:getComputedStyle(m).transitionProperty,
+                                 td:getComputedStyle(m).transitionDuration});
+        })()"""))
+        assert st["w"] > 0 and abs(st["w"] - st["bw"]) < 0.6, \
+            f"关掉动效后色带仍要完整划上（终态在属性上）：{st}"
+        # 没有逐帧生长（property 归 none 或时长归 0s），但落的是同一张定格
+        assert st["tp"] == "none" or st["td"].startswith("0s"), st
     finally:
         _kill(chrome)

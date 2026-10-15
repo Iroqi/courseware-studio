@@ -23,6 +23,11 @@
     --dur-ch:.22s; --dur-blur:.42s;
     /* 焦点弱化：降饱和+微压暗的强度与补间时长（--dimmer 走 .nt 的 transition） */
     --dim-focus:.62; --dur-dim:.45s;
+    /* 换场与空间（0.14.0）：--dur-swp 方向感换场时长、--dur-hl 结论句划重点时长、
+       --dur-tick 章节刻度点亮、--dur-rack 窄屏播放器行浮起、--par-far 远景视差系数
+       （0=无限远完全不动，1=与近景同步；JS 从这里读，不在代码里写死第二个数）。 */
+    --dur-swp:.34s; --dur-hl:.42s;
+    --dur-tick:.2s; --dur-rack:.22s; --par-far:.45;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -61,7 +66,7 @@
   /* 章节刻度：上下各探出 3px，一眼看出整门课被切成几段。
      2px 宽 / 比条底亮一档——1px 太细，暗底上基本看不见，那这一层信息就白放了。 */
   .bar .tick{position:absolute;top:-3px;width:2px;height:12px;background:#5f6a7d;
-             border-radius:1px;z-index:2;pointer-events:none;transition:background .2s}
+             border-radius:1px;z-index:2;pointer-events:none;transition:background var(--dur-tick)}
   /* 当前章节刻度点亮：常驻的"你在哪"位置 cue，纯颜色变化不是循环动画。
      tick.on 由 tick() 按 sceneIdxAt 逐拍维护（reduced-motion 下过渡被关掉）。 */
   .bar .tick.on{background:var(--key);box-shadow:0 0 5px rgba(245,166,35,.55)}
@@ -139,6 +144,17 @@
 
   .el{opacity:0;transition:opacity var(--dur-el) ease}
   .el.on{opacity:1}
+  /* 方向感换场（0.14.0，前沿做法：direction-aware transition）：**前进**从右侧进、
+     **后退**从左侧进——把"课程往前走了一步"这件事画在屏幕上，而不是只换个数字。
+     挂在独立 `translate` 属性上（不是 transform）：stage 图层自身没有 transform 属性，
+     但用独立属性才与 0.13.0 那条"独立属性先于 transform 合成"的教训同口径，
+     也不会顶掉任何作者写在属性上的位移。位移**不进 getBBox()**（实测 100.0 全程不变），
+     所以取景、内容包围盒与命中区一律不受影响。只由 tick() 在**换节**时重触发
+     （与 .chFlip 同一个判据），擦洗与导出截图模式下不演。 */
+  @keyframes swF{from{translate:26px 0}}
+  @keyframes swB{from{translate:-26px 0}}
+  .el.swF{animation:swF var(--dur-swp) var(--ease-out) backwards}
+  .el.swB{animation:swB var(--dur-swp) var(--ease-out) backwards}
 
   /* ── 舞台运动学：图元常驻，一步只写"该是什么样" ──────────────────────
      renderer 不是动画引擎，是状态函数：它把目标状态写进属性，**补间交给 CSS**。
@@ -203,6 +219,22 @@
   #cap-text.capLift{animation:capLift var(--dur-cap) var(--ease-out) backwards}
   @keyframes capLift{from{transform:translateY(6px)}}
 
+  /* 结论句划重点（0.14.0，kinetic typography 的克制版）：`hl:true` 那一句除了换色，
+     再沿自己的字宽划一道半透明色带——给"这是结论"一个**连续的动画**，而不是只换个颜色。
+     几何取自 `#cap-text` 自己的 `getBBox()`，所以小屏字号分档（字幕 26px）天然跟着走，
+     不补第二套口径。`x` / `width` 是 SVG 的 CSS 几何属性（Chrome 152 实测可补间：
+     宽从 0 长到 136.4px），同时把值也写进呈现属性——不支持这两条 CSS 属性的浏览器
+     直接落终态，定格仍是"划完的样子"。
+     **非结论句一律写 0 宽**：收起与起点是同一次写，下一句结论才会"长出来"而不是瞬现。
+     只写状态、不排程（纪律 1），导出截图页切掉 transition 后落在完整色带上。 */
+  #cap-hl{fill:var(--key);opacity:.22;pointer-events:none;rx:2;
+          transition:width var(--dur-hl) var(--ease-out),x var(--dur-hl) var(--ease-out)}
+  /* 视差景深（0.14.0）：镜头挪一次时**远景比近景走得慢**——单层运镜只说明"看哪儿"，
+     两层速度差才说明"画布是有深度的空间"。#depth 与 #cam 是兄弟节点、同一个坐标
+     空间，位移量因此就是世界坐标；不放进 #cam 是因为那里已经有一层 transform
+     属性值，再叠 CSS transform 会互相顶掉。背景是纯装饰（不进 contentBox，不承载信息）。 */
+  #depth{transition:transform var(--dur-cam) var(--ease-out)}
+
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
      关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
@@ -217,6 +249,13 @@
     /* 0.13.0 新增动效同口径兜底：章节头翻场关掉；按压手感（:active 的 scale）与
        焦点弱化本来就是"状态即终态"，过渡被上面的 transition:none 收掉后直接落档。 */
     .chapter.chFlip{animation:none}
+    /* 0.14.0 三项同口径：换场位移关掉（内容直接落位，一格信息不少）；视差层不跟
+       镜头漂（#cam 的补间已被上面收掉，镜头照旧到位）；划重点不逐帧生长，
+       但 x/width 是**属性上的终态**，所以关掉过渡后色带仍然完整划在那一句上——
+       它承担的是"这是结论"的强调，不是纯装饰，不能跟着一起关。 */
+    .el.swF,.el.swB{animation:none}
+    #depth{transition:none}
+    #cap-hl{transition:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -377,14 +416,14 @@
         background:#1a2029}
   .bucket-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .bucket-drop{border:1px dashed #3a4359;border-radius:10px;padding:9px 10px;background:#1a2029;
-        transition:border-color .16s}
+        transition:border-color var(--dur-hover)}
   .bucket-drop:hover{border-color:var(--key)}
   .bucket-drop .b-label{display:block;font-size:11.5px;color:var(--dim2);margin-bottom:7px}
   .bucket-slot{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;
         gap:6px;min-height:34px}
   .bucket-item{display:inline-flex;align-items:center;padding:7px 12px;border-radius:8px;
         background:var(--panel);border:1px solid #333b4d;cursor:grab;user-select:none;
-        font-size:13.5px;transition:border-color .13s,color .13s}
+        font-size:13.5px;transition:border-color var(--dur-fast),color var(--dur-fast)}
   .bucket-item:hover{border-color:var(--key)}
   /* 触屏点选态（点 A → 点 B，A 挪到 B 的位置）：sequence / bucket 同一视觉语言 */
   .bucket-item[data-picked="1"],.sequence-item[data-picked="1"]{border-color:var(--key);color:var(--key);
@@ -404,7 +443,7 @@
   .sequence-list{list-style:none;margin:2px 0 10px;padding:0;display:flex;flex-direction:column;gap:7px}
   .sequence-item{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;
                  background:var(--panel);border:1px solid #333b4d;cursor:grab;
-                 font-size:13.5px;user-select:none;transition:border-color .13s}
+                 font-size:13.5px;user-select:none;transition:border-color var(--dur-fast)}
   .sequence-item:hover{border-color:var(--key)}
   .sequence-item .s-handle{color:var(--dim2);font-size:12px}
   .sequence-item .s-idx{font:11px ui-monospace,Consolas,monospace;color:var(--dim2)}
@@ -488,7 +527,7 @@
      seek 语义（timeupdate 兜底重画），不改播放/暂停态、不产证据。 */
   .n-jump{display:inline-flex;align-items:center;gap:5px;margin-top:8px;padding:3px 9px;
           border:1px solid #2b3242;border-radius:999px;font-size:11.5px;color:#8ea1c8;
-          background:none;cursor:pointer;transition:border-color .15s,color .15s}
+          background:none;cursor:pointer;transition:border-color var(--dur-hover),color var(--dur-hover)}
   .n-jump:hover{border-color:#4a5670;color:#c9d1e0}
 
   @media (max-width:1020px){
@@ -509,7 +548,7 @@
     .rack{position:absolute;left:10px;right:10px;bottom:10px;z-index:7;
           border-radius:14px;border-top:1px solid var(--line);
           background:rgba(16,19,25,.94);opacity:0;transform:translateY(12px);
-          pointer-events:none;transition:opacity .22s ease,transform .22s ease}
+          pointer-events:none;transition:opacity var(--dur-rack) ease,transform var(--dur-rack) ease}
     .rack[data-show="1"]{opacity:1;transform:none;pointer-events:auto}
     /* 门禁开着时唤出播放器行没有意义。隐形必须同时断点击——data-show 的
        pointer-events:auto 与这条同权重在后，不写 none 会留下"看不见的 ▶/⟲"
@@ -567,7 +606,7 @@
   .col-stage:fullscreen .rack{position:absolute;left:10px;right:10px;bottom:10px;z-index:7;
     border-radius:14px;border-top:1px solid var(--line);background:rgba(16,19,25,.94);
     opacity:0;transform:translateY(12px);pointer-events:none;
-    transition:opacity .22s ease,transform .22s ease}
+    transition:opacity var(--dur-rack) ease,transform var(--dur-rack) ease}
   .col-stage:fullscreen .rack[data-show="1"]{opacity:1;transform:none;pointer-events:auto}
   .col-stage:fullscreen .rack[data-gated="1"]{opacity:0;pointer-events:none}
 
@@ -608,8 +647,21 @@
                clip-path 会跟着它一起被变换，框就漂了。 -->
           <defs>
             <clipPath id="frameClip"><rect x="0" y="0" width="1000" height="396"/></clipPath>
+            <!-- 远景纹理：40 单位的点阵。#depth 在镜头与内容**之间**，视差位移由
+                 camSet() 按镜头位移的一小部分写进去（--par-far 是系数，不是速度——
+                 系数越小读起来越远）。点阵比内容淡两档、不承载信息，也不进
+                 contentBox()（那里只认 STAGES 与 #world），所以不会把兜底取景拽偏。 -->
+            <pattern id="farDots" width="40" height="40" patternUnits="userSpaceOnUse">
+              <circle cx="20" cy="20" r="1.1" fill="#2b323f"/>
+            </pattern>
           </defs>
           <g clip-path="url(#frameClip)">
+          <!-- 视差远景层：与 #cam 同级、同一个世界坐标系。矩形四周各多出 900：
+               镜头平移量 = (500 − k·窗心)，窗心偏一侧且倍率钳到 1.8 时可达上千
+               单位，远景按系数跟走也有几百——留边不足会在画面边缘露出"点阵到头
+               了"的接缝。宁可多铺（反正被取景框裁着），不留这种缝。 -->
+          <g id="depth"><rect x="-900" y="-900" width="2800" height="2260"
+               fill="url(#farDots)" opacity=".5"/></g>
           <g id="cam">
             <!-- 箭头只有一枚：弧线 / 连线指方向用。颜色固定，不随描边变——
                  marker 里的 fill 继承不到被标注的图元，模板就不假装能。 -->
@@ -678,6 +730,11 @@
                宽度撑满、居中，像视频硬字幕 —— 它是画面的一部分，不是页面元素。 -->
           <g id="cap" class="el">
             <line x1="40" y1="404" x2="960" y2="404" stroke="#232a38" stroke-width="1"/>
+            <!-- 结论句色带：写在 #cap-text **之前**，字压在线上面。几何由 capShow()
+                 按当句 getBBox() 现量（见 CSS「结论句划重点」）。它在 #cam 外、
+                 与字幕同层，所以镜头推拉不影响它；不是 QA 的比对节点——
+                 检查器读的是 #cap-text 的 textContent 与祖先链可见性。 -->
+            <rect id="cap-hl" x="500" y="424" width="0" height="17" rx="2"/>
             <text id="cap-speaker" x="44" y="438" text-anchor="start"
                   font-size="15" font-weight="700" fill="#8fa1b8"></text>
             <text id="cap-text" data-courseware-caption="1" x="500" y="438" text-anchor="middle"
@@ -978,8 +1035,27 @@
   var poseNow = 'off';           // 当前步的主角姿势，只给窄屏兜底取景判断"灯亮不亮"
 
   var STAGES = ['stA','stB','stC','stD','stE','stF','stG'];
+  /** 换幕：亮着的那一幕留下，其余退场时**连方向 class 一起摘**。
+     滞留的 swF/swB 会在下一次入镜时把旧动画重放一遍——正常播放时 sceneSlide
+     自己也摘重挂，看不出问题；而截图模式（export_video 每帧一次冷启动）里
+     sceneSlide 根本不跑，那一帧就停在半推半进的位移上。 */
   function only(keep){
-    STAGES.forEach(function(id){ show(id, id === keep); });
+    STAGES.forEach(function(id){
+      if (id !== keep) el(id).classList.remove('swF', 'swB');
+      show(id, id === keep);
+    });
+  }
+  /** 换场方向（0.14.0）：给**这一步真正亮着的那一幕**挂位移，不遍历全表——
+     只亮着一个，别的幕此刻是 opacity:0，给它们演一遍等于白跑一次动画。
+     重触发口径与字幕翻句、章节翻场同款：摘掉 → 读一次几何 → 挂上。方向反过来
+     时要先摘掉另一头的 class，否则上一节的位移方向会留在节点上。 */
+  function sceneSlide(dir){
+    var on = STAGES.filter(function(id){ return el(id).classList.contains('on'); });
+    on.forEach(function(id){
+      var n = el(id);
+      n.classList.remove('swF', 'swB'); void n.getBoundingClientRect();
+      n.classList.add(dir > 0 ? 'swF' : 'swB');
+    });
   }
 
   // ── 世界谱：同一批实体跨幕活着，每一幕每一步它们在哪、什么样 ──────────
@@ -1097,14 +1173,30 @@
       [140, 40, 760, 340]       // s5 正确写法：留在拉远后的取景里收尾
     ]
   };
+  /** 视差远景层的位移（0.14.0）：#depth 与 #cam 同级同坐标系，镜头平移多少，
+     远景按 --par-far 走其中一小段——**同向、但慢**，于是相对画面就在往后退，
+     画面上读起来正是"远处比近处慢"（真实摄影机摇镜时背景跟得少）。
+     远景**只跟着漂、不跟着放大**：这一条恰恰是"它很远"的线索，跟着缩放就成同
+     一张纸了。系数只从令牌读，令牌被改名或删掉时 parseFloat 得 NaN、落回范本
+     默认档，画面不至于整层静止。位移挂在**属性**上（不改变任何 getBBox()），
+     所以取景、命中区与 QA 几何判定都不受影响。 */
+  function depthShift(now){
+    var p = el('depth');
+    if (!p) return;                            // 页面没建远景层：不替它编一个
+    var css = getComputedStyle(document.documentElement).getPropertyValue('--par-far');
+    var f = parseFloat(css);
+    if (!isFinite(f)) f = .45;
+    p.setAttribute('transform',
+      'translate(' + (now.tx * f).toFixed(1) + ',' + (now.ty * f).toFixed(1) + ')');
+  }
   function camTo(f){
     var k = Math.max(0.85, Math.min(VIEW.w / f[2], VIEW.h / f[3], 1.8));
+    // 平移量算一次、回传一次：视差层要用的就是这个数，让它在 depthShift 里
+    // 重算第五版钳位公式，早晚和实际画面不一致（同上面那条注释的理由）。
+    var tx = 500 - k * (f[0] + f[2] / 2), ty = 202 - k * (f[1] + f[3] / 2);
     el('cam').setAttribute('transform',
-      'translate(' + (500 - k * (f[0] + f[2] / 2)).toFixed(1) + ',' +
-      (202 - k * (f[1] + f[3] / 2)).toFixed(1) + ') scale(' + k.toFixed(3) + ')');
-    // 把"镜头实际落在哪儿"回给调用方做幅值判断：k 的钳位公式只有这一处，
-    // camSet 自己再算一遍就是第二套口径，早晚和实际画面不一致。
-    return {cx:f[0] + f[2] / 2, cy:f[1] + f[3] / 2, k:k};
+      'translate(' + tx.toFixed(1) + ',' + ty.toFixed(1) + ') scale(' + k.toFixed(3) + ')');
+    return {cx:f[0] + f[2] / 2, cy:f[1] + f[3] / 2, k:k, tx:tx, ty:ty};
   }
   /** 运动模糊的判据：镜头**动了多少**才糊（不是每步都糊）。位移按世界坐标算，
      倍率按相对变化算——推拉 22% 以上、或平移 180 单位以上才算"一次运镜"。
@@ -1143,6 +1235,7 @@
     } else {
       now = camTo(declared || FULL);
     }
+    depthShift(now);            // 远景跟着漂一小段（视差），与镜头同一个坐标系
     // 运镜模糊：只在**真的发生一次大幅运镜**时重触发（判据见 camBlurOK）。
     // 重触发口径与字幕翻句同款：remove → 读一次几何 → add；不达标的这一步必须
     // 主动 remove——否则上一次模糊的 class 还挂着，下一步小移动会再跑一遍动画。
@@ -1488,9 +1581,30 @@
       t.classList.remove('capLift'); void t.getBoundingClientRect(); t.classList.add('capLift');
     }
     t.setAttribute('fill', s.hl ? '#f5a623' : '#c9d1e0');
+    capHl(t, !!s.hl);
     var sp = el('cap-speaker');
     if (sp){ sp.textContent = s.speaker || ''; }
     show('cap', true);
+  }
+  /** 结论句划重点（0.14.0）：色带的几何**从字幕自己量**——x/宽取当句 bbox，
+     纵向只压下半截字身（像马克笔划过去，不糊住整行）。量而不是算，是因为字号
+     有两套口径：桌面 17、小屏分档 26（layout.md §4），手写常数必然错位。
+     非结论句写 0 宽：既是收起也是下一句的生长起点。
+     位移全交给 CSS transition（纪律 1：这里不排程、不轮询）。 */
+  function capHl(t, on){
+    var m = el('cap-hl');
+    if (!m) return;
+    var x = 500, w = 0;
+    if (on){
+      var bb = t.getBBox();
+      x = bb.x; w = bb.width;
+      m.setAttribute('y', (bb.y + bb.height * .52).toFixed(1));
+      m.setAttribute('height', (bb.height * .5).toFixed(1));
+    }
+    m.setAttribute('x', x.toFixed(1)); m.setAttribute('width', w.toFixed(1));
+    // CSS 几何属性优先（可补间）；上面那两笔呈现属性是"不支持时仍落终态"的兜底，
+    // 两者同源同一次写，不会漂出第二套状态。
+    m.style.x = x + 'px'; m.style.width = w + 'px';
   }
 
   // ══ ④ 侧栏：参考要点（renderNotes）══════════════════════════════════════
@@ -1982,10 +2096,17 @@
         // 所以这里另存一个场景号比对：只有真换节才抖一下，否则每句都在闪。
         // 重触发口径与 capShow 同款（remove → 读一次几何 → add）。
         if (lastSceneIdx !== idx){
+          var fwd = lastSceneIdx < 0 ? 0 : (idx > lastSceneIdx ? 1 : -1);
           lastSceneIdx = idx;
           var ch = el('chapter');
           ch.classList.remove('chFlip'); void ch.getBoundingClientRect();
           ch.classList.add('chFlip');
+          // 方向感换场（0.14.0）：**前进从右侧进、后退从左侧进**。章节头已经报了
+          // "换节"，画面这一层跟着给出"往哪儿换"——回拖进度条重看时方向相反，
+          // 观众不用读数字就知道自己是在往前走还是往回走。
+          // 判据与翻场同一个（换节，不是换句）；冷启动第一步不演（fwd=0，没有
+          // "上一节"可比）；擦洗与导出截图模式下不演（口径同运镜模糊）。
+          if (fwd && !scrubbing && !window.__coursewareShotMode) sceneSlide(fwd);
         }
       }
       // 读数与画面同生共死：index<0 的空档里（seek 进场景首句之前的缝隙时可能持续
