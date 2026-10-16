@@ -153,6 +153,9 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 | `#depth` 属性补间 | 远景视差（同向、更慢） | 镜头每落一次，远景跟着漂一小段 |
 | `.el.swF` / `.swB` | 方向感换场 | **换节**时新画面从行进方向那一侧进场（前进右、后退左） |
 | `#cap-hl` | 结论句划重点 | `hl:true` 那一句沿字宽划一道色带 |
+| `.reveal` / `.revealL` | 擦除揭示（clip-path 扫描） | 某一行/某条线是**刚刚长出来**的，方向带语义 |
+| `.nt` 几何补间（0.15.0） | rect/circle/ellipse/path 的形状滑动 | 框跟着字长大、图元变形 |
+| 侧栏 `.note-body` 折叠 | 0↔auto 高度 + display 时序 | 参考要点展开/收起 |
 
 建档即入场，所以**要动的东西在它该动的那一步才建档**：早一步建好压着
 `opacity:0`，动画会在没人看见的那一步跑完，轮到时只剩淡入。
@@ -163,9 +166,10 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 `--dur-fill` / `--dur-cap` / `--dur-fb` / `--dur-hover` / `--dur-cam` /
 `--dur-veil` / `--dur-el` / `--dur-ch` / `--dur-blur` / `--dim-focus` /
 `--dur-dim` / `--dur-swp` / `--dur-hl` / `--dur-tick` / `--dur-rack` /
-`--par-far` 上，词汇统一引用——改全局节奏只动一处。曲线是 easeOutExpo 家族
-（`.22,1,.36,1`）：入场与补间共用它，退场用 inOut。悬浮/幕布/元素淡入这类
-"本来该有手感却写成魔法数"的地方也一律走令牌（0.13.0 收的口）。
+`--par-far` / `--dur-grow` / `--dur-reveal` / `--dur-acc` 上，词汇统一引用——改全局
+节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：入场与补间共用它，退场用
+inOut。悬浮/幕布/元素淡入这类"本来该有手感却写成魔法数"的地方也一律走令牌
+（0.13.0 收的口）。
 
 **错峰入场**：`.in` 支持 `--delay`（`animation-delay:var(--delay,0s)`），
 现成档位 `.st1/.st2/.st3`（60/120/180ms）。一组同幕图元按序上浮是前沿动效
@@ -267,6 +271,59 @@ transform/opacity——检查器判字幕可见性走 opacity/visibility 链，�
 `#cap-hl` 关过渡（终态保留）。时长与系数新增 `--dur-swp` / `--dur-hl` / `--dur-tick` /
 `--dur-rack` / `--par-far` 五个令牌，顺带把刻度点亮与窄屏/全屏播放器行那几处残留
 魔法数收进令牌。
+
+**生长与揭示（0.15.0）**：前面几轮动的是"位置、颜色、层次"，这一轮动的是**形状
+本身**和**出现的方式**。三件事都在 Chrome 152 里逐项量过边界才写进范本，量不到
+的边界一律写成"别这么干"：
+
+- **SVG 几何属性补间（`.nt` 的 width/height/x/y/rx/ry/cx/cy/r/d）**：Chrome 把这些
+  几何属性收进了 CSS，写呈现属性就能补间——框可以**跟着字长大**，不用再靠
+  `transform:scale()` 假胖。清单**不是全几何**：`rect` 的 x/y/width/height/rx、
+  `circle` 的 cx/cy/r、`ellipse` 的 rx/ry、`path` 的 `d` 在列（`d` 要两条路径命令
+  序列同构，否则整条跳档）；**`<text>` 的 x/y 与 `<line>` 的 x1/y1/x2/y2 不在列**
+  （计算值恒为 0px / 空）——文字的位移只能靠 `transform` 或独立 `translate`，
+  连线要动就用 `.draw` 或挂父层，写成 transition 是白写。
+  范本的 `poseWorld()` 因此改成**现量**：先落一个够用的占位框，`getBBox()` 量出标签
+  字宽，再写终值（`width = max(74, 字宽 + 28)`，圆角跟着宽度走）。顺带修掉范本的
+  真实缺陷：写死的 96 只算过不带引号的字形，quoted 姿势加引号后桌面档 '10' 字宽
+  96.3 就压过边、小屏档（字号由 `put` 统一放大到 52）顶到 125.1，字整个糊到框外。
+  **占位框只给新建档写**（`if (!REG[boxKey])`）：复用节点再写一遍占位宽，会被当成
+  一次真实状态变化，画面先补向 96 再掉头补向终态——那是肉眼可见的抖动，不是生长。
+- **擦除揭示（`.reveal` / `.revealL`）**：不是"淡进来"，而是用 `clip-path:inset()`
+  **从一侧扫出来**（左→右读作"往后推演"，右→左读作"回溯"——方向本身带信息，
+  这是比淡入多出来的那半句）。范本两个消费者都在"这一行是刚串出来的"场合：
+  舞台 B 的结论记法用 `wipeR`，舞台 C 的降序行用 `wipeL`。四条边界：① 只裁剪
+  不位移，`getBBox()` 全程恒定（取景、窄屏兜底、QA 几何判定都不受影响），但
+  **命中测试跟着裁**，还没擦到的那半截点不着，不留"看不见却点得着"的幽灵区；
+  ② 挂在**包装 `<g>`** 上而不是图元本身（`clip-path` 与 `.nt` 的 transform 补间
+  同节点会互相干扰）；③ **两端都要写成 `inset()`**——只写 `from` 时隐式 `to` 取
+  元素自身的 `clip-path:none`，而 `inset()` 与 `none` **不可插值**，浏览器按
+  discrete 处理，画面只剩"全遮"和"全显"两格中间硬跳一下（这轮第一版就是这么写的，
+  量出来才发现）；④ 与 `.in` 一样用 `backwards`，不写 `forwards`。导出截图页一刀
+  切掉 animation 后落回 `none` = 完整揭示的定格。
+- **折叠面板（`interpolate-size` + `display` 参与过渡）**：侧栏 `note-body` 从
+  `display:none` + 一段淡入，换成 **0↔auto 高度连续开合**。三个口径，前两个都是坑：
+  ① `:root` 的 `interpolate-size:allow-keywords` 让 `height:auto` 参与插值——不用
+  猜 `max-height` 魔数，也不用 JS 量 `scrollHeight`；不支持的浏览器整条作废，
+  退回"瞬间开合 + `noteIn` 淡入"，仍讲得清；
+  ② **`display` 必须同时出现在 `transition-property` 清单里**——
+  `transition-behavior:allow-discrete` 只管"已经在补间的属性"，没列进去就还是
+  即时切换，实测开合半边有动画、半边是跳的。语义正好是想要的：展开当帧就
+  `block`（没盒就没得演），收起撑到补间结束才 `none`（collapse 演得完，又不把
+  hidden 内容留在可访问树和 Tab 序列里）；
+  ③ `transition-behavior` **单独一行写**：塞进 `transition` 简写里出现浏览器不认的
+  关键词会**整条作废**，把 height 补间一起带走；分开写的最坏情况只是 display 立刻
+  切换，降级仍有得看。起点靠 `@starting-style` 给（从 `none` 切 `block` 那一帧
+  没有"上一状态"，不写它动画不跑）。`noteIn` 那档淡入留着——它是内容层面的提示，
+  与面板高度的连续运动是两件事，reduced-motion 下各自关。
+
+`prefers-reduced-motion` 兜底同步：`.reveal` / `.revealL` 关动画（关掉后内容直接
+完整在场，没有"半截揭示"留在定格上）；几何生长挂在 `.nt` 上，已被那条
+`transition:none` 收掉，框宽照旧落属性、一步到位；折叠两头都关。
+**折叠那条兜底要多带一层元素选择器**（`li.note .note-body`）才真的落上：
+`.note-body{...transition:...}` 那条基础规则在源序上排在媒体块**之后**、特异度又
+同为 (0,1,0)，后来者胜——单写 `.note-body{transition:none}` 会被顶掉，这时兜住
+画面的只是全局那条 `.01ms!important` 的时长钳制，不是这一行。
 
 用弱化时记住它是**真的把颜色变暗**，不是错觉：`saturate()`/`brightness()` 与
 `opacity` 一样按合成后的颜色吃对比度，被弱化的那一块仍要过 §8 的对比度三查。
@@ -418,6 +475,16 @@ if (step === 4) flashOnce();
       不演、退场图层在 `only()` 里把 class 摘干净（否则下一次入镜重放旧动画）；
 - [ ] 用了结论句划重点（`#cap-hl`）的：几何从 `#cap-text` 的 `getBBox()` 现量
       （不写第二套字号常数）、非结论句归零、色带写在 `#cap-text` 之前；
+- [ ] 用了擦除揭示（`.reveal`/`.revealL`）的：关键帧**两端都写成 `inset()`**（只写
+      `from` 时终态取自身 `clip-path:none`，inset↔none 不可插值，实测按 discrete 两格
+      硬跳）、挂在包装 `<g>` 上而不是文字节点本身、只裁不位移（`getBBox()` 全程恒定）；
+- [ ] 用了 SVG 几何补间（`.nt`）的：只碰 CSS 清单里的属性（rect 的 x/y/width/height/rx、
+      circle 的 cx/cy/r、ellipse 的 rx/ry、path 的 d；`<text>` 的 x/y 与 `<line>` 的
+      x1/x2 **不在清单里**，写了白写）；现量结果写进呈现属性，占位值只给新建档的节点；
+- [ ] 用了折叠面板（0↔auto）的：`interpolate-size:allow-keywords` 在 `:root`、
+      `display` 与 `height` 同进 `transition-property` 清单（漏了 display 收起半边硬跳）、
+      `transition-behavior:allow-discrete` 单独一行、`@starting-style` 给出起点、
+      reduced-motion 兜底带上 `li.note` 抬特异度（源序在后面，同特异度会被基础规则盖掉）；
 - [ ] 动效终态落在属性上（`fill-mode: backwards`、循环动画 `0%` = 静止态），单独一帧也讲得清；
 - [ ] 没有第二份字幕正文；
 - [ ] 图元文字是必要的短标注；

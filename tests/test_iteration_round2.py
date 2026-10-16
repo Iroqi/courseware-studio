@@ -1450,3 +1450,465 @@ def test_transition_parallax_highlight_reduced_motion(full_lesson):
         assert st["tp"] == "none" or st["td"].startswith("0s"), st
     finally:
         _kill(chrome)
+
+
+# ── 10. 生长 / 擦除揭示 / 折叠面板（0.15.0）──────────────────────────
+
+def test_growth_reveal_collapse_present():
+    """模板结构契约：0.15.0 三项原语必须长在范本里（无浏览器也可锁）。
+
+    锁的都是这轮实测出来的口径，不是风格：
+      · 几何补间只能挂在**呈现属性**可动画的图元上（rect/circle/ellipse/path），
+        `<text>` 的 x/y 与 `<line>` 的 x1/x2 不在 CSS 清单里——写成 transition 是白写，
+        所以清单里不该出现它们；
+      · 擦除揭示两端都必须是 `inset()`：只写 from 时隐式 to 取元素自身的
+        `clip-path:none`，而 `inset()` 与 `none` 不可插值，浏览器按 discrete 处理，
+        画面上就是"全遮→全显"的硬跳（实测过），那不是擦；
+      · 折叠面板的 `display` 必须**同时出现在 transition-property 清单里**，
+        否则 `allow-discrete` 无对象可管，收起半边是跳的（同样实测过）；
+        `transition-behavior` 单独一行写，避免简写里出现不认的关键词把整条带走；
+      · 卡框宽度从标签现量，且占位框**只给新建档**写（复用节点写占位宽会被当成
+        一次真实状态变化，先补向 96 再掉头 = 抖动）；
+      · reduced-motion 兜底那条要多带一层元素选择器才压得住基础规则（源序 + 特异度）。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # 令牌：生长 / 擦除 / 折叠各一档，且 auto 关键字参与插值是折叠的前提
+    assert "--dur-grow:.42s; --dur-reveal:.5s; --dur-acc:.3s;" in html
+    assert "interpolate-size:allow-keywords;" in html
+    root_at = html.index(":root{")
+    assert root_at < html.index("interpolate-size:allow-keywords;") < html.index("--bg:")
+
+    # .nt 的几何补间清单：rect(x/y/width/height/rx)、circle(cx/cy/r)、ellipse(ry)、path(d)
+    nt_at = html.index(".nt{transition:transform")
+    nt_block = html[nt_at:html.index("}", html.index("--dimmer var(--dur-dim)", nt_at))]
+    for geom in ("x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "d"):
+        assert f"{geom} var(--dur-grow) var(--ease-out)" in nt_block, geom
+    # 明确**不该**进来的：这两个写在清单里就是白写（实测计算值为空/恒 0）
+    assert "x1 var(" not in nt_block and "y1 var(" not in nt_block
+    assert html.count("text-anchor") > 0                        # 文字仍靠锚点，不靠 x 补间
+
+    # 擦除揭示：两端都是 inset()，终态收在 0；方向两个，挂在包装 g 上
+    assert "@keyframes wipeR{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}" in html
+    assert "@keyframes wipeL{from{clip-path:inset(0 0 0 100%)}to{clip-path:inset(0 0 0 0)}}" in html
+    assert ".reveal{animation:wipeR var(--dur-reveal) var(--ease-out) backwards}" in html
+    assert ".revealL{animation:wipeL var(--dur-reveal) var(--ease-out) backwards}" in html
+    # 两个真实消费者：结论行左→右（往下推），降序行右→左（方向反了）
+    assert ("var sum = put('b-body', 'g', 'b-sum-w', {class:'reveal'});\n"
+            "      txt(sum, 'b-sum', {class:null,") in html
+    assert ("var dn = put('c-body', 'g', 'c-dn-w', {class:'revealL'});\n"
+            "      txt(dn, 'c-dn', {class:null,") in html
+
+    # 折叠面板四件套：display 进清单 + allow-discrete 单写 + 展开态 auto + starting-style
+    assert (".note-body{display:none;height:0;overflow:hidden;\n"
+            "             transition:height var(--dur-acc) var(--ease-out),\n"
+            "                        display var(--dur-acc) var(--ease-out)}" in html)
+    assert ".note-body{transition-behavior:allow-discrete}" in html
+    assert '.note[data-open="1"] .note-body{display:block;height:auto}' in html
+    assert '@starting-style{.note[data-open="1"] .note-body{height:0}}' in html
+    # 内容淡入是另一件事（noteIn），与高度补间并存、各自可关
+    assert ('.note[data-open="1"] .note-body{animation:noteIn .22s ease both}' in html)
+
+    # 卡框现量：宽度来自 getBBox，且占位框只在新建档时写
+    assert "var w = Math.max(74, Math.round(lab.getBBox().width) + 28);" in html
+    assert "put(g, 'rect', boxKey, {x:-w/2, width:w, rx:Math.min(20, Math.round(w/6))});" in html
+    assert "if (!REG[boxKey]) put(g, 'rect', boxKey, {x:-48, y:-46, width:96, height:92, rx:14," in html
+    assert "var slot = p.order.indexOf(v), g = 'w-' + v, boxKey = g + '-r';" in html
+
+    # reduced-motion：擦除不演；折叠两头都关，且选择器带 li.note 才压得住基础规则
+    assert ".reveal,.revealL{animation:none}" in html
+    assert ('li.note .note-body,li.note[data-open="1"] .note-body'
+            '{transition:none;animation:none}') in html
+    # 旧口径（不带元素选择器）会被源序在后那条 .note-body 顶掉，别写回去
+    assert ".note-body,.note[data-open=\"1\"] .note-body{transition:none;animation:none}" not in html
+
+
+def _fit(ev, name):
+    """主角某张卡的字宽 / 框宽（现量口径的唯一读者）。"""
+    return json.loads(ev(f"""(function(){{
+      var t=document.getElementById('w-{name}-t'), r=document.getElementById('w-{name}-r');
+      if(!t||!r) return JSON.stringify({{absent:1}});
+      return JSON.stringify({{txt:t.textContent, fs:+t.getAttribute('font-size'),
+        tw:+t.getBBox().width.toFixed(1),
+        bw:+parseFloat(getComputedStyle(r).width).toFixed(1),
+        attr:+parseFloat(r.getAttribute('width')).toFixed(1),
+        x:+parseFloat(getComputedStyle(r).x).toFixed(1)}});}})()"""))
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_hero_card_grows_to_measured_width(full_lesson):
+    """真实浏览器：卡框**跟着字长大**——中间值在补间、终态容得下字，且窄屏现量跟着字号走。
+
+    量宽度的写序不能反：getBBox 要布局，所以先落一个够用的占位框、量完再写终值；
+    复用节点若把占位宽再写一遍，画面会先补向 96 再掉头（抖动）。这条用例同时钉住
+    两件事：① 生长是连续的（暂停到 120ms 拿到介于两档之间的宽度）；② 终态框宽
+    ≥ 字宽 + 呼吸位，桌面与小屏两档都成立（旧范本写死 96，quoted 姿势下字压出框外）。
+    """
+    chrome, ev, send = _cdp(full_lesson, "grow")
+    try:
+        ev(_SEEK)
+
+        # 暂停 width 补间到三个时刻取值；play() 放回去，页面自己跑完
+        def paused_widths():
+            return json.loads(ev("""(function(){
+              var r=document.getElementById('w-10-r');
+              var as=r.getAnimations(), tr=null;
+              for (var i=0;i<as.length;i++) if (as[i].transitionProperty==='width') tr=as[i];
+              if (!tr) return JSON.stringify({none:true});
+              var out=[];
+              [0,120,300].forEach(function(ms){tr.pause(); tr.currentTime=ms;
+                out.push([ms, +parseFloat(getComputedStyle(r).width).toFixed(1)]);});
+              tr.play();
+              return JSON.stringify({seq:out});})()"""))
+
+        ev("window.__jump('seg-1', 2)")           # bay：无引号，框宽 76
+        time.sleep(0.7)
+        base = _fit(ev, "10")
+        assert base["txt"] == "10" and base["bw"] == 76.0, base
+        assert base["bw"] > base["tw"], f"占位框也该容得下字：{base}"
+
+        ev("window.__jump('seg-1', 3)")           # shelf：加引号，字宽顶到 96.3
+        got = paused_widths()
+        assert not got.get("none"), f"width 应在补间：{got}"
+        seq = got["seq"]
+        assert seq[0][1] == 76.0, f"起点是上一档，不是 96 那个占位数：{seq}"
+        assert 76.0 < seq[1][1] < 124.0, f"120ms 应采到生长中的中间值：{seq}"
+        assert seq[1][1] < seq[2][1] <= 124.0, f"生长应单调、不回弹：{seq}"
+        time.sleep(0.6)
+        shelf = _fit(ev, "10")
+        assert shelf["txt"] == "'10'" and shelf["tw"] >= 90, shelf
+        assert shelf["bw"] >= shelf["tw"] + 27, f"框宽 = 字宽 + 左右呼吸：{shelf}"
+        assert abs(shelf["x"] + shelf["bw"] / 2) < 0.6, f"框仍以文字中心对齐：{shelf}"
+
+        # 复用节点重演：起点仍是当前档（76），不是硬编码的占位 96
+        ev("window.__jump('seg-4', 0)")
+        time.sleep(0.7)
+        assert _fit(ev, "10")["bw"] == 76.0
+        ev("window.__jump('seg-1', 3)")
+        seq2 = paused_widths()["seq"]
+        assert seq2[0][1] == 76.0, f"复用节点不该先补向占位宽：{seq2}"
+        time.sleep(0.6)
+
+        # 小屏档：字号由 put 统一放大到 52，现量的宽度自然跟着走
+        send("Emulation.setDeviceMetricsOverride",
+             {"width": 480, "height": 820, "deviceScaleFactor": 1, "mobile": False})
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.7)
+        narrow = _fit(ev, "10")
+        assert narrow["fs"] == 52, f"窄屏字号应放大：{narrow}"
+        assert narrow["tw"] > 120, narrow
+        assert narrow["bw"] >= narrow["tw"] + 27, \
+            f"窄屏同样不能溢出：{narrow}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_wipe_reveal_sweeps_and_settles(full_lesson):
+    """真实浏览器：擦除揭示是**连续扫出来**的，跑完落回完整揭示，几何一格不动。
+
+    三个回归点都是这轮实测踩出来的：
+      · 终态必须写成 `inset(0 0 0 0)`——只写 from 时到 `none` 不可插值，动画按
+        discrete 走，画面只剩"全遮"和"全显"两格；所以这里要求中间值一路单调变小；
+      · clip-path 只裁剪不位移：`getBBox()` 全程恒定，但**命中测试跟着裁**，
+        还没擦到的那半截点不着（不留"看不见却点得着"的幽灵区）；
+      · 导出截图页那一刀（`animation:none!important`）之后仍是完整揭示。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "wipe")
+    try:
+        ev(_SEEK)
+
+        def sweep(sid, k_prev, k, sel, text_id, name):
+            """走到第 k 句 → **先暂停擦除、等镜头落定**，再逐时刻采样 → 放回去。
+
+            三处非显然的手法，都是被实测教出来的：
+              · 必须**在页面里等两帧**才拿得到动画对象：`put` 刚建好档的节点，动画要
+                到下一次样式重算才登记（同步 read 是空数组，暂停无从下手）；
+              · **先把擦除 pause() 再去等镜头**：换场时 `#cam` 还在补间（--dur-cam .6s），
+                一边是 clip-path 的百分比、一边是不断挪动的 `getScreenCTM()`，两个
+                时间线搅在一起，命中测试就成随机数（实测：镜头没停时同一条动画
+                采出的命中全错）。暂停的对象只有擦除自己，取样期间它不会动。
+              · 命中点取在一串**固定分数位置**上（三个时刻共用同一条尺子），而不是
+                "前缘 ±2%"：SVG `<text>` 的命中区是字形墨迹，字间空格点不着——按前缘
+                取点会撞进空格里，那是假阴性。换算用 `getScreenCTM()`，不写第二套缩放比。
+            """
+            return json.loads(ev(f"""(function(){{
+              function raf(){{return new Promise(function(r){{
+                requestAnimationFrame(function(){{r()}});}});}}
+              function camIdle(){{
+                var c=document.getElementById('cam');
+                return (c.getAnimations()||[]).every(function(a){{
+                  return a.playState==='finished'||a.playState==='idle';}});}}
+              window.__jump('{sid}', {k_prev});
+              return raf().then(raf).then(function(){{
+                window.__jump('{sid}', {k});
+                var g=document.querySelector('{sel}'), t=document.getElementById('{text_id}');
+                g.getBoundingClientRect();
+                var as=g.getAnimations(), a=null;
+                for (var i=0;i<as.length;i++) if (as[i].animationName==='{name}') a=as[i];
+                if (!a) return JSON.stringify({{err:as.map(function(x){{
+                  return x.animationName||x.transitionProperty;}})}});
+                a.pause(); a.currentTime=0;              // 先冻住擦除
+                var waited=0;
+                function sample(){{
+                  var FR=[0.04,0.16,0.28,0.40,0.52,0.64,0.76,0.88,0.96], out=[];
+                  [40,120,250].forEach(function(ms){{
+                    a.currentTime=ms;
+                    var bb=t.getBBox(), ctm=t.getScreenCTM(), cp=getComputedStyle(g).clipPath;
+                    var m=cp.match(/([\\d.]+(?:[eE][-+]?\\d+)?)%/);
+                    if (!m){{out.push([ms,cp,null,null,null]);return;}}
+                    var pct=parseFloat(m[1])/100;
+                    var hits=FR.map(function(f){{
+                      var q=new DOMPoint(bb.x+bb.width*f, bb.y+bb.height/2).matrixTransform(ctm);
+                      return document.elementsFromPoint(q.x,q.y).some(function(e){{return e===t;}});}});
+                    out.push([ms, cp, +bb.width.toFixed(2), +pct.toFixed(3), hits]);
+                  }});
+                  a.play();
+                  return JSON.stringify({{seq:out, fr:FR, camWait:waited,
+                                         dur:a.effect.getTiming().duration}});
+                }}
+                return (function spin(){{                 // 等镜头停稳再取值
+                  if (camIdle() || waited>80) return sample();
+                  waited++;
+                  return raf().then(spin);
+                }})();
+              }});}})()""", await_promise=True))
+
+        def insets(clip):
+            """把 `inset(a b c d)` 的四个值拆成数（带 % 或 px 都吃；终态是 none）。"""
+            m = re.search(r"inset\(([^)]*)\)", clip)
+            assert m, f"应仍在擦除过程中，实得 {clip!r}"
+            return [float(re.match(r"[\d.eE+-]+", v).group(0)) for v in m.group(1).split()]
+
+        def edges(got, mask_idx):
+            """整理成 [(时刻, 遮罩值, 命中数)]，报错时打这一行就够看懂。"""
+            return [(s[0], insets(s[1])[mask_idx], sum(s[4])) for s in got["seq"]]
+
+        def check_sweep(got, mask_idx, fr, side):
+            """两端都是 inset()、只动一条边、一路单调变窄、命中跟着裁。"""
+            assert all(s[1].startswith("inset(") for s in got["seq"]), \
+                f"擦除途中计算值不该跳出 inset()（只写 from 时到 none 不可插值，" \
+                f"浏览器按 discrete 走，画面只剩全遮/全显两格）：{[s[1] for s in got['seq']]}"
+            vals = [insets(s[1])[mask_idx] for s in got["seq"]]
+            assert vals == sorted(vals, reverse=True) and vals[0] > 20 > vals[-1] > 0, \
+                f"遮罩那条边应一路单调变窄：{edges(got, mask_idx)}"
+            assert len({s[2] for s in got["seq"]}) == 1, \
+                f"裁剪不该改变 getBBox：{[s[2] for s in got['seq']]}"
+            for s in got["seq"]:
+                pct = s[3]
+                lo, hi = (0, 1 - pct) if side == "R" else (pct, 1)
+                for f, h in zip(fr, s[4]):
+                    if not (lo <= f <= hi):
+                        assert not h, f"没擦到的那截点不着（不留看不见的命中区）：{s}"
+            # 已擦区内**允许有假阴性**（SVG text 的命中区是字形墨迹，字间空格点不着），
+            # 所以判"命中随擦除一起变大"用总量，而不是逐点必中。
+            counts = [sum(s[4]) for s in got["seq"]]
+            assert counts == sorted(counts) and counts[-1] > counts[0], \
+                f"命中区应随擦除一起变大：{counts} / {edges(got, mask_idx)}"
+            assert counts[-1] >= 2, f"擦到末尾时命中区应已铺开：{edges(got, mask_idx)}"
+            return vals
+
+        # 舞台 B s5：结论行左→右（读作"顺着往下推"）
+        got = sweep("seg-2", 4, 5, "#b-sum-w", "b-sum", "wipeR")
+        assert not got.get("err"), f"结论行应演 wipeR：{got}"
+        assert got["dur"] == 500, f"时长读 --dur-reveal：{got['dur']}"
+        assert all(insets(s[1])[0] == 0 and insets(s[1])[2] == 0 for s in got["seq"]), \
+            f"wipeR 不该碰上下与左：{[s[1] for s in got['seq']]}"
+        check_sweep(got, 1, got["fr"], "R")
+
+        assert _wait_idle(ev, "#b-sum-w") == [], "擦除跑完不该留下在跑的动画"
+        assert ev("getComputedStyle(document.getElementById('b-sum-w')).clipPath") == "none"
+        assert ev("document.getElementById('b-sum').getClientRects().length") > 0
+
+        # 舞台 C s5：降序行右→左（这一行的新意就是"方向反了"）
+        gotL = sweep("seg-4", 4, 5, "#c-dn-w", "c-dn", "wipeL")
+        assert not gotL.get("err"), f"降序行应演 wipeL：{gotL}"
+        assert all(insets(s[1])[0] == 0 and insets(s[1])[1] == 0 for s in gotL["seq"]), \
+            f"wipeL 不该碰上下与右：{[s[1] for s in gotL['seq']]}"
+        check_sweep(gotL, 3, gotL["fr"], "L")
+        assert _wait_idle(ev, "#c-dn-w") == []
+
+        # 导出截图页口径：一刀切掉 animation 后落在**完整揭示**的定格上
+        ev("var s=document.createElement('style');"
+           "s.textContent='*,*::before,*::after{transition:none!important;"
+           "animation:none!important}';document.head.appendChild(s);")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-2', 4)")
+        ev("window.__jump('seg-2', 5)")
+        time.sleep(0.2)
+        assert _anims(ev, "#b-sum-w") == [], "切掉动画后不该有在跑的揭示"
+        assert ev("getComputedStyle(document.getElementById('b-sum-w')).clipPath") == "none"
+        assert ev("document.getElementById('b-sum').getClientRects().length") > 0
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_note_accordion_animates_both_ways(full_lesson):
+    """真实浏览器：侧栏折叠**两头都是连续运动**，且收起的最后一刻才退场 display。
+
+    量的还是那两条边界：① 展开与收起都要采到中间高度（`interpolate-size` 让
+    `height:auto` 参与插值，作者不用猜 max-height，也不用 JS 量 scrollHeight）；
+    ② `allow-discrete` 的时序——展开立刻变 block（否则没盒可演），收起撑到动画
+    结束才变 none（否则 collapse 演不完）。两头都得是真的，只有一边有动画是这轮
+    实测踩过的坑：`display` 没进 transition-property 清单时就是这样。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "acc")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('opening', 0)")
+
+        def snap():
+            return json.loads(ev("""(function(){
+              var li=document.querySelectorAll('.note')[1], b=li.querySelector('.note-body');
+              var cs=getComputedStyle(b);
+              return JSON.stringify({open:li.dataset.open, disp:cs.display,
+                h:+b.getBoundingClientRect().height.toFixed(1),
+                aria:li.querySelector('.note-h').getAttribute('aria-expanded'),
+                tp:cs.transitionProperty,
+                an:(b.getAnimations()||[]).map(function(a){
+                  return (a.transitionProperty||a.animationName)+':'+a.playState;})});})()"""))
+
+        def settle(want):
+            """推帧等到**终态**：条件成立且没有还在跑的 height / display 补间。
+
+            headless 的帧很稀，两条补间都靠帧推进：放回去以后睡 0.35s 既可能停在
+            `display:running:299.96`（收起差最后一帧没归 none），也可能停在
+            `height:running`（高度已越过判据但补间还没结束）。所以这里主动用 rAF
+            催帧，并把"演完了"一起写进终止条件，而不是加更长的睡眠。
+            """
+            deadline = time.time() + 8.0
+            st = snap()
+            while time.time() < deadline:
+                if want(st) and not still_running(st):
+                    return st
+                ev("new Promise(function(r){requestAnimationFrame("
+                   "function(){r(1)})})", await_promise=True)
+                st = snap()
+            return st
+
+        def still_running(st):
+            """还在跑的补间（noteIn 淡入不算：它是内容层面的提示，另一条纪律）。"""
+            return [a for a in st["an"] if a.startswith(("height:", "display:"))]
+
+        def toggle_then_pause(times):
+            """点一次 → 暂停 height 补间取几个时刻 → 放回去。"""
+            return json.loads(ev(f"""(function(){{
+              var li=document.querySelectorAll('.note')[1], b=li.querySelector('.note-body');
+              li.querySelector('.note-h').click();
+              b.getBoundingClientRect();                  // 强制重算，让 transition 建档
+              var as=b.getAnimations(), tr=null;
+              for (var i=0;i<as.length;i++) if (as[i].transitionProperty==='height') tr=as[i];
+              if (!tr) return JSON.stringify({{err:as.map(function(a){{
+                return a.animationName||a.transitionProperty;}}),
+                open:li.dataset.open, disp:getComputedStyle(b).display,
+                h:+b.getBoundingClientRect().height.toFixed(1)}});
+              var out=[];
+              {times}.forEach(function(ms){{tr.pause(); tr.currentTime=ms;
+                out.push([ms, getComputedStyle(b).display,
+                          +b.getBoundingClientRect().height.toFixed(1)]);}});
+              tr.play();
+              return JSON.stringify({{seq:out, dur:tr.effect.getTiming().duration,
+                open:li.dataset.open}});}})()"""))
+
+        closed = snap()
+        assert closed["disp"] == "none" and closed["h"] == 0 and closed["aria"] == "false", closed
+        assert "display" in closed["tp"], f"display 必须进清单：{closed}"
+
+        # 展开：第 0 帧就 block（可访问树随即有它），高度一路长到 auto
+        op = toggle_then_pause("[0,120,300]")
+        assert not op.get("err"), f"展开应有高度补间：{op}"
+        assert op["dur"] == 300, f"时长读 --dur-acc：{op['dur']}"
+        assert op["seq"][0][1] == "block", f"展开当帧就得是 block：{op}"
+        hs = [s[2] for s in op["seq"]]
+        assert 0 < hs[1] < hs[2], f"展开应采到递增的中间值：{op}"
+        opened = settle(lambda s: s["disp"] == "block" and s["h"] > 200)
+        assert opened["disp"] == "block" and opened["h"] > 200, opened
+        assert opened["aria"] == "true", opened
+        assert not still_running(opened), f"展开应演完收干净：{opened}"
+        assert abs(opened["h"] - ev("document.querySelectorAll('.note')[1]"
+                                    ".querySelector('.note-body').scrollHeight")) < 2.5, \
+            f"auto 终态应等于内容高：{opened}"
+
+        # 收起：补间演完之前 display 必须还是 block（撑住），演完才退场
+        cl = toggle_then_pause("[0,120,290]")
+        assert not cl.get("err"), f"收起同样要有高度补间：{cl}"
+        hs2 = [s[2] for s in cl["seq"]]
+        assert hs2[0] > 200 and hs2[1] < hs2[0] and hs2[2] <= hs2[1], \
+            f"收起应采到递减的中间值：{cl}"
+        assert all(s[1] == "block" for s in cl["seq"]), \
+            f"allow-discrete 要把 display 撑到补间结束：{cl}"
+        back = settle(lambda s: s["disp"] == "none")
+        assert back["disp"] == "none" and back["h"] == 0, \
+            f"收起终态应退出可访问树（display 撑到补间结束后归 none）：{back}"
+        assert back["aria"] == "false", back
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_growth_reveal_collapse_reduced_motion(full_lesson):
+    """关掉动效：擦除不演、生长一步到位、折叠瞬开瞬合——终态每张定格都还是对的。
+
+    三项都是**装饰**，不承担信息，所以可以整条关掉；但关掉之后必须仍落在同一张
+    正确定格上：框宽照旧写在属性上（容得下字）、揭示的内容直接完整在场（不是停在
+    "全遮"那一格）、折叠展开即完整可见且收起即整条退出可访问树。这条就是那套
+    "内容不依赖动效"纪律对本轮三件的验收。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm15")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+
+        # 生长：过渡被 .nt 那条 transition:none 收掉，宽度直接落档
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.4)
+        assert ev("getComputedStyle(document.getElementById('w-10-r')).transitionProperty") == "none"
+        base = _fit(ev, "10")
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.05)
+        shelf = _fit(ev, "10")
+        assert shelf["bw"] > base["bw"], f"宽度仍要落到位：{base} → {shelf}"
+        assert shelf["bw"] >= shelf["tw"] + 27, f"关掉动效也不能把字挤出框：{shelf}"
+        assert _anims(ev, "#w-10-r") == [], "关档后不该有在跑的补间"
+
+        # 擦除：不演，且画面是"完整揭示"而不是"全遮"
+        ev("window.__jump('seg-2', 5)")
+        time.sleep(0.05)
+        assert _anims(ev, "#b-sum-w") == [], "reduced-motion 下不演擦除"
+        assert ev("getComputedStyle(document.getElementById('b-sum-w')).clipPath") == "none"
+        assert ev("document.getElementById('b-sum').getClientRects().length") > 0
+        ev("window.__jump('seg-4', 5)")
+        time.sleep(0.05)
+        assert _anims(ev, "#c-dn-w") == []
+        assert ev("getComputedStyle(document.getElementById('c-dn-w')).clipPath") == "none"
+
+        # 折叠：两头都关成 none（选择器不带 li.note 时这里会被源序在后的基础规则顶掉）
+        def disp():
+            return json.loads(ev("""(function(){
+              var li=document.querySelectorAll('.note')[1], b=li.querySelector('.note-body');
+              var cs=getComputedStyle(b);
+              return JSON.stringify({open:li.dataset.open, disp:cs.display, tp:cs.transitionProperty,
+                an:cs.animationName, h:+b.getBoundingClientRect().height.toFixed(1)});})()"""))
+
+        assert disp()["tp"] == "none", f"折叠的过渡应被收掉：{disp()}"
+        ev("document.querySelectorAll('.note-h')[1].click()")
+        time.sleep(0.05)
+        op = disp()
+        assert op["disp"] == "block" and op["h"] > 200, f"展开即完整可见：{op}"
+        assert op["tp"] == "none" and op["an"] == "none", f"两头都要关（含 noteIn）：{op}"
+        ev("document.querySelectorAll('.note-h')[1].click()")
+        time.sleep(0.05)
+        cl = disp()
+        assert cl["disp"] == "none" and cl["h"] == 0, f"收起即退出可访问树：{cl}"
+    finally:
+        _kill(chrome)

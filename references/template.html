@@ -7,6 +7,9 @@
 <style>
   :root{
     color-scheme:dark;
+    /* 让 height / width 的 auto 关键字参与插值（0.15.0 折叠面板的前提）；
+       不支持这条声明的浏览器整条作废，折叠退回"瞬间开合 + noteIn 淡入"。 */
+    interpolate-size:allow-keywords;
     --bg:#0d0f14; --panel:#181c25; --line:#252b37;
     --fg:#e9ecf3; --dim:#8d95a8; --dim2:#6b748a;
     --key:#f5a623; --ok:#2ecc71; --bad:#ef4d4d;
@@ -21,6 +24,9 @@
     --dur-fill:.25s; --dur-cap:.22s;   --dur-fb:.32s;
     --dur-hover:.16s; --dur-cam:.6s;   --dur-veil:.32s; --dur-el:.38s;
     --dur-ch:.22s; --dur-blur:.42s;
+    /* 生长与揭示（0.15.0）：--dur-grow 图元几何生长、--dur-reveal 擦除揭示、
+       --dur-acc 侧栏折叠面板开合（0↔auto 高度） */
+    --dur-grow:.42s; --dur-reveal:.5s; --dur-acc:.3s;
     /* 焦点弱化：降饱和+微压暗的强度与补间时长（--dimmer 走 .nt 的 transition） */
     --dim-focus:.62; --dur-dim:.45s;
     /* 换场与空间（0.14.0）：--dur-swp 方向感换场时长、--dur-hl 结论句划重点时长、
@@ -177,8 +183,24 @@
          还会把注意力从内容上抢走。 */
   @keyframes camBlur{0%{filter:blur(0)}38%{filter:blur(2.2px)}100%{filter:blur(0)}}
   #cam.blurpass{animation:camBlur var(--dur-blur) var(--ease-in-out)}
+  /* 几何补间（0.15.0「生长」）：SVG 几何属性同时是 CSS 属性，renderer 用
+     setAttribute 改它们时 transition 接得住——框可以**长大**而不是瞬移或重画
+     （Chrome 152 实测：rect 改属性后采到中间值 width 45.32 / x 22.66 / rx 4.93，
+     circle 采到 cx 203.99 / r 11.06，终态都落回属性）。清单按实测写：
+       rect 的 x / y / width / height / rx，circle 的 cx / cy / r，ellipse 的 rx / ry，
+       外加 path 的 d（形变 morph，要求两条路径的命令序列同构，否则整条跳档）。
+     两条**不在**清单里的，踩到就是白写：
+       · `<text>` 的 x / y 不是几何属性（计算值恒为 0px）——文字的位移只能靠
+         transform 或独立 translate，别指望写 x 能把一行字滑过去；
+       · `<line>` 的 x1 / y1 / x2 / y2 同样没进 CSS（实测计算值为空）——要连线动，
+         用 .draw 描线或挂在父 g 的 transform 上。 */
   .nt{transition:transform var(--dur-move) var(--ease-out),opacity .4s ease,
        fill .35s ease,stroke .35s ease,stroke-width .3s ease,
+       x var(--dur-grow) var(--ease-out),y var(--dur-grow) var(--ease-out),
+       width var(--dur-grow) var(--ease-out),height var(--dur-grow) var(--ease-out),
+       rx var(--dur-grow) var(--ease-out),ry var(--dur-grow) var(--ease-out),
+       cx var(--dur-grow) var(--ease-out),cy var(--dur-grow) var(--ease-out),
+       r var(--dur-grow) var(--ease-out),d var(--dur-grow) var(--ease-out),
        --dimmer var(--dur-dim) var(--ease-out),filter var(--dur-dim) var(--ease-out)}
   /* 焦点弱化（0.13.0，前沿做法：注册变量补间 filter）：同一层里"这一步该看的"
      保持原样，其余图元降饱和 + 微压暗——弱化是**材质变化**而不是消失，观众仍
@@ -207,6 +229,31 @@
   @keyframes ntDraw{from{stroke-dashoffset:1}}
   .pulse{animation:ntPulse var(--dur-pulse) ease-in-out infinite}
   @keyframes ntPulse{0%,100%{opacity:1}50%{opacity:.45}}
+  /* 擦除揭示（0.15.0，前沿做法：wipe reveal）：不是"淡进来"，而是**从一侧扫出来**——
+     像擦掉一块遮布。用在"这一行/这条线是刚刚长出来的"那种场合，方向本身带信息
+     （左→右读作"往后推演"，右→左读作"回溯"），比同质的淡入多一层语义。
+     四条边界，都是实测出来的：
+       ① 只裁剪不位移——`getBBox()` 全程不变（实测 300 / 464.3 两值不动），所以
+          相机取景、窄屏兜底与 QA 几何判定一概不受影响；命中测试同理跟着裁，
+          被擦掉的那半截点不到，不会留下"看不见但点得着"的幽灵区；
+       ② 挂在**包装 <g>** 上而不是图元本身：`clip-path` 与 `.nt` 的 transform
+          补间同节点会互相干扰（裁剪盒跟着缩放走），分层之后各管各的；
+       ③ 终态要**显式写成 `inset(0 0 0 0)`**，不能偷懒只写 from。只写 from 时，隐式
+          to 取元素自身的 `clip-path`（默认 `none`），而 `inset()` 与 `none` **不可插值**，
+          浏览器按 discrete 处理——实测整条动画只有"全遮"和"全显"两个画面、中间在
+          50% 处硬跳一下，那是闪，不是擦。写成两端都是 `inset()` 才连得上补间
+          （实测同一条动画采到 24.6% / 46.3% / 63.1% …一路连续的 inset 值）；
+          元素自己的计算值仍是 `none`，动画跑完（fill-mode 不写 forwards）落回
+          完整揭示，导出截图页一刀切掉 animation 后同样落在**完整揭示**的定格上
+          （实测切掉后 left/right 命中都为 1、计算值回到 none），与循环动画
+          0% = 静止态那条纪律同源；
+       ④ 与 `.in` 一样用 `backwards`：延迟期间停在"还没擦出来"，而不是先闪现再擦。
+     fill-mode 不写 forwards：钉住终态会让下一次 setAttribute 的 opacity 被压住
+     （见上面舞台运动学 ②）。 */
+  @keyframes wipeR{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+  @keyframes wipeL{from{clip-path:inset(0 0 0 100%)}to{clip-path:inset(0 0 0 0)}}
+  .reveal{animation:wipeR var(--dur-reveal) var(--ease-out) backwards}
+  .revealL{animation:wipeL var(--dur-reveal) var(--ease-out) backwards}
   /* 章节头翻场微动效：只在**真的换节**时由 tick() 重触发（同字幕翻句的口径——
      文本没变就不重放）。它是"你换了一节"的位置 cue，不承担信息：入场用
      backwards，终态就是元素本来的样子，导出切掉动画后定格不变。 */
@@ -256,6 +303,18 @@
     .el.swF,.el.swB{animation:none}
     #depth{transition:none}
     #cap-hl{transition:none}
+    /* 0.15.0 三项同口径。擦除揭示是入场装饰，关掉后内容直接完整在场（终态本来就是
+       clip-path:none，没有"半截揭示"留在定格上）；几何生长挂在 .nt 上，已被上面
+       那行 transition:none 收掉，框宽照旧落属性、一步到位；折叠面板两头都关——
+       高度补间关掉后 display 切换随即生效（allow-discrete 没有时长就没有"撑住"），
+       展开即完整可见、收起即整条退出可访问树，noteIn 的淡入同关。
+       折叠这条兜底要**多带一层元素选择器**才真的落上：`.note-body{...transition:...}`
+       那条基础规则在源序上排在**本块之后**，特异度又同为 (0,1,0)——后来者胜，单写
+       `.note-body{transition:none}` 会被它顶掉（实测收起态的计算值仍是 `height, display`，
+       这时兜住画面的是 §⑤ 那条 `.01ms!important` 的时长钳制，不是这一行）。`li.note`
+       把特异度抬过基础规则、`li.note[data-open="1"]` 抬过展开态各一级，两头才都关成 none。 */
+    .reveal,.revealL{animation:none}
+    li.note .note-body,li.note[data-open="1"] .note-body{transition:none;animation:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -491,8 +550,34 @@
   .note-h .n-ico{font-size:15px;line-height:1;flex:none;width:21px;text-align:center}
   .note-h .n-caret{margin-left:auto;transition:transform var(--dur-hover);color:var(--dim2);font-size:10px}
   .note[data-open="0"] .n-caret{transform:rotate(-90deg)}
-  /* 折叠必须 display:none：grid-template-rows:0fr 收不干净，卡片下沿会留一条 1px 残影 */
-  .note[data-open="0"] .note-body{display:none}
+  /* 折叠面板的开合（0.15.0，前沿做法：0↔auto 高度补间）。
+     旧口径是 `display:none` + 展开时重放一段 noteIn 淡入——收起没有动画，展开
+     "啪"地出现，中间还有一次跳。现在两头都是连续运动：
+       ① `interpolate-size:allow-keywords` 让 `height:auto` 参与插值（Chrome 152
+          实测开 18→26.2→111、收 111→84.6→18，两个方向都采到中间值）；作者不用
+          再猜 max-height 魔数，也不用 JS 量 scrollHeight；
+       ② `display` 仍要退到 none（不是"高度 0 就完了"）：残留的 1px 是一方面，更要
+          紧的是折叠内容不该被读屏念出来、不该进 Tab 焦点序列。`allow-discrete`
+          让 display 参与过渡，实测语义正好是我们想要的——**展开时立刻变 block**
+          （高度动画随即开跑），**收起时撑到动画结束才变 none**（ collapse 演得完，
+          又不会把 hidden 内容留在可访问树里）；
+          一个坑值得单记：`display` 必须**同时出现在 transition-property 清单里**。
+          `transition-behavior:allow-discrete` 只管"已经在补间的属性"，没列进去
+          就还是即时切换——收起时那一帧就没了流内盒，高度补间没有东西可演，
+          实测开合半边有动画、半边是跳的。
+       ③ `transition-behavior` 单独一行写，不塞进 `transition` 简写：简写里出现
+          浏览器不认的关键词是**整条作废**，会把 height 补间一起带走。分开写的
+          最坏情况只是 display 立刻切换（收起不演、展开照演），降级仍有得看；
+       ④ 关闭态的高度写在基础规则上（`height:0`），`@starting-style` 给展开一个
+          起点——没有它，从 none 切 block 的那一帧没有"上一状态"，动画不跑。 */
+  .note-body{display:none;height:0;overflow:hidden;
+             transition:height var(--dur-acc) var(--ease-out),
+                        display var(--dur-acc) var(--ease-out)}
+  .note-body{transition-behavior:allow-discrete}
+  .note[data-open="1"] .note-body{display:block;height:auto}
+  @starting-style{.note[data-open="1"] .note-body{height:0}}
+  /* noteIn 那档淡入照旧留着：它是**内容层面**的提示（这一条刚刚展开），
+     与面板高度的连续运动是两件事，reduced-motion 下各自关掉。 */
   .note[data-open="1"] .note-body{animation:noteIn .22s ease both}
   @keyframes noteIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   /* 悬挂缩进：正文左边界对齐**标题文字**，不是 emoji 的左边界——标题与正文因此共用
@@ -1097,21 +1182,37 @@
     blue:  {fill:'#4d90f0', stroke:'#4d90f0', box:'#1c212c'},
     red:   {fill:'#ef4d4d', stroke:'#ef4d4d', box:'rgba(239,77,77,.10)'}
   };
-  /** 把主角三张卡落到某个姿势上。只写目标状态：上台、退场、染色全是 CSS 补间。 */
+  /** 把主角三张卡落到某个姿势上。只写目标状态：上台、退场、染色全是 CSS 补间。
+     卡框宽度**从标签自己量**（0.15.0「生长」）：写死 96 / 74 的那套数字只算过
+     不带引号的字形。quoted 姿势一加引号，实测 '10' 在桌面档（font-size 40）就是
+     96.3——已经压过 96 那条边；小屏档由 put 把字号统一放大到 52，同一张卡字宽
+     顶到 125.1，框还是 96，字整个糊到框外（'1' / '9' 同样溢出）。量出来的宽度写进
+     呈现属性，配合 .nt 新增的 width / rx 补间，上台、退场、加引号都是**框跟着字
+     长大**，不是瞬移；窄屏那套字号也因此不用再补第二套数字。
+     量之前必须先让标签在树上（getBBox 要布局），所以框分两次写：
+       · **建档那一步**先落一个够用的占位框——此时元素还没有"上一计算值"，
+         transition 不成立，两次写等于一次落终态，不会闪；DOM 顺序上框在字之前，
+         字才压得住底色；
+       · **复用的节点**绝不能再写那一遍占位宽：占位值会被当成一次真实状态变化，
+         画面先往 96 补间、再掉头补向终态——那是肉眼可见的抖动，不是生长。
+     窄屏字号由 put 统一放大，量出来的宽度自然跟着走，不补第二套口径。 */
   function poseWorld(name){
     var p = POSE[name];
     if (!p) return;
     poseNow = name;
     HERO.forEach(function(v){
-      var slot = p.order.indexOf(v), g = 'w-' + v;
+      var slot = p.order.indexOf(v), g = 'w-' + v, boxKey = g + '-r';
       put('world', 'g', g, {transform:'translate(' + p.xs[slot] + ',' + p.y + ') scale(' + p.k + ')',
         opacity:p.op});
-      var w = v.length > 1 ? 96 : 74, t = TONE[p.tone];
-      put(g, 'rect', g + '-r', {x:-w/2, y:-46, width:w, height:92, rx:14,
-        fill:t.box, stroke:t.stroke, 'stroke-width':2});
-      txt(g, g + '-t', {x:0, y:14, 'text-anchor':'middle', 'font-size':40,
+      var t = TONE[p.tone];
+      if (!REG[boxKey]) put(g, 'rect', boxKey, {x:-48, y:-46, width:96, height:92, rx:14,
+        fill:t.box, stroke:t.stroke, 'stroke-width':2});      // 只给新建档占位
+      var lab = txt(g, g + '-t', {x:0, y:14, 'text-anchor':'middle', 'font-size':40,
         'font-weight':'700', 'font-family':MONO, fill:t.fill},
         p.quoted ? "'" + v + "'" : v);
+      // 现量字宽：左右各留 14 的呼吸，圆角跟着宽度走（窄框配大圆角会挤成胶囊）
+      var w = Math.max(74, Math.round(lab.getBBox().width) + 28);
+      put(g, 'rect', boxKey, {x:-w/2, width:w, rx:Math.min(20, Math.round(w/6))});
     });
   }
   /** 这一幕的第 step 句，主角该在哪。WORLD 里没写到的步**沿用本幕最近一个写过的
@@ -1332,9 +1433,15 @@
       txt(g, 'b-' + ri + '-vs', {x:480, y:baseY + 10, 'text-anchor':'middle', 'font-size':30,
         'font-weight':'700', fill: won ? '#2ecc71' : '#5d6577'}, won ? '<' : 'vs');
     });
-    // s5「串起来」：把两行的结论并成一行记法（记号不是句子，纪律 3）
-    if (step === 5) txt('b-body', 'b-sum', {x:540, y:250, 'text-anchor':'middle',
-      'font-size':15, 'font-family':MONO, fill:'#f5a623'}, "'1' < '10' < '9'");
+    // s5「串起来」：把两行的结论并成一行记法（记号不是句子，纪律 3）。
+    // 擦除揭示挂在**包装 g** 上（0.15.0）：这一行是从两行比较里"串"出来的，
+    // 左→右扫出来读作"顺着往下推"，比一次淡入多说了半步。内层写字不给 .in
+    // ——擦除本身就是入场，两层入场叠在一起只会互相糊掉。
+    if (step === 5){
+      var sum = put('b-body', 'g', 'b-sum-w', {class:'reveal'});
+      txt(sum, 'b-sum', {class:null, x:540, y:250, 'text-anchor':'middle',
+        'font-size':15, 'font-family':MONO, fill:'#f5a623'}, "'1' < '10' < '9'");
+    }
     sweep('b-body');
   }
 
@@ -1388,8 +1495,14 @@
       'font-size':16, 'font-family':MONO, fill: footFill}, footText);
     // s5 是这一幕唯一"两句一件事"的收尾：升序 / 降序各摆一条真实序列，
     // 而不是把旁白再念一遍——两个方向同时在场，才看得出"取个反就掉头"。
-    if (step === 5) txt('c-body', 'c-dn', {x:500, y:cy+128, 'text-anchor':'middle',
-      'font-size':16, 'font-family':MONO, fill:'#4d90f0'}, 'b - a → 10 9 1   降');
+    // 降序那一行用**右→左**的擦除（0.15.0）：这一行的新意不在"多一行字"，在
+    // "方向反了"，擦出来的方向替观众说了这半句。c-foot 从 s0 就活着（只换文本），
+    // 不能中途换爹，所以只包这一条新建档的。
+    if (step === 5){
+      var dn = put('c-body', 'g', 'c-dn-w', {class:'revealL'});
+      txt(dn, 'c-dn', {class:null, x:500, y:cy+128, 'text-anchor':'middle',
+        'font-size':16, 'font-family':MONO, fill:'#4d90f0'}, 'b - a → 10 9 1   降');
+    }
     sweep('c-body');
   }
 

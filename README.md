@@ -309,6 +309,18 @@ python -m pytest tests/ -q
   取范本自带那一份 33 句，才够到弱化与大运镜所在的步骤），逐帧采 `--dimmer` 中间值
   证注册补间真的生效、真鼠标事件验 `:active`、`Emulation.setEmulatedMedia` 验
   reduced-motion 下动画停而状态照落；
+- 0.15.0 的回归：`test_iteration_round2.py::test_growth_reveal_collapse_present`
+  锁三条原语的静态口径（`--dur-grow`/`--dur-reveal`/`--dur-acc` 三个令牌、`.nt` 的几何
+  属性清单且 `x1`/`y1` 不得出现、两个 wipe keyframes **两端都写 `inset()`**、折叠四件套
+  逐字、reduced-motion 兜底带 `li.note` 抬特异度而旧口径字符串不得出现）。四条 CDP 用例：
+  世界卡框宽从**实测字宽**生长（先量 `getBBox()` 再补到终态，起点是 76 而不是占位 96，
+  中途单调、终态 ≥ 字宽 + 留白，复用节点回退重演不抖回占位宽；`setDeviceMetricsOverride`
+  压到 480 后字号 52 仍不溢出——旧写死值在这一档把字整个糊出框外）、擦除揭示逐帧采
+  `clip-path` 证明是**连续插值**（任一采样点仍是 `inset()`，出现 `none` 即 discrete 回归）
+  且只动一边、`getBBox()` 恒定、命中测试跟着裁（未擦区必不中，先 pause 擦除再等运镜
+  idle 才取 CTM）、截图模式无动画且完整可见、折叠展开/收起两侧都采到中间高度且终态
+  `display` 与 `aria-expanded` 归位（headless 帧稀，用 rAF 催帧轮询而非固定 sleep）、
+  reduced-motion 下三者一步到位且补间真的关成 `none`；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

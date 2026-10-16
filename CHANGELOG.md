@@ -3,6 +3,104 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.15.0] - 2026-10-16
+
+### 新增（生长与揭示——SVG 几何补间 + 擦除揭示 + 0↔auto 折叠面板）
+
+- **SVG 几何属性补间（`.nt` 的 `x/y/width/height/rx/ry/cx/cy/r/d`）**：Chrome 把这些
+  几何属性收进了 CSS，renderer 用 `setAttribute` 改它们时 transition 接得住——框可以
+  **跟着字长大**，不再靠 `transform:scale()` 假胖（Chrome 152 实测：rect 采到中间值
+  width 45.32 / x 22.66 / rx 4.93，circle 采到 cx 203.99 / r 11.06，终态都落回属性）。
+  清单**不是全几何**，两条不在列的写进注释当"别这么干"：`<text>` 的 x/y 不是几何属性
+  （计算值恒 0px，文字位移只能靠 transform）、`<line>` 的 x1/y1/x2/y2 同样没进 CSS
+  （计算值为空，连线要动就用 `.draw` 或挂父层）。`path` 的 `d` 在列但要两条路径命令
+  序列同构，否则整条跳档。
+- **擦除揭示（`.reveal` / `.revealL`）**：不是"淡进来"，而是用 `clip-path:inset()`
+  **从一侧扫出来**——方向本身带信息（左→右读作"往后推演"，右→左读作"回溯"），比
+  同质的淡入多半句语义。范本两个消费者都在"这一行是刚串出来的"场合：舞台 B 的结论
+  记法 `wipeR`、舞台 C 的降序行 `wipeL`。四条实测边界：① **只裁剪不位移**，
+  `getBBox()` 全程恒定（取景、窄屏兜底、QA 几何判定都不受影响），但**命中测试跟着裁**
+  ——还没擦到的那半截点不着，不留"看不见却点得着"的幽灵区；② 挂在**包装 `<g>`** 上
+  而不是图元本身（`clip-path` 与 `.nt` 的 transform 补间同节点互相干扰，裁剪盒会跟着
+  缩放走）；③ 关键帧**两端都必须写 `inset()`**；④ 与 `.in` 一样 `backwards`、
+  不写 `forwards`（钉住终态会压住下一次 `setAttribute` 的 opacity）。
+- **折叠面板（`interpolate-size` + `display` 参与过渡）**：侧栏 `.note-body` 从
+  `display:none` + 一段 `noteIn` 淡入，换成 **0↔auto 高度连续开合**——收起也有动画、
+  展开不再"啪"地出现。四件套少一样就退回某一边的硬跳：`:root` 的
+  `interpolate-size:allow-keywords`（不用再猜 `max-height` 魔数、也不用 JS 量
+  `scrollHeight`，实测开 18→26.2→111、收 111→84.6→18 两侧都采到中间值）；
+  **`display` 同时进 `transition-property` 清单**（`allow-discrete` 只管已在补间的
+  属性，漏列就还是即时切换——实测半边有动画半边是跳的；语义恰好要的：展开当帧即
+  `block`、收起撑到补间结束才 `none`，折叠内容不进可访问树和 Tab 序列）；
+  `transition-behavior` **单独一行**（塞进简写里出现不认的关键词整条作废，会把
+  height 补间一起带走）；`@starting-style` 给展开一个起点（从 `none` 切 `block`
+  那一帧没有"上一状态"）。
+- **时长令牌**：新增 `--dur-grow`（`.42s` 几何生长）/ `--dur-reveal`（`.5s` 擦除）/
+  `--dur-acc`（`.3s` 折叠开合）。
+- **reduced-motion 兜底同步**：`.reveal` / `.revealL` 关动画（关掉后内容直接完整在场，
+  不留"半截揭示"的定格）；几何生长随 `.nt` 的 `transition:none` 一并关掉；折叠面板
+  两头关成 `none` 并停掉 `noteIn`。
+
+### 修复
+
+- **擦除揭示第一版是 discrete 两格硬跳**：`@keyframes` 只写了 `from`，隐式 `to` 取
+  元素自身的 `clip-path:none`，而 `inset()` 与 `none` **不可插值**——浏览器按 discrete
+  处理，整条动画只有"全遮"和"全显"两个画面、中间硬跳一下，那是闪不是擦。改为显式
+  `to{clip-path:inset(0 0 0 0)}` 后才连上补间（复测采到 100%→85.4%→71.9%→…→none
+  的连续序列）。跑起来看不出来，逐帧采样才看出来。
+- **reduced-motion 关不掉折叠补间**：兜底行 `.note-body{transition:none}` 在源序上
+  **早于**基础规则 `.note-body{transition:height…}`，两者特异度同为 (0,1,0) →
+  后来者胜，收起态计算值仍是 `height, display`。改为
+  `li.note .note-body,li.note[data-open="1"] .note-body` 两头抬过特异度才真的关成
+  `none`。注意这一档不是靠全局 `.01ms!important` 钳制在兜——那条只管时长，
+  计算值里补间还在。
+- **世界卡写死框宽把字糊出框外**：`poseWorld()` 的 96 只算过不带引号的字形。改成
+  先落占位框、`getBBox()` 现量标签字宽、再写终值（`max(74, 字宽 + 28)`，圆角跟宽度
+  走）。实测桌面档 `fs40` 的 quoted `'10'` 字宽 96.3 已经压过边，小屏档（字号由
+  `put()` 统一放大到 52）顶到 125.1——字整个飞出框外。**占位框只给新建档写**
+  （`if (!REG[boxKey])`）：复用节点再写一遍占位宽会被当成一次真实状态变化，画面先
+  补向 96 再掉头补向终态，是肉眼可见的抖动而不是生长。
+
+### 测试
+
+- `tests/test_iteration_round2.py::test_growth_reveal_collapse_present`：三原语的静态
+  口径（三个新令牌、`interpolate-size` 在 `:root` 内的顺序断言、`.nt` 几何清单逐属性
+  断言且 `x1`/`y1` 不得出现、两个 wipe keyframes 逐字含显式 `to`、两个消费者行、
+  折叠四件套逐字、`Math.max(74, …)` 现量行与 `if (!REG[boxKey])` 占位行、
+  reduced-motion 两条新行 + 旧口径字符串必须已消失）。
+- 新增四条 CDP 用例（`full_lesson` 夹具）：
+  `test_hero_card_grows_to_measured_width`（pause height/width 补间逐点取值：起点是
+  实测字宽档的 76 而不是占位 96、中间值单调、终态 `bw ≥ tw + 27` 且 `x = -w/2` 居中；
+  退回旧步再重演起点仍 76（证占位只给新建档）；`Emulation.setDeviceMetricsOverride`
+  压到 480 后字号 52、`bw ≥ tw + 27` 仍不溢出）、
+  `test_wipe_reveal_sweeps_and_settles`（同一 Promise 内 jump 上一步 → 两帧建档 →
+  jump 本步取动画；`inset()` 四值逐点比较——出现非 inset 值即 discrete 回归、只动
+  一边、单调变窄、`getBBox()` 恒定、9 个固定分数位命中测试未擦区必不中且命中总数
+  单调增；再注入截图页 CSS + `__coursewareShotMode` 重进该步验无动画、`clip:none`、
+  完整可见）、
+  `test_note_accordion_animates_both_ways`（展开/收起两侧都采到中间高度、收起全程
+  `display:block` 撑住到补间结束、终态 `h ≈ scrollHeight`、`aria-expanded` 归位、
+  补间收干净）、
+  `test_growth_reveal_collapse_reduced_motion`（三原语一步到位，`transition` 计算值
+  写死必须为 `none`——旧口径下这里是 `height, display` 会被判过）。
+- 采样手法三条教训（写进测试注释）：新建档节点的动画要等两帧才登记进
+  `getAnimations()`；**取 CTM 换算命中点之前必须先 pause 擦除、再 rAF 轮询等 `#cam`
+  补间 idle**，否则相机在飞、命中全错（wipeL 那一侧第一版全报 False）；headless
+  帧稀，discrete 的 `display` 切换靠固定 sleep 会偶发停在 `display:running`，改用
+  rAF 催帧轮询（终止条件"目标态成立且无在跑的 height/display 补间"）。
+
+### 文档
+
+- `references/stage.md`：§3.4 原语表增补三行，令牌清单补齐，新增 0.15.0 小节（三条
+  原语 + 三个实测坑），§9 自检加三条对应勾。
+- `references/layout.md`：§6 侧栏补折叠口径（默认合、`n.open` 只给一条、四件套不要
+  精简）。
+- `references/runtime.md`：§7 导出旗标义务补三条新原语（擦除揭示与几何补间照常落
+  终态、折叠不需要见旗分支，都不新增抑制逻辑）。
+- `references/template.html`：`.nt` / wipe / 折叠三处注释按实测重写（含写死框宽的
+  实测量级）。
+- `SKILL.md` §5、`README.md`「开发与自测」：动效原语与回归清单跟进。
+
 ## [0.14.0] - 2026-10-15
 
 ### 新增（空间与连续性——远景视差 + 方向感换场 + 结论句划重点）
