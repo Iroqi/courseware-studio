@@ -321,6 +321,17 @@ python -m pytest tests/ -q
   idle 才取 CTM）、截图模式无动画且完整可见、折叠展开/收起两侧都采到中间高度且终态
   `display` 与 `aria-expanded` 归位（headless 帧稀，用 rAF 催帧轮询而非固定 sleep）、
   reduced-motion 下三者一步到位且补间真的关成 `none`；
+- 0.15.1 的回归：`tests/test_launch_strategy.py` 用一个 **fake chrome 脚本**把
+  三类容器故障各自复现（拒绝启动 / 一次性转储挂死 / 只有隔离 HOME 才通），锁
+  浏览器启动口径的**三档退路**与顺序、隔离档确实不传 `--user-data-dir`
+  （`Popen` spy 逐条比三条命令）、挂死档真的各吃掉一个 timeout、三档全挂才报
+  预检未通过、判定按 chrome 路径缓存且缓存不含路径（每帧 profile 仍各自新建）、
+  探针不含 `--allow-file-access-from-files`、隔离档只改子进程环境。这条修复的
+  起因是本沙箱实测：root + Chrome for Testing 152 下 `--dump-dom` / `--screenshot`
+  只要带新建 `--user-data-dir` 就永久挂死，于是交付检查**静默退化成只跑静态**
+  （页面照样绿灯、浏览器冒烟一格没跑）、导出直接失败——而 CDP 常驻那条路径不
+  受影响，所以浏览器用例全绿、看不出问题。加第三档后本机全量
+  **375 passed / 2 skipped**（此前 351 passed / 7 failed / 13 errors）；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

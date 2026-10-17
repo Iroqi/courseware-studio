@@ -40,9 +40,10 @@ from _script_utils import (guard_not_in_skill_dir, normalize_meta_charset,  # no
                            read_text, setup_stdio, write_text_atomic)
 from check_gates import (  # noqa: E402
     ChromeLaunchError,
-    _browser_preflight,
+    _browser_launch_strategy,
     _find_chrome,
     _html_comment_ranges,
+    _launch_env,
     _rmtree_retry,
     _run_chrome,
     _timeline_from_html,
@@ -382,11 +383,17 @@ def main() -> int:
     ffmpeg = get_ffmpeg()
     if not (shutil.which(ffmpeg) or Path(ffmpeg).exists()):
         raise _fail('未找到可用的 ffmpeg（系统 PATH 与 imageio-ffmpeg 回退都没有），无法编码视频')
-    # 沙箱优先，起不来才退回 --no-sandbox（与 check_gates 同一预检）；
-    # 逐帧截图不传 --allow-file-access-from-files，成片不需要它。
-    extra_flags = _browser_preflight(chrome)
-    if extra_flags is None:
-        raise _fail('headless Chrome 预检未通过（带沙箱与 --no-sandbox 退路均未成功）')
+    # 与 check_gates 同一条预检（三档：带沙箱 → --no-sandbox → --no-sandbox +
+    # 隔离 HOME）；逐帧截图不传 --allow-file-access-from-files，成片不需要它。
+    strategy = _browser_launch_strategy(chrome)
+    if strategy is None:
+        raise _fail('headless Chrome 预检未通过（带沙箱、--no-sandbox、'
+                    '--no-sandbox + 隔离 HOME 三档退路均未成功）')
+    if strategy['isolated_home']:
+        print('[note] headless Chrome 走隔离 HOME 档（不传 --user-data-dir）：'
+              '此环境以 root 运行 Chrome for Testing 时，新建配置目录的一次性转储会挂死')
+    elif '--no-sandbox' in strategy['extra_flags']:
+        print('[note] headless Chrome 以 --no-sandbox 运行（容器无 user namespaces）')
 
     # #stage 是导出的硬前提：缺 id 时截图 snippet 会静默停在 idle 画面，
     # 产出 N 帧全同的成片。先报错，别烧几十次 Chrome 再赌。
@@ -461,14 +468,31 @@ def main() -> int:
                 '--no-default-browser-check', '--disable-dev-shm-usage',
                 '--hide-scrollbars', f'--force-device-scale-factor={args.scale}',
                 f'--window-size={win_w},{win_h}',
-                f'--user-data-dir={tmp / f"profile_{i:03d}"}',
+            ]
+            # 每帧一份**全新**的 profile 目录，两条档各有各的给法：
+            #   · 常规档：--user-data-dir=tmp/profile_NNN（共用一份会撞
+            #     "profile in use"，表现为整轮导出偶发 rc≠0 / 陈旧截图）；
+            #   · 隔离 HOME 档：挂死点正是 --user-data-dir，所以这里不传它，
+            #     改让 profile 落进每帧新建的 home_NNN——隔离档同样必须每帧
+            #     全新，共用一份 HOME 撞的是同一条 "profile in use"。
+            if strategy['isolated_home']:
+                frame_home = tmp / f'home_{i:03d}'
+                frame_home.mkdir()
+            else:
+                # 常规档不需要 HOME（_launch_env 看到 isolated_home=False 就返回
+                # None、不读第二个参数），但这里仍要给它一个值：不初始化就是
+                # NameError，而那条路径恰恰是桌面与 CI 的主路。
+                frame_home = None
+                cmd.append(f'--user-data-dir={tmp / f"profile_{i:03d}"}')
+            cmd += [
                 # 预算必须罩得住 SNIPPET 里 40×150ms 的音频就绪重试，否则慢磁盘 /
                 # 大 WAV 时 seek 被掐断，开头几帧全是未定位的 idle 画面。
                 '--virtual-time-budget=7000', f'--screenshot={png}',
-            ] + extra_flags + [url]
+            ] + strategy['extra_flags'] + [url]
             try:
                 rc_chrome = _run_chrome(cmd, tmp / 'shot-stdout.log', tmp / 'shot-stderr.log',
-                                        timeout=120)
+                                        timeout=120,
+                                        env=_launch_env(strategy, frame_home))
             except subprocess.TimeoutExpired:
                 raise _fail(f'第 {i + 1} 帧截图超过 120s，Chrome 进程树已清理')
             except ChromeLaunchError as exc:

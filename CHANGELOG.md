@@ -3,6 +3,69 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.15.1] - 2026-10-17
+
+### 修复（浏览器预检：三档退路，堵住"浏览器冒烟静默没跑却绿灯"）
+
+- **新增第三档退路：`--no-sandbox` + 隔离 HOME、不传 `--user-data-dir`**。容器里
+  以 root 运行 Chrome for Testing 时有**两类**互不相同的故障：① 带沙箱那一档
+  必然拒绝启动（`Running as root without --no-sandbox is not supported`）；
+  ② 新建 `--user-data-dir` 的**一次性转储**（`--dump-dom` / `--screenshot`）
+  **永久挂死**——进程起来了、永不归（实测 Chrome 152：同一条命令去掉
+  `--user-data-dir` 后 0.4s 返回；把 profile 放哪、预创建、加 `--no-zygote`、
+  `--disable-*` 各种组合、代理断网全部无效；只有把 profile 的落点换成一份
+  干净的 `HOME` 才通）。旧预检只看 `--no-sandbox` 这一维，于是第二类故障吃掉
+  60s / 120s 硬超时后，`check_gates` 报"预检未通过"、浏览器冒烟整段没跑而页面
+  照样返回 0，`export_video` 直接失败。**报错点离病因很远**：CDP 常驻那条路径
+  不受影响，所以同一台机器上 tests/ 的浏览器用例全绿，只有转储类调用在挂。
+- **口径统一成一个决定**：`_browser_launch_strategy()` 返回
+  `{'extra_flags': [...], 'isolated_home': bool}`——**只有决定、不带路径**。
+  预检探的是 `--user-data-dir`，真实转储挂的也是它，两者必须是同一次决定，
+  否则就是"预检过了、真实调用还挂死"的假绿。`check_gates.browser_check` 与
+  `export_video` 逐帧截图都按这个决定拼命令：常规档照旧挂
+  `--user-data-dir=<每帧全新>`，隔离档不传它、改把 `HOME`/`USERPROFILE` 指到
+  **每帧自建**的临时目录（导出共用一份 profile 会撞 `profile in use`，
+  这条既有纪律在隔离档同样成立）。
+- **结果按 chrome 路径进程内缓存**：真实导出 33 帧 × 3 档 = 99 次挂死不可接受。
+  缓存刻意不存路径，目录由调用方各自建、随 `temp_root` 一起回收——实测一次
+  完整 demo（时间轴 → 组装 → 冒烟 → 导出）跑完，`%TEMP%` 里 0 个残留。
+- **降级原因写进报告**（`_preflight_note`）：落到第 2/3 档时，人类路径打
+  `[note] …`，`--json` 走既有 `note` 字段；浏览器**真的跑过时也打这一行**，
+  因为只看"冒烟通过"的人会以为自己的 Chrome 没问题，换环境才知道差一档。
+  note 文本不带 `[note]` 前缀，前缀由打印侧统一加（JSON 里保持纯文本）。
+- **探测用一次性转储本身**（`--dump-dom`）而不是"进程活着就算过"：第三档的
+  故障形态恰恰是浏览器起来了、转储永不归。转储内容不含探针文本也判失败。
+- `_browser_preflight` 已删除（唯一调用方就是这两个入口，留一个只看
+  `--no-sandbox` 的旧签名等于留一条会退回静默漏检的路）。`_run_chrome` 新增
+  可选 `env` 参数（不传即继承进程环境，隔离档只改子进程的 HOME，绝不写回当前
+  进程——那会把 `.env` 查找链一起换地方）。
+
+### 测试
+
+- 新增 `tests/test_launch_strategy.py`（19 例）：用一个 **fake chrome 脚本**把
+  三类故障各自复现（`never` / `need-no-sandbox` / `hang-on-udd` /
+  `isolated-only` / `wrong-output`），断言三档的顺序与各自 flag、落到隔离档
+  时**确实不传** `--user-data-dir`（用 `Popen` spy 抓三条命令逐条比）、挂死档
+  真的各吃掉一个 timeout（`5 < 总时长 < 60`，防止哪天改成"瞬间失败"却没人发现）、
+  三档全挂才返回 None、缓存只探测一次且不含路径、隔离档缺 HOME 当场
+  `ValueError`、探针绝不含 `--allow-file-access-from-files`、
+  `_isolated_home_env` 不污染当前进程环境。真实 Chrome 那组只锁
+  "至少过一档"（无 Chrome 自动跳过）。
+- 本沙箱（root + Chrome for Testing 152 + ffmpeg）跑全量的结果：
+  **375 passed / 2 skipped**，此前是 351 passed / 7 failed / 13 errors——
+  失败的 5 例全部是转储类路径（`test_demo_builds_lesson`、
+  `test_demo_export_flag`、`test_demo_check_gates_require_browser`、
+  `TestPipelineBrowser::test_browser_smoke`、`test_export_duration_contract`），
+  现在都真跑了浏览器冒烟与逐帧导出。
+
+### 文档
+
+- `references/runtime.md` §8：模式一段补"浏览器启动口径三档退路 + 降级原因进
+  报告"。
+- `SKILL.md` §8：补一句"预检未通过 = 三档都试过"，并说明 `--require-browser`
+  在降级环境下会把这种环境故障显式判失败。
+- `README.md`「开发与自测」：补 0.15.1 回归说明与本机实测数字。
+
 ## [0.15.0] - 2026-10-16
 
 ### 新增（生长与揭示——SVG 几何补间 + 擦除揭示 + 0↔auto 折叠面板）

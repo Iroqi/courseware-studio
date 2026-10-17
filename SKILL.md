@@ -185,6 +185,12 @@ python scripts/check_gates.py <页面目录或 index.html> --require-browser  # 
 给自动化（CI / agent）消费时加 `--json`：整份结果（`verdict` / `static` /
 `browser` / `note` / `exit_code`）作为一个 JSON 文档打到 stdout，判绿红只看
 `exit_code` 或 `verdict`。
+浏览器侧的启动口径是**三档退路**（带沙箱 → `--no-sandbox` → `--no-sandbox` +
+隔离 HOME 且不传 `--user-data-dir`），`check_gates` 与 `export_video` 共用同一
+份判定：root 容器里"新建配置目录 + 一次性转储"会永久挂死，旧的两档退路会把
+浏览器冒烟静默降级成"只跑静态检查"。落到后两档时报告里会多一行 `[note]`
+说明原因（`--json` 走 `note`）；CI 用 `--require-browser` 让这类环境故障显式
+判失败，而不是少一层覆盖还绿灯。
 静态检查还会做**页面本地资源引用完整性**：`link[href]` / `script[src]` /
 `img[src]` / `source[src]` / `use[href]` / `a[href]` 里的页面目录内相对引用
 必须指向真实存在的文件——防"引用了文件却忘了拷贝"的静默破损；外部 URL /

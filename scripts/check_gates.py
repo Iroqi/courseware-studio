@@ -1454,12 +1454,25 @@ class ChromeLaunchError(RuntimeError):
     就会以裸 traceback 崩掉，绕开所有"未找到/预检未通过"的友好退路。"""
 
 
-def _run_chrome(cmd: list[str], stdout_path: Path, stderr_path: Path, timeout: float) -> int:
-    """启动浏览器并提供硬超时；超时后杀整组进程，避免留下 zygote/renderer。"""
+# 浏览器启动口径的进程内缓存：chrome 路径 -> 策略 dict / None（试过就定，
+# 一次交付检查与 33 帧导出不该各自重跑一遍探测，更不该探测一次挂 10s）。
+# export_video 从本模块 import 策略函数，两边共用同一份判定结果。
+_LAUNCH_STRATEGY_CACHE: dict[str, dict[str, Any] | None] = {}
+
+
+def _run_chrome(cmd: list[str], stdout_path: Path, stderr_path: Path, timeout: float,
+                env: dict[str, str] | None = None) -> int:
+    """启动浏览器并提供硬超时；超时后杀整组进程，避免留下 zygote/renderer。
+
+    env=None 时继承当前进程环境；预检落到"隔离 HOME"档时调用方传一份改过
+    HOME/USERPROFILE 的环境（见 _browser_launch_strategy）。
+    """
     with stdout_path.open('w', encoding='utf-8', errors='replace') as fo, stderr_path.open('w', encoding='utf-8', errors='replace') as fe:
         kwargs = {}
         if os.name == 'posix':
             kwargs['start_new_session'] = True
+        if env is not None:
+            kwargs['env'] = env
         try:
             proc = subprocess.Popen(cmd, stdout=fo, stderr=fe, **kwargs)
         except OSError as exc:
@@ -1498,45 +1511,142 @@ def _rmtree_retry(root: Path) -> None:
         time.sleep(0.5)
 
 
-def _browser_preflight(chrome: str) -> list[str] | None:
-    """确认本机 headless Chrome 真能完成一个最小 dump-dom，返回可用附加 flag。
+def _browser_launch_strategy(chrome: str, timeout: float = 10.0) -> dict[str, Any] | None:
+    """找出本机 headless Chrome 真正可用的一条启动口径，结果进程内缓存。
 
-    先带沙箱跑；只有沙箱起不来的容器/CI 环境才退回 --no-sandbox。
-    绝不传 --allow-file-access-from-files：检查对象是不可信页面，那个 flag
+    返回**只有决定、不带路径**的 `{'extra_flags': [...], 'isolated_home': bool}`，
+    全试不通返回 None。调用方按这个决定自己建临时目录：导出是"每帧一个新
+    profile"（共用一份会撞 profile in use，见 export_video 的注释），所以
+    隔离 HOME 必须由每帧自己新建，缓存里绝不能存路径。
+
+    转储类调用（`--dump-dom` / `--screenshot`）与真实调用必须拿**同一条口径**
+    去拼命令，否则会出现"预检过了、真实调用还挂死"的假绿：预检探的是
+    `--user-data-dir`，转储挂的也是它，两者必须是同一次决定。
+
+    三档按"对系统侵入最少"排序，逐档降级：
+      1. 带沙箱 + `--user-data-dir`（桌面与 CI 的正常档）；
+      2. `--no-sandbox` + `--user-data-dir`（无 user namespaces 的容器）；
+      3. `--no-sandbox` + **隔离 HOME、不传 `--user-data-dir`**：Chrome for
+         Testing 在 root 下遇到新配置目录时，一次性转储会永久挂死（实测把
+         `--user-data-dir` 换成干净的 `HOME=/tmp/…` 后同一条命令 0.4s 返回）。
+         profile 落进 `$HOME/.config/google-chrome-for-testing-headless`。
+
+    绝不传 `--allow-file-access-from-files`：检查对象是不可信页面，那个 flag
     等于给页面开任意本地文件读取通道（含 .env）；runtime 已 inline、媒体被
     桩接管，本来就不需要它。
+
+    为什么要加第三档：前两类故障在报告里长得很像，处置却相反。root 容器里
+    带沙箱那一档**必然失败**（Chrome 直接拒绝启动），旧代码就此报"预检未通过"，
+    于是浏览器冒烟整段没跑、页面却照样绿灯——**静默漏检**；而"新配置目录 +
+    一次性转储"的挂死是另一回事（进程起来了、永不归），吃掉 60s/120s 硬超时后
+    同样退化成只跑静态检查，导出则直接失败。报错点离病因都很远，所以这里既
+    要多试一档，也要把降级原因打进报告（见 `_preflight_note`）。
     """
-    for extra in ([], ['--no-sandbox']):
-        root = Path(tempfile.mkdtemp(prefix='courseware-browser-preflight-'))
-        try:
-            page = root / 'probe.html'
-            out = root / 'dom.html'
-            err = root / 'chrome.log'
-            page.write_text('<!doctype html><html><body>courseware-preflight-ok</body></html>', encoding='utf-8')
-            cmd = [chrome, '--headless=new', '--disable-gpu', '--no-first-run',
-                   '--no-default-browser-check', '--disable-dev-shm-usage',
-                   f'--user-data-dir={root / "profile"}', '--virtual-time-budget=500', '--dump-dom'] + extra
-            cmd.append(page.as_uri())
-            try:
-                rc = _run_chrome(cmd, out, err, timeout=10)
-            except (subprocess.TimeoutExpired, ChromeLaunchError):
-                continue
-            if rc != 0 or not out.exists():
-                continue
-            if 'courseware-preflight-ok' in out.read_text(encoding='utf-8', errors='replace'):
-                return extra
-        finally:
-            _rmtree_retry(root)
+    if chrome in _LAUNCH_STRATEGY_CACHE:
+        return _LAUNCH_STRATEGY_CACHE[chrome]
+    for cand in _launch_candidates(timeout):
+        result = _probe_dump_dom(chrome, cand)
+        if result is not None:
+            _LAUNCH_STRATEGY_CACHE[chrome] = result
+            return result
+    _LAUNCH_STRATEGY_CACHE[chrome] = None
     return None
+
+
+def _launch_candidates(timeout: float) -> list[dict[str, Any]]:
+    """把三档口径变成可枚举的探测项（探测用的临时 HOME 在 _probe_dump_dom 里建）。"""
+    return [{'extra_flags': [], 'isolated_home': False, 'timeout': timeout},
+            {'extra_flags': ['--no-sandbox'], 'isolated_home': False, 'timeout': timeout},
+            {'extra_flags': ['--no-sandbox'], 'isolated_home': True, 'timeout': timeout}]
+
+
+def _isolated_home_env(home: str | Path) -> dict[str, str]:
+    """把浏览器 profile 的落点改到一份干净的临时 HOME（隔离档的唯一入口）。"""
+    p = str(home)
+    env = dict(os.environ)
+    env['HOME'] = p
+    env['USERPROFILE'] = p        # Windows 上 profile 落点由它决定
+    return env
+
+
+def _probe_dump_dom(chrome: str, cand: dict[str, Any]) -> dict[str, Any] | None:
+    """真跑一次最小 dump-dom：该档可用就返回口径决定，挂死/失败返回 None。
+
+    探测必须用**一次性转储**本身（`--dump-dom`）而不是"进程起来了就算过"：
+    第三档的故障形态是浏览器确实起来了、转储却永不归，只有真转储能区分。
+    """
+    root = Path(tempfile.mkdtemp(prefix='courseware-browser-preflight-'))
+    isolated = bool(cand['isolated_home'])
+    try:
+        page = root / 'probe.html'
+        out = root / 'dom.html'
+        err = root / 'chrome.log'
+        page.write_text('<!doctype html><html><body>courseware-preflight-ok</body></html>', encoding='utf-8')
+        env = None
+        cmd = [chrome, '--headless=new', '--disable-gpu', '--no-first-run',
+               '--no-default-browser-check', '--disable-dev-shm-usage',
+               '--virtual-time-budget=500']
+        if isolated:
+            # 用 mkdtemp 而不是复用系统 HOME：HOME 里可能已经有真实 profile，
+            # 那探测就再也不是"新配置目录"这条故障路径了。
+            home = root / 'home'
+            home.mkdir()
+            env = _isolated_home_env(home)
+        else:
+            # 只有前两档才挂 --user-data-dir：第三档要防的正是它。
+            cmd.append(f'--user-data-dir={root / "profile"}')
+        cmd += ['--dump-dom'] + list(cand['extra_flags'])
+        cmd.append(page.as_uri())
+        try:
+            rc = _run_chrome(cmd, out, err, timeout=cand['timeout'], env=env)
+        except (subprocess.TimeoutExpired, ChromeLaunchError):
+            return None
+        if rc != 0 or not out.exists():
+            return None
+        if 'courseware-preflight-ok' not in out.read_text(encoding='utf-8', errors='replace'):
+            return None
+        return {'extra_flags': list(cand['extra_flags']), 'isolated_home': isolated}
+    finally:
+        _rmtree_retry(root)
+
+
+def _launch_env(strategy: dict[str, Any], home: str | Path | None) -> dict[str, str] | None:
+    """按口径给出 subprocess 的 env：隔离档指回调用方自建的那份 HOME。
+
+    非隔离档返回 None（继承当前进程环境），此时 `home` 不参与——调用方因此
+    可以在两条档的共用代码路径里传 None。
+    """
+    if not strategy.get('isolated_home'):
+        return None
+    if not home:
+        raise ValueError('隔离 HOME 档必须给出该次调用自己的 HOME 目录')
+    return _isolated_home_env(home)
+
+
+def _preflight_note(strategy: dict[str, Any] | None) -> str:
+    """落到第 2/3 档时给报告加一行原因（不带 `[note]` 前缀，由打印侧加）：
+    静默降级是排查交付环境时最难问出来的一件事——报告只看绿红的人会以为
+    自己的浏览器没问题。"""
+    if not strategy:
+        return ''
+    if strategy.get('isolated_home'):
+        return ('headless Chrome 走隔离 HOME 档（不传 --user-data-dir）：'
+                '此环境以 root 运行 Chrome for Testing 时，新建配置目录的一次性转储会挂死。')
+    if '--no-sandbox' in strategy.get('extra_flags', []):
+        return 'headless Chrome 以 --no-sandbox 运行（容器无 user namespaces）。'
+    return ''
+
 
 def browser_check(page: Path, keep: bool,
                   scene_count: int) -> tuple[dict[str, Any] | None, str]:
     chrome = _find_chrome()
     if not chrome:
         return None, '未找到可用 Chrome/Edge'
-    extra_flags = _browser_preflight(chrome)
-    if extra_flags is None:
-        return None, 'headless Chrome 预检未通过（带沙箱与 --no-sandbox 退路均未成功）'
+    strategy = _browser_launch_strategy(chrome)
+    if strategy is None:
+        return None, ('headless Chrome 预检未通过（带沙箱、--no-sandbox、'
+                      '--no-sandbox + 隔离 HOME 三档退路均未成功）')
+    note = _preflight_note(strategy)
     # 虚拟时间预算要覆盖全部探针等待（门禁 preGate、逐句字幕、换场空档）：
     # 固定 40s 对短课够用，长课会烧光预算——报告停在 "running"，被当成
     # "没有返回检查报告"的假故障。按场景数扩容（A8）。每场按 7s 计：场景内
@@ -1563,31 +1673,44 @@ def browser_check(page: Path, keep: bool,
         else:
             shutil.rmtree(temp_root, ignore_errors=True)
         return {"ok": False, "errors": [str(exc)], "failures": [], "warnings": [], "stats": {}}, ''
-    profile.mkdir(parents=True, exist_ok=True)
+    # 口径决定落在哪一档，profile 就怎么给：隔离 HOME 档**不能**再传
+    # --user-data-dir（那正是要绕开的挂死点），改把 profile 的落点指到 temp_root
+    # 下面一份干净 HOME——temp_root 已由下面的 finally 统一回收，不会留残留。
+    chrome_home = temp_root / 'home'
+    if strategy['isolated_home']:
+        chrome_home.mkdir(parents=True, exist_ok=True)
+    else:
+        profile.mkdir(parents=True, exist_ok=True)
     cmd = [
         chrome, '--headless=new', '--disable-gpu', '--no-first-run',
         '--no-default-browser-check', '--disable-dev-shm-usage',
         '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding', f'--user-data-dir={profile}',
-        '--run-all-compositor-stages-before-draw', f'--virtual-time-budget={budget}', '--dump-dom',
-    ] + extra_flags + [probe.resolve().as_uri()]
+        '--disable-renderer-backgrounding',
+    ]
+    if not strategy['isolated_home']:
+        cmd.append(f'--user-data-dir={profile}')
+    cmd += ['--run-all-compositor-stages-before-draw',
+            f'--virtual-time-budget={budget}', '--dump-dom']
+    cmd += strategy['extra_flags'] + [probe.resolve().as_uri()]
+    report = None
     try:
-        _run_chrome(cmd, dom, log, timeout=max(60, budget // 1000))
+        _run_chrome(cmd, dom, log, timeout=max(60, budget // 1000),
+                    env=_launch_env(strategy, chrome_home))
         raw = dom.read_text(encoding='utf-8', errors='replace') if dom.exists() else ''
         m = re.search(r'<pre id="courseware-check-report">(.*?)</pre>', raw, re.S)
         if not m:
             tail = log.read_text(encoding='utf-8', errors='replace')[-1000:] if log.exists() else ''
-            return {"ok": False, "errors":["浏览器没有返回检查报告"], "failures":[], "warnings":[tail], "stats":{}}, ''
+            return {"ok": False, "errors":["浏览器没有返回检查报告"], "failures":[], "warnings":[tail], "stats":{}}, note
         report_text = html.unescape(m.group(1))
         try:
             report = json.loads(report_text)
         except json.JSONDecodeError:
-            return {"ok":False,"errors":["浏览器返回的检查报告不是 JSON"],"failures":[],"warnings":[report_text[:1000]],"stats":{}}, ''
-        return report, ''
+            return {"ok":False,"errors":["浏览器返回的检查报告不是 JSON"],"failures":[],"warnings":[report_text[:1000]],"stats":{}}, note
+        return report, note
     except subprocess.TimeoutExpired:
-        return {"ok": False, "errors": [f"浏览器冒烟检查超过 {max(60, budget // 1000)}s，已中止"], "failures": [], "warnings": [], "stats": {}}, ''
+        return {"ok": False, "errors": [f"浏览器冒烟检查超过 {max(60, budget // 1000)}s，已中止"], "failures": [], "warnings": [], "stats": {}}, note
     except ChromeLaunchError as exc:
-        return {"ok": False, "errors": [str(exc)], "failures": [], "warnings": [], "stats": {}}, ''
+        return {"ok": False, "errors": [str(exc)], "failures": [], "warnings": [], "stats": {}}, note
     finally:
         if not keep:
             _rmtree_retry(temp_root)
@@ -1676,6 +1799,10 @@ def main() -> int:
         for w in report.get('warnings', []):
             if w:
                 print('[warn] ' + str(w))
+        # 降级原因即使在浏览器真的跑过时也要说出来：只看"冒烟通过"的人会以为
+        # 自己的 Chrome 一切正常，下次换环境才知道差一档。
+        if note:
+            print('[note] ' + note)
         print(f"[browser] captions={report.get('captionChecks',0)} gates={len(report.get('gates',[]))}")
         if report.get('ok'):
             print('[ok] 字幕 / 时间轴 / 门禁 / JS 浏览器冒烟通过')
