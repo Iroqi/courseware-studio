@@ -3,6 +3,111 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.16.0] - 2026-10-17
+
+### 新增（时间刻度层——擦洗态随意图升级 + 句内进度细线 + 侧栏滚动驱动入场）
+
+前面几轮的动效回答的是"这一步发生了什么"，这一轮回答的是**"现在到哪儿了"**：把
+"进度"做成看得见、也摸得着的刻度。
+
+- **擦洗态随意图升级（`.bar` / `.bar .tick`）**：平时进度条是一根 6px 的发丝线，只管
+  "读到哪儿了"；指针落上来 / 键盘聚焦 / 按下拖动时轨道升到 **9px**、章节刻度从 12px
+  长到 **16px**（affordance-on-intent：把"现在可以拖"画在你正指的地方，而不是在旁边
+  再摆一个可见把手）。三条边界：只长高不加 margin（`.rack` 行高不跳，读数与倍速钮
+  一格不动）；圆角跟着高度走（6/3 → 9/4.5），填充写 `border-radius:inherit`，否则
+  9px 的条顶着一式为 6px 定的圆角、两端发方；**过渡清单只给 `height`/`border-radius`
+  两条几何、不给 `width`**——填充那条走 `--dur-fill linear`（"进度连续滑动"的口径），
+  两套混进一条清单等于给进度装第二个时钟。刻度改成 `top:50%` + 独立 `translate`
+  居中，两种高度共用一条居中公式（各探出 (刻度高 − 条高)/2），不必为第二种高度补
+  一套数字。Chrome 152 实测逐帧采到 6 → 7.13 → 7.92 → 8.41 → 8.84 → 9。
+- **句内进度细线（`#cap-prog`）**：结论色带说"这句是结论"，这条细线说"**这一句念到
+  哪儿了**"（karaoke / now-playing 的做法），但它走在字幕自己的宽度上，不新增一行
+  常驻 UI。它**不是动效，是时钟的逐拍读数**，所以口径与其余原语全部相反：只写
+  **呈现属性**（不写 `style`、不挂 `transition`）、**不进 reduced-motion 清单**
+  （关了动效它也得跟上嘴）、也**不需要导出见旗分支**（切掉 transition 落的仍是那一
+  秒的真读数）。几何 `capShow()` → `capMeasure()` 现量一次存进 `capGeo`，`tick()`
+  每帧只按 `(t - sent.start) / sent.duration` 写 `width`——把 `getBBox()` 留在每帧
+  路径上就是给逐帧循环加一条同步重排。实测三点比例 = 0.000 / 0.500 / 0.999。
+- **侧栏滚动驱动入场（`animation-timeline: view()`）**：本轮唯一"前沿"做法，也是唯一
+  一条**不归 JS 管**的运动——没有 scroll 监听、没有 IntersectionObserver、没有 rAF，
+  进度直接由元素在滚动容器里的位置取（Chrome/Edge 115+ 与 Safari 26 已发布，Firefox
+  正式版仍 behind flag，所以整块包在 `@supports (animation-timeline: view())` 里做
+  渐进增强）。四条边界：① 隐藏态只写在 keyframe 的 `from`——不支持的浏览器整块跳过，
+  文字一格不少（**绝不把内容锁进一个可能不跑的门里**）；② `animation-duration:auto`
+  显式写（滚动时间线按进度而非秒分配），长写放在简写之后；③ 落点取 **entry 段内**
+  （`entry 0% entry 60%`）；④ 位移挂独立 `translate`。
+- **气泡弹簧落定（`.tip.tipPop` + `--ease-spring`）**：窥探气泡出现时轻弹 7px 落住，
+  与刻度长高是同一个动作的两半。`transform` 里**每一帧都要重复写
+  `translateX(-50%)`**——动画期间的 transform 整条接管静态值，只写 `translateY`
+  会让气泡在落定那一瞬往左跳半个身位。重触发判据留在 JS 的差分里（`data-on` +
+  节号）：`pointermove` 每帧都进这条处理器，无脑摘重挂就是"气泡一路抖着跟手"。
+- **时长令牌**：新增 `--dur-scrub`（`.18s` 擦洗态几何）/ `--dur-tip`（`.26s` 气泡
+  弹簧）。句内细线**故意不给令牌**——它是读数，补间只会让它落后于正在念的那个字。
+- **reduced-motion 兜底同步**：三条各自关法——擦洗态几何关 **transition**（关时长
+  即直接落 9px/16px，"可以拖"仍然看得见）、气泡关 **animation**（`data-on` 那条
+  opacity 不是动效，气泡照出、只是不弹）、侧栏入场整条**撤掉 animation**（隐藏态
+  只在 `from` 里，不跑就没有隐藏态）。撤掉那条同样要**抬特异度**
+  （`ul.notes>li.note`）：入场规则写在 `.notes` 段里、源序排在媒体块之后，朴素
+  `li.note{animation:none}` 盖不过它；也不能只靠全局 `.01ms!important` 的时长钳制
+  ——滚动时间线要求 `duration:auto`，钳成 0.01ms 后落在哪一格是实现说了算。
+
+### 修复
+
+- **侧栏入场第一版把常驻内容留在了半透明那一格**：落点原本写 `entry 0% cover 32%`，
+  而 entry 段只占 cover 全长的 e/(e+v)（条目 45px、栏 533px → 约 8%），cover 32%
+  远在"完全进入"之后——实测 Chrome 152 下侧栏**根本不溢出**时下面三条停在
+  0.998 / 0.974 / **0.845**。一条装饰性入场不该让参考要点常驻半透明，取 entry 段内
+  后静止态全部落 1（CDP 用例 `test_sidebar_scroll_reveal_is_progressive` 锁的就是
+  这一格回归）。
+- **结束态回拖进同一句，字幕带一直空着**（范本既有缺陷，本轮补做导出验证时才现形）：
+  `ended` 收起整条带子并清掉 `capSent`，之后把进度条拖回**最后那句之内**时句号没有
+  变化、`tick()` 的换句分支不进——画面、读数、细线都跟着时钟回来了，只有字幕带还
+  空着，违反"页面状态 = `currentTime` 的纯函数"。`hit.index >= 0` 那一支补一次
+  `if (capSent !== hit.sentence) capShow(hit.sentence)`：同句不重挂、不重量，
+  也就不会每帧多一次 `getBBox()`。
+- **细线的调用点曾排在换句分支之前**：`tick()` 开头写 `capProgWrite(t)` 时，
+  `capShow()` 还没写当句的 `capSent`/`capGeo`。直播里靠后续帧掩盖了，导出是**每帧
+  一次冷启动、只跑一次 `tick()`**，而那一帧往往正是换句帧——实测截出来是"字在、
+  细线空着"。移到本块之后，另加一条截图模式用例锁"一次 tick 即落读数"。
+- `.bar-fill` 的 `inset` 曾在改写时误成 `inset:0 0 0 0`（把填充拉满整条轨道），
+  已改回 `inset:0 auto 0 0`；圆角改为 `inherit` 随轨道走。
+
+### 测试
+
+- 静态契约 `test_time_scale_layer_present`：两个新令牌 + 细线**不给令牌**、擦洗态
+  三态共用一条规则、`.bar` 的过渡清单里**不许出现 width**、刻度居中公式、
+  `tipPop` 两帧都重复写 `translateX(-50%)`、`#cap-prog` 夹在 `#cap-hl` 与
+  `#cap-text` 之间且不写 `style`、`capProgWrite` 调用点排在 `capShow` 之后、
+  滚动入场整块包在 `@supports` 里且 `animation-range` 不得越过 entry 段、
+  reduced-motion 三条各自关法且**不许出现朴素 `li.note{animation:none}`**。
+  顺带更新 0.14.0 那条：`.tick` 的过渡清单多了 `height`，收口断言跟着改。
+- 五条 CDP 用例：擦洗态逐帧采到中间值（写成瞬跳就失去提示）且离开/松手按意图收回
+  （松手时指针仍在条上 → 保持 9px 才对，擦洗态跟意图不跟按钮状态）；句内细线三点
+  比例即时钟比例、换句归零、句间空档停在满格、`ended` 归零、**回拖同一句带子回来**、
+  小屏 26px 档跟 bbox 现量、`__coursewareShotMode` 下一次 tick 即落读数；气泡只在
+  "从无到有 / 换节"重触发（同节内 `currentTime` 只增不减）、落定后 transform 纵向
+  分量归 0；侧栏静止态六条全 1、强制溢出后栏外未显形、滚到底全部落定；
+  reduced-motion 下擦洗态直接落 9px/16px、气泡照出不弹、入场整条撤掉而细线仍跟上
+  时钟。
+- 另有一条**真实导出验证**（`--dump-dom` 跑 `export_video._build_shot_page` 产出的
+  截图页）：确认注入 `transition/animation:none` 之后细线仍落在那一秒的读数上——
+  这条把"终态必须在属性上"从静态推断变成实测。
+- 本机全量 **381 passed / 2 skipped**（0.15.1 时 375 passed）。
+- 用真鼠标做拖动用例时记一条 CDP 坑：`Input.dispatchMouseEvent` 的
+  `mouseReleased` 里 `button` 仍要写 `"left"`、`buttons` 归 0；写 `button:"none"`
+  不会合成 `pointerup`，`data-drag` 就留在 1（0.12.0 那条既有用例本来就是对的写法）。
+
+### 文档
+
+- `references/stage.md` §3.4 新增"时间刻度层"一节（三件各自的责任划分：一条状态、
+  一条读数、一条纯装饰，所以兜底方式各走各的）与 `cover 32%` 那次失败实测；§4 补
+  "结束态回拖字幕必须在场"与字幕带派生视图的口径；§9 自检追加三条勾。
+- `references/layout.md` §4 补 `#cap-prog`、§5 补"意图升级"手感、§6 新增"随滚随显是
+  装饰，不是闸门"。
+- `references/runtime.md` §7 导出契约补 0.16.0 三条的见旗口径（两条不需要、细线照常
+  落读数）与两条新义务（`capProgWrite` 排在换句分支之后、`capSent` 差分补 `capShow`）。
+- `SKILL.md` §5 动效词汇表补这三件；`README.md` 特性与回归说明同步。
+
 ## [0.15.1] - 2026-10-17
 
 ### 修复（浏览器预检：三档退路，堵住"浏览器冒烟静默没跑却绿灯"）

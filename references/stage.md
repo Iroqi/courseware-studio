@@ -325,6 +325,65 @@ transform/opacity——检查器判字幕可见性走 opacity/visibility 链，�
 同为 (0,1,0)，后来者胜——单写 `.note-body{transition:none}` 会被顶掉，这时兜住
 画面的只是全局那条 `.01ms!important` 的时长钳制，不是这一行。
 
+**时间刻度层（0.16.0）**：前面几轮的动效都在回答"这一步发生了什么"，这一轮回答的是
+**"现在到哪儿了"**——把"进度"这件事做成可以看见、也可以摸到的刻度。三件事的分工很
+不一样，一条是状态、一条是读数、一条是纯装饰，所以兜底方式各走各的：
+
+- **擦洗态变厚（`.bar` / `.bar .tick`）**：平时进度条是一根 6px 的发丝线，只管"读到
+  哪儿了"；指针落上来 / 键盘聚焦 / 按下拖动时它升到 9px、刻度从 12px 长到 16px——
+  **把"现在可以拖"画在你正要指的地方**，而不是在旁边再摆一个可见把手（frontier 做法
+  里的 affordance-on-intent）。三条边界：① 只长高、不加 margin，轨道自己占住那几 px，
+  `.rack` 行高不跳，读数与倍速钮一格不动；② 圆角跟着高度走（6/3 → 9/4.5），填充写
+  `border-radius:inherit`，否则 9px 的条顶着一式为 6px 定的圆角、两端发方；③ 过渡清单
+  只给 `height` / `border-radius` 这两条**几何**，不给 `width`——填充的补间是
+  `--dur-fill linear`（"进度连续滑动"的口径），两套混进一条清单就等于给进度装了第二
+  个时钟。刻度纵向用 `top:50%` + 独立 `translate` 居中，所以"条变厚、刻度一起长"这两
+  种高度共用一条居中公式（各探出 (刻度高 − 条高)/2），不必为第二种高度再补一套数字。
+  Chrome 152 实测逐帧采到 6 → 7.13 → 7.92 → 8.41 → 8.84 → 9。
+- **句内进度细线（`#cap-prog`）**：结论色带说"这句是结论"，这条细线说"这一句念到哪儿
+  了"（karaoke / now-playing 的做法），但它落在字幕自己的宽度上，不新增一行常驻 UI。
+  它**不是动效，是时钟的逐拍读数**，所以口径全部相反：只写**呈现属性**、不写 `style`、
+  不挂 `transition`、**不进 reduced-motion 清单**（关了动效它也得跟上嘴）。几何
+  `capShow()` → `capMeasure()` 现量一次存进 `capGeo`，`tick()` 每帧只按
+  `(t - sent.start) / sent.duration` 写 `width`——把 `getBBox()` 留在每帧路径上就是给
+  逐帧循环加一条同步重排（§5）。两个必须记住的位置约束：**调用点排在换句分支之后**
+  （`capShow` 才写 `capSent`/`capGeo`，写在前面会拿上一句的宽配这一句的进度；导出是
+  每帧一次冷启动、那一帧往往就是换句帧，实测那样截出来的是空线）；**空档不清零**
+  （gap-hold 同一口径，字幕停在上一句，细线停在满格），`ended` / 开场前才归零。
+- **侧栏滚动驱动入场（`animation-timeline: view()`）**：本轮唯一"前沿"做法，也是唯一
+  一条**不归 JS 管**的运动——没有 scroll 监听、没有 IntersectionObserver、没有 rAF，
+  进度直接由滚动位置取。四条边界：① 整块包在 `@supports (animation-timeline: view())`
+  里（Firefox 正式版未开），而隐藏态只写在 keyframe 的 `from` 里，所以不支持的浏览器
+  整块跳过、文字一格不少——渐进增强的正确姿势是把风险放在装饰那侧，**绝不把内容锁进
+  一个可能不跑的门里**；② `animation-duration:auto` 显式写（滚动时间线按进度而非秒
+  分配），长写放在简写之后；③ `animation-range:entry 0% entry 60%`——**第一版写的
+  `entry 0% cover 32%` 是错的**：entry 段只占 cover 全长的 e/(e+v)（条目 45px、栏
+  533px → 约 8%），cover 32% 远在"完全进入"之后，于是侧栏**根本不溢出**时下面三条仍
+  停在 0.998 / 0.974 / 0.845，一条装饰性入场把常驻内容留在了半透明那一格。改进取
+  entry 段内（进度以条目自身高度算），静止时全部落 1；④ 位移挂独立 `translate`。
+- **气泡弹簧落定（`.tip.tipPop` + `--ease-spring`）**：窥探气泡出现时轻弹 7px 落住，
+  与刻度长高是同一个动作的两半。`transform` 里**每一帧都要重复写 `translateX(-50%)`**
+  ——动画期间的 transform 整条接管静态值，只写 `translateY` 会让气泡在落定那一瞬往
+  左跳半个身位（`left` 仍由 JS 逐点写，一个走 transform 一个走 left，不打架）。
+  重触发判据留在 JS 的差分里（`data-on` 与节号），因为 `pointermove` 每帧都进这条
+  处理器，无脑摘重挂就是"气泡一路抖着跟手"。
+
+顺带修掉范本的一处真缺陷：**结束态把进度条拖回最后那句，字幕带会一直空着**——`ended`
+收了整条带子并清掉 `capSent`，而回拖落进**同一句**时句号没变、换句分支不进，画面、
+读数、细线都跟着回来了，只有字幕带还空着（违反"页面状态 = currentTime 的纯函数"）。
+`tick()` 里按 `capSent !== hit.sentence` 补一次 `capShow`：同句不重挂、不重量，也就
+不每帧多一次 `getBBox`。
+
+`prefers-reduced-motion` 兜底同步：擦洗态几何关 **transition**（关时长即直接落
+9px/16px，"可以拖"仍然看得见，只是不"长"过去）、气泡关 **animation**（`data-on`
+那条 opacity 不是动效，气泡照出、只是不弹）、侧栏入场整条 **撤掉** `animation`。
+撤掉那条同样要**抬特异度**（`ul.notes>li.note`）：入场规则写在 `.notes` 段里、源序
+排在媒体块之后，朴素 `li.note{animation:none}` 会被它顶掉；也不能只靠全局
+`.01ms!important` 的时长钳制兜住——滚动时间线要求 `duration:auto`，钳成 0.01ms 后
+落在哪一格是实现说了算，装饰性入场不该把"内容看不看得见"押在没测过的边界上。
+**句内细线不在兜底清单里**：它是读数不是动效。新增 `--dur-scrub` / `--dur-tip`
+两个令牌。
+
 用弱化时记住它是**真的把颜色变暗**，不是错觉：`saturate()`/`brightness()` 与
 `opacity` 一样按合成后的颜色吃对比度，被弱化的那一块仍要过 §8 的对比度三查。
 判据也简单——**只有"这一步不看它、但它是参照"才弱化**；该消失的东西就撤走
@@ -358,6 +417,7 @@ if (step === 4) flashOnce();
 ```html
 <text id="cap-text" data-courseware-caption="1"></text>
 <text id="cap-speaker"></text>   <!-- 可选：对话课的说话人标签 -->
+<rect id="cap-prog" .../>        <!-- 可选：句内进度细线（0.16.0，派生视图） -->
 ```
 
 每次 `sentAt(t)` 返回当前句时，把该句对象交给 `capShow()`。页面不维护第二份字幕表。
@@ -377,6 +437,14 @@ if (step === 4) flashOnce();
   这一点。
 - **字幕必须真的可见**：文字对但被 CSS 压在 `opacity:0` / `visibility:hidden` /
   `hidden` 之下同样算失败——QA 沿字幕节点的祖先链查计算样式，不只是读 `textContent`。
+  同一条契约也管**结束态回拖**：`ended` 收起整条带子后，把进度条拖回**最后那句之内**
+  时句号没有变化、换句分支不进，带子必须靠"这一拍有活跃句子"补回来（范本 0.16.0 起
+  在 `tick()` 里按 `capSent !== hit.sentence` 补一次 `capShow`）——画面与读数都回来了
+  而字幕还空着，就是状态不再是 `currentTime` 的纯函数。
+
+字幕带的**派生视图**（`#cap-hl` 结论色带、`#cap-prog` 句内进度细线、`#cap-speaker`
+说话人标签）都不算第二份文案：它们几何从 `#cap-text` 现量、内容由当句数据算出，
+QA 的比对节点始终是 `#cap-text`。
 
 ## 5. 连线要真的连上（几何）
 
@@ -485,6 +553,17 @@ if (step === 4) flashOnce();
       `display` 与 `height` 同进 `transition-property` 清单（漏了 display 收起半边硬跳）、
       `transition-behavior:allow-discrete` 单独一行、`@starting-style` 给出起点、
       reduced-motion 兜底带上 `li.note` 抬特异度（源序在后面，同特异度会被基础规则盖掉）；
+- [ ] 用了句内进度细线（`#cap-prog`）的：它归字幕带管、不属于 renderer——只写呈现
+      属性、不挂 transition（它是读数不是动效，**也不进 reduced-motion 清单**）、
+      `tick()` 里的调用点排在换句分支**之后**、句间空档不清零；
+- [ ] 用了滚动驱动入场（`animation-timeline: view()`）的：整块包在
+      `@supports (animation-timeline: view())` 里、隐藏态只写在 keyframe 的 `from`
+      （不支持的浏览器整块跳过，内容一格不少）、`animation-duration:auto` 显式写、
+      `animation-range` 落在 **entry 段内**（取 cover 段实测静止态停在 0.845 这种
+      半透明格子里）、reduced-motion 兜底 `ul.notes>li.note` 抬过基础规则的源序；
+- [ ] 用了擦洗态升级（`.bar:hover` 一族）的：过渡清单只给 `height`/`border-radius`
+      这类几何、不给 `width`（进度那条走 `--dur-fill`，混进来就是第二个时钟），
+      填充圆角 `inherit`，刻度用 `top:50%` + 独立 `translate` 共用一条居中公式；
 - [ ] 动效终态落在属性上（`fill-mode: backwards`、循环动画 `0%` = 静止态），单独一帧也讲得清；
 - [ ] 没有第二份字幕正文；
 - [ ] 图元文字是必要的短标注；

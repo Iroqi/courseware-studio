@@ -34,6 +34,10 @@
        （0=无限远完全不动，1=与近景同步；JS 从这里读，不在代码里写死第二个数）。 */
     --dur-swp:.34s; --dur-hl:.42s;
     --dur-tick:.2s; --dur-rack:.22s; --par-far:.45;
+    /* 时间刻度层（0.16.0）：--dur-scrub 擦洗态几何过渡（条变厚 / 刻度变长）、
+       --dur-tip 窥探气泡弹簧落定。句内进度细线**不给时长令牌**——它是时钟的
+       逐拍读数（与 #fill 同类），补间只会让它永远落后于正在念的那个字。 */
+    --dur-scrub:.18s; --dur-tip:.26s;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -62,20 +66,42 @@
      悬停即报出该处属于哪一节。顶部 / 画布上方都不再有常驻条。
      进度条本身常驻，与 ▶ / ⟲ 一起长在播放器行 .rack 里（位置见下面 ④）。 */
   .bar{position:relative;height:6px;border-radius:3px;background:#242a36;cursor:pointer;
-       touch-action:none}   /* 触屏横拖喂给擦洗，不当成页面滚动 */
+       touch-action:none;   /* 触屏横拖喂给擦洗，不当成页面滚动 */
+       transition:height var(--dur-scrub) var(--ease-out),
+                  border-radius var(--dur-scrub) var(--ease-out)}
   /* 视觉高度 6px，但命中区上下各扩 7px——细条上瞄准点击太累 */
   .bar::before{content:"";position:absolute;left:0;right:0;top:-7px;bottom:-7px}
-  .bar-fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;background:var(--key);
+  /* 擦洗态变厚（0.16.0「affordance 随意图升级」）：平时这条 6px 的发丝线只管"读到
+     哪儿了"，一旦指针落上来 / 按下拖动，它升到 9px——**把"现在可以拖"这件事画在
+     你正要指的地方**，而不是在旁边再摆一个可见的把手。三条边界：
+       · 只长高、不加 margin：轨道自己占住那几 px，`.rack` 的行高不跟着跳，
+         读数与倍速钮一格不动；
+       · 圆角跟着高度走（6/3 → 9/4.5），否则 9px 高的条顶着一个为 6px 定的圆角，
+         两端会显得发方；
+       · 过渡只给 height/border-radius（几何），不给 width：填充的补间是
+         `--dur-fill linear`，那是"进度连续滑动"的口径，两者不能混一条清单。 */
+  .bar:hover,.bar:focus-visible,.bar[data-drag="1"]{height:9px;border-radius:4.5px}
+  .bar-fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:inherit;
+            background:var(--key);
             z-index:1;transition:width var(--dur-fill) linear}
   /* 拖动跟手：指针在跑时填充过渡缩短到 50ms，不拖后腿；松手恢复 --dur-fill 滑行到位。 */
   .bar[data-drag="1"] .bar-fill{transition-duration:.05s}
   /* 章节刻度：上下各探出 3px，一眼看出整门课被切成几段。
-     2px 宽 / 比条底亮一档——1px 太细，暗底上基本看不见，那这一层信息就白放了。 */
-  .bar .tick{position:absolute;top:-3px;width:2px;height:12px;background:#5f6a7d;
-             border-radius:1px;z-index:2;pointer-events:none;transition:background var(--dur-tick)}
+     2px 宽 / 比条底亮一档——1px 太细，暗底上基本看不见，那这一层信息就白放了。
+     纵向用 `top:50%` + 独立 `translate` 居中而不是写死 top:-3px：擦洗态轨道升到 9px、
+     刻度同时长到 16px，"居中"这一条公式让两端各探出 (刻度高 − 条高)/2（6/12 → 3px、
+     9/16 → 3.5px），不需要为第二种高度再补一套数字，也不会出现"条变厚了刻度却还
+     贴在旧顶边"的错位（独立 translate 不参与盒模型、也不进 getBBox——沿用 0.13.0
+     那条"独立属性"的教训）。 */
+  .bar .tick{position:absolute;top:50%;translate:-50% -50%;width:2px;height:12px;
+             background:#5f6a7d;border-radius:1px;z-index:2;pointer-events:none;
+             transition:background var(--dur-tick),height var(--dur-scrub) var(--ease-out)}
   /* 当前章节刻度点亮：常驻的"你在哪"位置 cue，纯颜色变化不是循环动画。
      tick.on 由 tick() 按 sceneIdxAt 逐拍维护（reduced-motion 下过渡被关掉）。 */
   .bar .tick.on{background:var(--key);box-shadow:0 0 5px rgba(245,166,35,.55)}
+  /* 意图升级时刻度一起长高：与轨道变厚同一次过渡、同一时长，读起来是"这根条整个
+     进入可拖状态"，而不是两个各自动画的零件。 */
+  .bar:hover .tick,.bar:focus-visible .tick,.bar[data-drag="1"] .tick{height:16px}
   /* 悬停窥探：指着哪一段就报哪一段（连该处时间一起报）。点击仍是自由拖动。 */
   .bar .tip{position:absolute;bottom:15px;transform:translateX(-50%);white-space:nowrap;
             padding:3px 9px;border-radius:6px;background:#232a38;border:1px solid #3b4459;
@@ -83,6 +109,16 @@
             box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none;
             opacity:0;transition:opacity var(--dur-fast);z-index:3}
   .bar .tip[data-on="1"]{opacity:1}
+  /* 气泡弹簧落定（0.16.0，把 --ease-spring 用进播放器行）：气泡出现时轻弹 7px 落住，
+     与它报的那个刻度长高是同一个动作的两半——"这里有你想要的信息"。
+     `transform` 里必须把 `translateX(-50%)` 一起写进每一帧：动画期间的 transform
+     **整条接管**静态值，只写 translateY 会让气泡在落定那一瞬往左跳半个身位。
+     `left` 仍由 JS 逐点写（贴边夹回条内），两者一个走 transform 一个走 left，不打架。
+     只在**气泡从无到有**或**指到另一节**时重触发（pointermove 每帧都进，重放会抖）：
+     判据留在 JS 的 data-on 差分里，见 §⑦ 悬停窥探。 */
+  @keyframes tipPop{from{transform:translateX(-50%) translateY(7px)}
+                    to{transform:translateX(-50%) translateY(0)}}
+  .bar .tip.tipPop{animation:tipPop var(--dur-tip) var(--ease-spring) backwards}
   .step{font:12px/1.4 ui-monospace,Consolas,monospace;color:var(--dim);
         white-space:nowrap;text-align:right}
 
@@ -276,6 +312,19 @@
      只写状态、不排程（纪律 1），导出截图页切掉 transition 后落在完整色带上。 */
   #cap-hl{fill:var(--key);opacity:.22;pointer-events:none;rx:2;
           transition:width var(--dur-hl) var(--ease-out),x var(--dur-hl) var(--ease-out)}
+  /* 句内进度细线（0.16.0，"时间刻度层"第一条）：结论色带说"这句是结论"，这条细线说
+     **"这一句念到哪儿了"**——卡拉OK / 现在播放进度条借过来的做法，但它落在字幕自己的
+     宽度上，不新增一行常驻 UI。三条口径都是刻意的：
+       ① **只写呈现属性、不挂 transition**：它是时钟的逐拍读数（和 #fill 同类），
+          补间会让它**永远落后于正在念的那个字**——细线的意义正是"跟上嘴"。
+          也正因为终态就在属性上，导出截图页一刀切掉 transition/animation 之后
+          每帧落在的都是那一秒的真实进度，不需要见旗分支（runtime.md §7）；
+       ② 几何从 `#cap-text` 现量（capShow 里存一次），与结论色带同一口径——
+          桌面 17 / 小屏 26 两套字号，写常数必错位；
+       ③ 细线在**字幕自己那一列**里，横向起止跟着 bbox 走，所以说话人标签
+          （左端 x=44 起）不会被它压住。它是字幕带的派生视图，**不是第二份文案**，
+          QA 比对节点仍是 #cap-text。 */
+  #cap-prog{fill:var(--key);opacity:.5;pointer-events:none;rx:1}
   /* 视差景深（0.14.0）：镜头挪一次时**远景比近景走得慢**——单层运镜只说明"看哪儿"，
      两层速度差才说明"画布是有深度的空间"。#depth 与 #cam 是兄弟节点、同一个坐标
      空间，位移量因此就是世界坐标；不放进 #cam 是因为那里已经有一层 transform
@@ -315,6 +364,26 @@
        把特异度抬过基础规则、`li.note[data-open="1"]` 抬过展开态各一级，两头才都关成 none。 */
     .reveal,.revealL{animation:none}
     li.note .note-body,li.note[data-open="1"] .note-body{transition:none;animation:none}
+    /* 0.16.0 同口径，但三条各不相同，值得逐条说：
+       · 擦洗态几何（条变厚 / 刻度变长）是 transition——关时长即直接落 9px/16px，
+         意图升级这件事仍然看得见，只是不"长"过去；
+       · 气泡弹簧是 animation——关掉后气泡照旧出现（opacity 的 data-on 分支不是动效），
+         只是不再弹；
+       · 侧栏滚动入场整条**撤掉**（animation:none）：它唯一的"起点"是 keyframe 里的
+         opacity:0，动画不跑就根本没有隐藏态，六条要点一格不少地在那儿。
+       句内进度细线**不在这一栏里**——它不是动效，是时钟的逐拍读数（见 #cap-prog）。 */
+    .bar,.bar .tick{transition:none}
+    .bar .tip.tipPop{animation:none}
+    /* 侧栏滚动入场整条**撤掉**，且必须多带一层 `ul.notes>` 才落得上：入场那条写在
+       `.notes` 那一段里，源序排在**本块之后**——两边都不带 id，谁后谁赢，单写
+       `li.note{animation:none}`（特异度 (0,1,1)）会被它顶掉。`ul.notes>li.note` 抬到
+       (0,2,2) 才真的压过去，实测减少动效下六条要点常显、不再随滚淡入。与 0.15.0
+       折叠面板那条同一课：兜底行不是写了就生效，要**真的盖过基础规则**才生效。
+       不能只靠下面 §⑤ 那条 `animation-duration:.01ms!important` 钳制兜住：滚动时间线
+       要求 duration 为 auto，被钳成 0.01ms 后落哪一格是实现说了算——一条装饰性的
+       入场不该把"内容看不看得见"押在没测过的边界上。
+       句内进度细线**不在这一栏里**——它不是动效，是时钟的逐拍读数（见 #cap-prog）。 */
+    ul.notes>li.note{animation:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -542,6 +611,37 @@
      标题 14px 实色、正文 13px 暗色、缩进与标题文字左边界对齐。 */
   .notes{list-style:none;margin:0;padding:0}
   .note + .note{border-top:1px solid #232936}
+  /* 侧栏滚动驱动入场（0.16.0，本轮唯一"前沿"做法：CSS scroll-driven animation）。
+     六条要点在窄栏里本来就要滚着看，让它们**随滚随显**比一次全铺开更贴合阅读顺序，
+     而且这条运动不归 JS 管：没有 scroll 监听、没有 IntersectionObserver、没有
+     requestAnimationFrame——进度由 `view()` 时间线直接按"元素在滚动容器里的位置"取，
+     与本页"renderer 不计时"的纪律同一条方向（时钟在外头，声明在这里）。
+     四条边界都是刻意的：
+       ① 整块包在 `@supports (animation-timeline: view())` 里。Firefox 正式版还没开
+          这个特性，而"隐藏态"只写在 keyframe 的 from 里——不支持的浏览器整块跳过，
+          文字一格不少地在那儿可读（渐进增强的正确姿势：把风险放在装饰那侧，
+          绝不把内容锁进一个可能不跑的门里）；
+       ② `animation-duration:auto` 必须显式写。滚动时间线用**进度**驱动而非秒，
+          auto 表示"铺满 animation-range 那段距离"；留着默认的 0s 在某些实现里
+          会被当成"没有时长可分配"而直接落终态，看着像没生效；
+       ③ `animation-range:entry 0% entry 60%`：从"下边缘刚进栏"跑到"进栏六成"就落定。
+          第一版写的是 `entry 0% cover 32%`，实测**静止态就不是 1**：Chrome 152 下
+          entry 段只占 cover 全长的 e/(e+v)（条目 45px、栏 533px → 约 8%），cover 32%
+          远在"完全进入"之后，于是侧栏**根本不溢出**时下面三条仍停在 0.998 / 0.974 /
+          0.845——一条纯装饰的入场，把常驻内容留在了半透明那一格，正是这类做法最常见的
+          失败方式。改进取 entry 段内（进度以条目自身高度算），静止时全部落 1；
+       ④ 位移挂独立 `translate`（与 0.13.0 起所有位移同一口径），不碰 transform，
+          也不碰 `.note-h` 那条 hover 背景过渡。 */
+  @keyframes noteReveal{from{opacity:0;translate:0 10px}to{opacity:1;translate:0 0}}
+  @supports (animation-timeline: view()){
+    li.note{animation:noteReveal var(--ease-out) both;
+            /* 长写放在简写**之后**：animation-timeline / animation-range 是否被简写
+               重置，各实现口径不一——写在后面就不靠这个假设。duration 显式 auto，
+               滚动时间线按"进度"分配时长。 */
+            animation-duration:auto;
+            animation-timeline:view();
+            animation-range:entry 0% entry 60%}
+  }
   .note-h{display:flex;align-items:center;gap:9px;padding:10px 4px;width:100%;
           text-align:left;border:0;background:none;appearance:none;font:inherit;
           font-size:14px;font-weight:600;color:var(--fg);cursor:pointer;user-select:none;
@@ -820,6 +920,12 @@
                  与字幕同层，所以镜头推拉不影响它；不是 QA 的比对节点——
                  检查器读的是 #cap-text 的 textContent 与祖先链可见性。 -->
             <rect id="cap-hl" x="500" y="424" width="0" height="17" rx="2"/>
+            <!-- 句内进度细线（0.16.0）：写在 #cap-hl **之后**、#cap-text 之前——
+                 细线压在色带上面、字压在线上面，三层各司其职。几何同样从当句 bbox
+                 现量（capShow 里存一次），宽度由 tick() 按 currentTime 逐拍写
+                 **呈现属性**（不走 style，也不挂 transition，见 CSS「句内进度细线」）。
+                 它是字幕带的派生视图，不是第二份文案，也不是 QA 的比对节点。 -->
+            <rect id="cap-prog" x="500" y="443" width="0" height="2" rx="1"/>
             <text id="cap-speaker" x="44" y="438" text-anchor="start"
                   font-size="15" font-weight="700" fill="#8fa1b8"></text>
             <text id="cap-text" data-courseware-caption="1" x="500" y="438" text-anchor="middle"
@@ -1685,7 +1791,7 @@
    *  （对话讲稿由 build_timeline 从 speakers[label] 透传，见 script.md §1），
    *  无 speaker 时留空——它不碰 `#cap-text`，字幕唯一来源的契约不受影响。 */
   function capShow(s){                     // s = sentAt() 返回的当前句；null = 收起
-    if (!s || !s.text){ show('cap', false); return; }
+    if (!s || !s.text){ show('cap', false); capSent = null; capProgWrite(0); return; }
     var t = el('cap-text');
     // 文本真的变化才重触发翻句微动效（.capLift）；同句重显（如 pause 后恢复）
     // 不重放——空档保留上一句的契约下，别让字幕每停一句就"跳"一次。
@@ -1695,6 +1801,8 @@
     }
     t.setAttribute('fill', s.hl ? '#f5a623' : '#c9d1e0');
     capHl(t, !!s.hl);
+    capSent = s;                      // 细线要跟的"当前这句"：空档里也认它（见 tick）
+    capMeasure(t);
     var sp = el('cap-speaker');
     if (sp){ sp.textContent = s.speaker || ''; }
     show('cap', true);
@@ -1718,6 +1826,36 @@
     // CSS 几何属性优先（可补间）；上面那两笔呈现属性是"不支持时仍落终态"的兜底，
     // 两者同源同一次写，不会漂出第二套状态。
     m.style.x = x + 'px'; m.style.width = w + 'px';
+  }
+  /** 句内进度细线（0.16.0，"时间刻度层"第一条）：把"这一句念到哪儿了"划在字幕自己
+     下面。与划重点同口径的地方是几何**从字幕现量**（桌面 17 / 小屏 26 两套字号，
+     写常数必错位）；刻意不同的地方是这里只写呈现属性、不写 style、不挂 transition
+     ——它是时钟的逐拍读数（和 #fill 同类），补间会让它永远落后于正在念的那个字。
+     capSent/capGeo 都存在句子对象与现量结果里，不另开一份状态：进度 = currentTime
+     的纯函数，回拖就倒回去，暂停就停住，导出截图页那一帧落的也是那一秒的真读数。
+     量一次、逐拍只写 width：getBBox() 是同步布局查询，把它留在每帧路径上等于给
+     逐帧循环加一条不该在那儿的重排（stage.md §5）。 */
+  var capSent = null, capGeo = null;
+  function capMeasure(t){
+    var p = el('cap-prog');
+    if (!p) return;
+    var b = t.getBBox();
+    capGeo = {x: b.x, w: b.width, y: b.y + b.height + 1.5, h: 2};
+    p.setAttribute('x', capGeo.x.toFixed(1));
+    p.setAttribute('y', capGeo.y.toFixed(1));
+    p.setAttribute('height', capGeo.h.toFixed(1));
+    p.setAttribute('width', '0');              // 换句即归零：新句从 0 开始长
+  }
+  function capProgWrite(t){
+    var p = el('cap-prog');
+    if (!p) return;
+    if (!capSent || !capGeo || !(capSent.duration > 0)){
+      if (p.getAttribute('width') !== '0') p.setAttribute('width', '0');
+      return;
+    }
+    var k = Math.max(0, Math.min(1, (t - capSent.start) / capSent.duration));
+    var w = (capGeo.w * k).toFixed(1);
+    if (p.getAttribute('width') !== w) p.setAttribute('width', w);   // 同值不重写
   }
 
   // ══ ④ 侧栏：参考要点（renderNotes）══════════════════════════════════════
@@ -2225,6 +2363,13 @@
       // 读数与画面同生共死：index<0 的空档里（seek 进场景首句之前的缝隙时可能持续
       // 很久）整行**停在上一句上**，否则读数已翻到新场景、舞台还停在旧场景，两头对不上。
       if (hit.index >= 0){
+        // 字幕带必须**认这一拍**：ended 把整条带子收起了（capSent 一起清成 null），
+        // 之后把进度条拖回最后那句里，句号没变 → 上面那个换句分支不进 → 带子会一直
+        // 空着，而画面、读数、细线全都跟着回来了（实测：回拖后 #cap.on=false 而
+        // #cap-text 还有字）。字幕是 currentTime 的纯函数，"这一拍有活跃句子"就必须
+        // 有带子。差分用 capSent 而不是 lastKey：同句不重挂、不重量，也就不会每帧
+        // 多一次 getBBox（capShow 内部本就按 textContent 决定要不要重放 capLift）。
+        if (capSent !== hit.sentence) capShow(hit.sentence);
         // 读数只留"第几节 + 时间"：章节名在画布上方的章节头里，重复出现在这条
         // 窄行里既挤进度条，窄屏下还会溢出（段名动辄十几个字）。
         var stepTxt = (idx + 1) + '/' + scenes.length + ' · ' + fmt(t) + ' / ' + fmt(TOTAL);
@@ -2234,6 +2379,11 @@
     } else if (scenes.length && t < scenes[0].runtime.start){
       capShow(null);                    // 开场前：字幕带整条收起（idle 的 CSS 也压着）
     }
+    // 句内进度细线（0.16.0）：必须排在**上面那一整块之后**，不是随手跟在 #fill 后面——
+    // 换句那一支里 capShow 才写 capSent / capGeo，写在前面就会拿上一句的宽配这一句的
+    // 进度（导出截图页每帧只跑一次 tick()，那一帧恰好是换句帧时读到的是空线：实测）。
+    // 与 #fill 同为"时钟的逐拍读数"，逐拍写、不补间（口径见 capProgWrite）。
+    capProgWrite(t);
     // 门禁每帧判一次（幂等）：它自己比锚点，所以**空档里也要判**——
     // at:'end' 的门禁正是开在末句之后的那个空档里。
     // 擦洗期间例外：preGateOpen 会把 currentTime 拽回场景起点，和还按着
@@ -2489,10 +2639,20 @@
       + ' · ' + fmt(t);
     var half = (tip.offsetWidth || 160) / 2;          // 贴边时把气泡压回条内
     tip.style.left = Math.max(half, Math.min(r.width - half, ratio * r.width)) + 'px';
+    // 弹簧落定只在**从无到有**或**换到另一节**时重触发（0.16.0）：pointermove 每帧都
+    // 进这条处理器，每次都摘重挂就是"气泡一路抖着跟手"，而跟手本身已经是反馈。
+    // 判据与 capLift / chFlip 同一口径——状态变了才演，用 data-on 与节号差分。
+    var retrigger = tip.dataset.on !== '1' || tip.dataset.seg !== String(i);
     tip.dataset.on = '1';
+    tip.dataset.seg = String(i);
+    if (retrigger && !window.__coursewareShotMode){
+      tip.classList.remove('tipPop'); void tip.getBoundingClientRect();
+      tip.classList.add('tipPop');
+    }
   });
   el('bar').addEventListener('pointerleave', function(){
     delete el('bar-tip').dataset.on;
+    delete el('bar-tip').dataset.seg;   // 离开即复位：下次进来气泡算"从无到有"，重弹一次
   });
 
   tick();

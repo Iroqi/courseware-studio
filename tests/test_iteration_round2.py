@@ -1215,7 +1215,9 @@ def test_parallax_transition_and_highlight_present():
             "m.setAttribute('width', w.toFixed(1));") in html
     assert "m.style.x = x + 'px'; m.style.width = w + 'px';" in html
     # 魔法时长收口：刻度点亮与窄屏/全屏播放器行都走令牌
-    assert "transition:background var(--dur-tick)}" in html
+    # （0.16.0 起 .tick 的清单多了 height——擦洗态刻度长高，仍走令牌，不留裸秒数）
+    assert ("transition:background var(--dur-tick),"
+            "height var(--dur-scrub) var(--ease-out)}") in html
     assert html.count("transition:opacity var(--dur-rack) ease,"
                       "transform var(--dur-rack) ease}") == 2
     # reduced-motion 兜底：换场与视差关掉，划重点关过渡但终态（属性）保留
@@ -1910,5 +1912,421 @@ def test_growth_reveal_collapse_reduced_motion(full_lesson):
         time.sleep(0.05)
         cl = disp()
         assert cl["disp"] == "none" and cl["h"] == 0, f"收起即退出可访问树：{cl}"
+    finally:
+        _kill(chrome)
+
+
+# ── 11. 时间刻度层：擦洗态升级 / 句内进度细线 / 侧栏滚动入场（0.16.0）──
+
+def test_time_scale_layer_present():
+    """模板结构契约：0.16.0 三件的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的是"为什么这么写"而不是像素：擦洗态几何只准走 height/border-radius 那条
+    清单（填充的 width 属于 --dur-fill 那套"进度连续滑动"，混进来就等于给进度
+    装了第二个时钟）；句内细线必须**逐拍落呈现属性**、不写 style、不挂 transition，
+    且调用点排在 capShow 之后（导出每帧只跑一次 tick，写在前面就拿到上一句的宽）；
+    侧栏滚动入场必须整块包在 @supports 里、reduced-motion 兜底带 `ul.notes>`
+    抬特异度——源序在后的基础规则会顶掉朴素选择器（0.15.0 同一课）。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # 新令牌：擦洗态几何 / 气泡弹簧。细线**故意没有令牌**（不是动效，是时钟读数）
+    assert "--dur-scrub:.18s; --dur-tip:.26s;" in html
+    # ① 擦洗态：三态共用一条规则，轨道 6→9、圆角跟着高度走
+    assert (".bar:hover,.bar:focus-visible,.bar[data-drag=\"1\"]{height:9px;"
+            "border-radius:4.5px}") in html
+    assert ("transition:height var(--dur-scrub) var(--ease-out),\n"
+            "                  border-radius var(--dur-scrub) var(--ease-out)}") in html
+    # 填充圆角继承轨道：写死 3px 会在擦洗态两端露出方角
+    assert "border-radius:inherit" in html
+    # 过渡清单里**没有 width**——进度那条走 --dur-fill，两者不许混
+    assert "transition:width var(--dur-fill) linear" in html
+    # 刻度：居中公式 + 意图升级时刻度一起长高
+    assert (".bar .tick{position:absolute;top:50%;translate:-50% -50%;width:2px;"
+            "height:12px;") in html
+    assert (".bar:hover .tick,.bar:focus-visible .tick,"
+            ".bar[data-drag=\"1\"] .tick{height:16px}") in html
+    # ② 气泡弹簧：每一帧都得重复 translateX(-50%)，否则落定那一瞬跳半个身位
+    assert ("@keyframes tipPop{from{transform:translateX(-50%) translateY(7px)}"
+            "\n                    to{transform:translateX(-50%) translateY(0)}}") in html
+    assert (".bar .tip.tipPop{animation:tipPop var(--dur-tip)"
+            " var(--ease-spring) backwards}") in html
+    # 重触发判据在 JS 的差分里（pointermove 每帧都进，无脑重放就是抖）
+    assert "var retrigger = tip.dataset.on !== '1' || tip.dataset.seg !== String(i);" in html
+    assert ("tip.classList.remove('tipPop'); void tip.getBoundingClientRect();"
+            "\n      tip.classList.add('tipPop');") in html
+    assert "delete el('bar-tip').dataset.seg;" in html
+    # ③ 句内进度细线：几何现量 + 只写呈现属性
+    assert '<rect id="cap-prog" x="500" y="443" width="0" height="2" rx="1"/>' in html
+    assert (html.index('id="cap-hl"') < html.index('id="cap-prog"')
+            < html.index('id="cap-text"')), "细线夹在色带与文字之间"
+    assert "#cap-prog{fill:var(--key);opacity:.5;pointer-events:none;rx:1}" in html
+    assert "function capMeasure(t){" in html and "function capProgWrite(t){" in html
+    # 不写 style（写了就进 CSS 几何属性那条可补间通道）；范本里没有 #cap-prog 的 transition
+    assert "p.style.width" not in html and "cap-prog" in html
+    rm_src = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}",
+                       html, re.S).group(1)
+    assert "#cap-prog{" not in rm_src, "细线不是动效，不该被关（注释里提到它可以）"
+    # 调用点排在换句分支之后：capShow 才写 capSent/capGeo
+    assert html.index("capShow(hit.sentence);") < html.index("    capProgWrite(t);"), \
+        "细线必须在本句的几何与句子写完之后读"
+    assert "capSent = s;" in html and "capMeasure(t);" in html
+    assert "capSent = null; capProgWrite(0); return;" in html, "收起必须把细线归零"
+    # ④ 侧栏滚动入场：整块 @supports 包裹（Firefox 正式版未开）
+    assert "@supports (animation-timeline: view()){" in html
+    assert "@keyframes noteReveal{from{opacity:0;translate:0 10px}" in html
+    assert "animation-timeline:view();" in html
+    assert "animation-duration:auto;" in html
+    # entry 段内收尾：cover 32% 实测静止态停在 0.845（装饰把常驻内容留在了半透明那格）
+    assert "animation-range:entry 0% entry 60%}" in html
+    assert "animation-range:entry 0% cover" not in html, "落点别越过 entry 段（注释里可以提）"
+    # reduced-motion 兜底：擦洗几何关过渡、气泡关动画、滚动入场整条撤掉且抬过特异度
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    assert ".bar,.bar .tick{transition:none}" in rm
+    assert ".bar .tip.tipPop{animation:none}" in rm
+    assert "ul.notes>li.note{animation:none}" in rm
+    assert "\n    li.note{animation:none}" not in rm, "朴素 li.note 会被源序在后的入场规则顶掉"
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+def test_scrub_affordance_grows_on_intent(full_lesson):
+    """真实浏览器：指针落到进度条那一刻，轨道与刻度**连续长高**，离开后收回。
+
+    验的是"意图升级"这个交互契约：静止 6px/12px → 悬停 9px/16px，而且中间值采得到
+    （写成瞬跳就失去了"这根条进入可拖状态"的提示）。拖动态（data-drag=1）走同一条
+    规则，所以按下也演；指针移开必须回到 6px，否则整页常驻一根变粗的条。
+    """
+    chrome, ev, send = _cdp(full_lesson, "scrub")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-2', 0)")
+
+        def geom():
+            return json.loads(ev("""(function(){var b=document.getElementById('bar');
+              var tk=b.querySelector('.tick');
+              return JSON.stringify({bar:+b.getBoundingClientRect().height.toFixed(2),
+                tick:+tk.getBoundingClientRect().height.toFixed(2),
+                drag:b.dataset.drag||'', hov:b.matches(':hover')});})()"""))
+
+        def pump(n=1):
+            for _ in range(n):
+                ev("new Promise(function(r){requestAnimationFrame("
+                   "function(){r(1)})})", await_promise=True)
+
+        st = geom()
+        assert st["bar"] == 6 and st["tick"] == 12, f"静止态：{st}"
+        rect = json.loads(ev("(function(){var r=document.getElementById('bar')"
+                             ".getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,"
+                             "y:r.top+r.height/2});})()"))
+
+        send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rect["x"], "y": rect["y"]})
+        # 落上来那一拍仍是 6px：过渡刚起（写了 transition 却没跑，就是瞬跳）
+        first = geom()
+        assert first["hov"], "指针应在条上"
+        assert first["bar"] == 6, f"补间起点不该已落终态：{first}"
+        assert ev("(document.getElementById('bar').getAnimations()||[]).map("
+                  "function(a){return a.transitionProperty;}).join(',')").find("height") >= 0, \
+            "height 补间没跑起来"
+        heights = []
+        for _ in range(10):
+            pump()
+            heights.append(geom()["bar"])
+        mid = [h for h in heights if 6 < h < 9]
+        assert mid, f"必须采到中间值（连续长高），实得 {heights}"
+        assert heights[-1] >= 8.9, f"悬停终态应到 9px，实得 {heights[-1]}"
+        assert geom()["tick"] >= 15.9, f"刻度应一起长到 16px，实得 {geom()['tick']}"
+
+        # 移开：收回 6px（擦洗态是"意图"，不是常驻状态）
+        send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rect["x"], "y": 6})
+        for _ in range(10):
+            pump()
+        st = geom()
+        assert not st["hov"] and st["bar"] == 6 and st["tick"] == 12, f"离开后应收回：{st}"
+
+        # 按下拖动：同一条规则，data-drag 也演（手指在屏幕上没有 hover）
+        send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": rect["x"],
+                                          "y": rect["y"], "button": "left",
+                                          "buttons": 1, "clickCount": 1})
+        st = geom()
+        assert st["drag"] == "1", f"按下应进跟手态：{st}"
+        send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rect["x"] + 40,
+                                          "y": rect["y"], "button": "left", "buttons": 1})
+        for _ in range(10):
+            pump()
+        assert geom()["bar"] >= 8.9, f"拖动态同样要变厚：{geom()}"
+        # button 仍写 "left"、buttons 归 0（与 0.12.0 那条拖动用例同口径）：
+        # button:"none" 的 mouseReleased 不会合成 pointerup，data-drag 会留在 1。
+        send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": rect["x"] + 40,
+                                          "y": rect["y"], "button": "left", "buttons": 0})
+        for _ in range(6):
+            pump()
+        st = geom()
+        assert st["drag"] == "", f"松手应退出跟手态：{st}"
+        # 松手时指针仍在条上 → 轨道**保持** 9px 是对的（擦洗态跟着意图走，不是跟按钮状态）
+        assert st["bar"] == 9, f"指针还在条上就该保持擦洗态：{st}"
+        send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rect["x"], "y": 6})
+        for _ in range(10):
+            pump()
+        st = geom()
+        assert st["bar"] == 6 and st["tick"] == 12, f"指针离开后收回：{st}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+def test_caption_progress_is_a_clock_reading(full_lesson):
+    """真实浏览器：句内细线的宽度 = 这一句的时间进度，且**只落在属性上**。
+
+    这条把"它是时钟的读数、不是动效"钉成可测的事：句内 0 / 50% / 99.9% 三点比例
+    对得上；换句归零重长；句间空档停在满格（字幕本来就停在上一句，不闪白）；
+    播完（ended → capShow(null)）归零；width 只写属性、不写 style，导出截图页一刀
+    切掉 transition 后那一帧落的仍是这一秒的真读数。字号换档（小屏 26px）后几何
+    跟着 bbox 现量，不残留桌面档的宽度。
+    """
+    chrome, ev, send = _cdp(full_lesson, "capprog")
+    try:
+        ev(_SEEK)
+        tl = json.loads(ev("JSON.stringify(window.__tl)"))
+        seg2 = [s for s in tl["scenes"] if s["step_id"] == "seg-2"][0]
+        n0 = seg2["runtime"]["narration"][0]
+
+        def seek(t):
+            ev("(function(){window.__t=%r;document.getElementById('main-audio')"
+               ".dispatchEvent(new Event('timeupdate'));return 1;})()" % t)
+            return json.loads(ev("""(function(){var t=document.getElementById('cap-text');
+              var b=t.getBBox(), p=document.getElementById('cap-prog');
+              return JSON.stringify({w:+p.getAttribute('width'),bbox:+b.width.toFixed(2),
+                x:+p.getAttribute('x'),bx:+b.x.toFixed(2),styleW:p.style.width,
+                cs:getComputedStyle(p).width, cap:t.textContent.slice(0,8)});})()"""))
+
+        # ① 句内三点：比例即时钟比例
+        ev("window.__jump('seg-2', 0)")
+        for frac in (0.0, 0.5, 0.999):
+            st = seek(n0["start"] + n0["duration"] * frac)
+            assert st["bbox"] > 0, f"字幕没落上句：{st}"
+            ratio = st["w"] / st["bbox"]
+            assert abs(ratio - frac) < 0.01, f"进度 {frac} 实得比例 {ratio:.3f}：{st}"
+            assert st["styleW"] == "", f"细线不该写 style.width：{st}"
+            assert abs(st["x"] - st["bx"]) < 0.2, f"起点跟 bbox 走：{st}"
+            assert abs(float(st["cs"].replace("px", "")) - st["w"]) < 0.6, \
+                f"属性即终态（导出切 transition 后仍落这一格）：{st}"
+
+        # ② 句间空档：停在**上一句**的满格（与字幕 gap-hold 同一口径，不闪白）。
+        #    必须在跳到下一句之前测：空档不调用 capShow，capSent 仍是刚念完的那一句。
+        st = seek(n0["start"] + n0["duration"] + 0.06)
+        assert abs(st["w"] - st["bbox"]) < 0.3, f"空档应停在满格：{st}"
+
+        # ③ 换句：新句从 0 重新长
+        ev("window.__jump('seg-2', 1)")
+        st = seek(seg2["runtime"]["narration"][1]["start"])
+        assert st["w"] == 0, f"换句必须归零重长：{st}"
+
+        # ④ 播完：capShow(null) 一并归零
+        ev("(function(){document.getElementById('main-audio')"
+           ".dispatchEvent(new Event('ended'));return 1;})()")
+        assert ev("document.getElementById('cap-prog').getAttribute('width')") == "0", \
+            "课程结束字幕收起，细线不能留一截"
+        assert not ev("document.getElementById('cap').classList.contains('on')"), \
+            "结束态字幕带收起"
+
+        # ④b 结束态回拖**同一句**：带子必须跟着回来（纯函数律）。
+        # 句号没变 → 换句分支不进；旧范本就此把字幕带一直空着，而读数与画面都回来了
+        # （0.16.0 顺手补掉：tick 里按 capSent 差分补一次 capShow）。
+        st = seek(seg2["runtime"]["narration"][1]["start"]
+                  + seg2["runtime"]["narration"][1]["duration"] * 0.5)
+        assert ev("document.getElementById('cap').classList.contains('on')"), \
+            f"回拖进活跃句子，字幕带必须重新在场：{st}"
+        assert abs(st["w"] / st["bbox"] - 0.5) < 0.01, f"细线跟着回来了：{st}"
+
+        # ⑤ 字号换档：小屏 26px 现量，几何跟着 bbox 走。
+        # 这里**换一句**（index 2）而不是停在 ④b 那句上：capMeasure 只在 capShow 里跑，
+        # 同句重演不重量——真实页面换档走 onCompactChange，它清 lastKey 强制重画，
+        # 这条用例直接改 data-compact，所以自己给一次"换句"。
+        ev("(function(){document.documentElement.dataset.compact='1';return 1;})()")
+        ev("window.__jump('seg-2', 2)")
+        n2 = seg2["runtime"]["narration"][2]
+        st = seek(n2["start"] + n2["duration"] * 0.5)
+
+        assert st["bbox"] > 500, f"小屏档字号 26px，bbox 应变宽：{st}"
+        assert abs(st["w"] / st["bbox"] - 0.5) < 0.01, f"小屏同样按比例：{st}"
+        assert abs(st["x"] - st["bx"]) < 0.2, f"起点跟着新 bbox：{st}"
+        ev("(function(){delete document.documentElement.dataset.compact;return 1;})()")
+
+        # ⑥ 导出截图模式：一次 tick 就落终态（不靠后续帧、也不空着）
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-2', 0)")
+        st = seek(n0["start"] + n0["duration"] * 0.42)
+        assert abs(st["w"] / st["bbox"] - 0.42) < 0.01, f"截图模式一次 tick 就要落读数：{st}"
+        ev("delete window.__coursewareShotMode")
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+def test_tip_springs_only_on_new_intent(full_lesson):
+    """真实浏览器：窥探气泡只在"从无到有 / 换到另一节"时弹，同节内跟手不重放。
+
+    pointermove 每帧都进这条处理器，无脑摘重挂就是"气泡一路抖着跟手"。判据是
+    data-on 与节号的差分：进条 → 演一次；同节内继续拖 → 同一条动画在走（currentTime
+    只增不减）；跨到另一节 → 重头再演；移出再移回 → 又算"从无到有"。
+    """
+    chrome, ev, send = _cdp(full_lesson, "tipspring")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-2', 0)")
+
+        def tip():
+            return json.loads(ev("""(function(){var t=document.getElementById('bar-tip');
+              var as=(t.getAnimations()||[]).filter(function(a){return a.animationName==='tipPop';});
+              return JSON.stringify({n:as.length, ct:as.length?Math.round(as[0].currentTime):null,
+                on:t.dataset.on||'', seg:t.dataset.seg||''});})()"""))
+
+        def move(frac):
+            r = json.loads(ev("(function(){var b=document.getElementById('bar');"
+                              "var q=b.getBoundingClientRect();return JSON.stringify({x:q.left,"
+                              "y:q.top+q.height/2,w:q.width});})()"))
+            send("Input.dispatchMouseEvent", {"type": "mouseMoved",
+                                              "x": r["x"] + r["w"] * frac, "y": r["y"]})
+            ev("new Promise(function(r){requestAnimationFrame(function(){r(1)})})",
+               await_promise=True)
+
+        assert tip()["n"] == 0, "没碰进度条时不该有弹簧在跑"
+        move(0.08)
+        st = tip()
+        assert st["n"] == 1 and st["on"] == "1", f"进条即弹一次：{st}"
+        t0 = st["ct"]
+        move(0.12)
+        st = tip()
+        assert st["n"] == 1 and st["seg"] == "1", f"同节内不重挂：{st}"
+        assert st["ct"] >= t0, f"同节内应让同一条动画继续，不该回到 0：{t0} → {st['ct']}"
+        move(0.45)
+        st = tip()
+        assert st["n"] == 1 and st["seg"] != "1" and st["ct"] <= 60, \
+            f"跨到另一节应重头再弹：{st}"
+        send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 4, "y": 4})
+        assert tip()["on"] == "", "移出应熄灭气泡"
+        move(0.08)
+        st = tip()
+        assert st["n"] == 1 and st["ct"] <= 60, f"再进来算从无到有：{st}"
+        # 弹簧落定后 transform 回到静态值：动画期间 transform 整条接管静态值，
+        # 每帧都重复写了 translateX(-50%)，落定时 translateY 必须归 0（残留就是气泡
+        # 停在半空 7px），而水平仍居中（-half 由 left/translateX 决定，只查纵向那一格）。
+        time.sleep(0.4)
+        tf = ev("getComputedStyle(document.getElementById('bar-tip')).transform")
+        m = re.match(r"matrix\(1, 0, 0, 1, (-?[\d.]+), (-?[\d.]+)\)$", tf)
+        assert m, f"落定后 transform 应是平移矩阵，实得 {tf!r}"
+        assert float(m.group(2)) == 0, f"落定后不该残留 7px 的下坠偏移：{m.group(0)}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+def test_sidebar_scroll_reveal_is_progressive(full_lesson):
+    """真实浏览器：侧栏随滚随显是**装饰**——静止时六条全可读，滚动时才演。
+
+    Chrome 支持 animation-timeline 时验两件事：① 不溢出时全部 opacity=1（第一版取
+    `entry 0% cover 32%`，实测静止态停在 0.845，把常驻内容留在了半透明那一格）；
+    ② 强制溢出后，滚到中间能看到"进栏的那半没显形、已过的全显"，滚到底部全部落 1。
+    不支持该特性的浏览器（Firefox 正式版）走的是 @supports 之外那条路：没有动画、
+    文字一格不少——这条靠静态契约锁（见上一个用例），不在这里造第二个内核。
+    """
+    chrome, ev, send = _cdp(full_lesson, "scrollin")
+    try:
+        ev(_SEEK)
+
+        def pump(n=4):
+            for _ in range(n):
+                ev("new Promise(function(r){requestAnimationFrame("
+                   "function(){r(1)})})", await_promise=True)
+
+        def ops():
+            return json.loads(ev("""(function(){var out=[];
+              document.querySelectorAll('.note').forEach(function(li){
+                out.push(+getComputedStyle(li).opacity);});return JSON.stringify(out);})()"""))
+
+        if not ev("CSS.supports('animation-timeline','view()')"):
+            pytest.skip("本机内核不支持 animation-timeline，@supports 那条路本就是常显")
+
+        pump(6)
+        rest = ops()
+        assert all(o >= 0.999 for o in rest), f"不滚动时六条必须全可读：{rest}"
+
+        ev("(function(){var c=document.querySelector('.col-side');"
+           "c.style.maxHeight='150px';c.scrollTop=0;return 1;})()")
+        pump()
+        top = ops()
+        assert top[0] >= 0.99, f"栏顶那条已经进栏：{top}"
+        assert any(o < 0.5 for o in top[1:]), f"栏外的要点应还没显形：{top}"
+
+        ev("(function(){document.querySelector('.col-side').scrollTop=9999;return 1;})()")
+        pump()
+        bot = ops()
+        assert all(o >= 0.99 for o in bot), f"滚到底部要点全部落定：{bot}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+def test_time_scale_reduced_motion_fallback(full_lesson):
+    """关掉动效：擦洗几何直接落档、气泡照出不弹、侧栏常显，细线仍跟着时钟走。
+
+    三件的兜底方式不同，正是这一轮要锁的：擦洗态是 transition（关时长即瞬落 9px，
+    "可以拖"这件事仍然看得见）；气泡是 animation（关掉后 data-on 那条 opacity 照旧，
+    只是不弹）；滚动入场整条撤掉——它唯一的隐藏态写在 keyframe 的 from 里，动画不跑
+    就没有隐藏，六条要点一格不少。句内细线**不在兜底清单里**：它是读数不是动效，
+    关了动效也得跟上嘴。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm16")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+        ev("window.__jump('seg-2', 0)")
+
+        def pump(n=3):
+            for _ in range(n):
+                ev("new Promise(function(r){requestAnimationFrame("
+                   "function(){r(1)})})", await_promise=True)
+
+        # 侧栏：入场整条撤掉，静止与溢出都常显
+        ops = json.loads(ev("""(function(){var out=[];
+          document.querySelectorAll('.note').forEach(function(li){
+            var cs=getComputedStyle(li);out.push([+cs.opacity,cs.animationName]);});
+          return JSON.stringify(out);})()"""))
+        assert all(o[1] == "none" for o in ops), f"入场动画整条关掉：{ops}"
+        assert all(o[0] == 1 for o in ops), f"关掉动效后内容常显：{ops}"
+
+        # 擦洗态：过渡被收掉，落上指针即瞬到 9px（没有中间值，但状态仍在）
+        rect = json.loads(ev("(function(){var r=document.getElementById('bar')"
+                             ".getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,"
+                             "y:r.top+r.height/2});})()"))
+        assert ev("getComputedStyle(document.getElementById('bar')).transitionProperty") == "none"
+        send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rect["x"], "y": rect["y"]})
+        pump()
+        st = json.loads(ev("""(function(){var b=document.getElementById('bar');
+          return JSON.stringify({bar:+b.getBoundingClientRect().height.toFixed(2),
+            tick:+b.querySelector('.tick').getBoundingClientRect().height.toFixed(2),
+            an:getComputedStyle(document.getElementById('bar-tip')).animationName,
+            on:document.getElementById('bar-tip').dataset.on||''});})()"""))
+        assert st["bar"] == 9 and st["tick"] == 16, f"减动效下擦洗态直接落档：{st}"
+        assert st["an"] == "none" and st["on"] == "1", f"气泡照出不弹：{st}"
+
+        # 句内细线：仍然是时钟的读数
+        tl = json.loads(ev("JSON.stringify(window.__tl)"))
+        n0 = [s for s in tl["scenes"] if s["step_id"] == "seg-2"][0]["runtime"]["narration"][0]
+        ev("window.__jump('seg-2', 0)")
+        ev("(function(){window.__t=%r;document.getElementById('main-audio')"
+           ".dispatchEvent(new Event('timeupdate'));return 1;})()"
+           % (n0["start"] + n0["duration"] * 0.6))
+        st = json.loads(ev("""(function(){var p=document.getElementById('cap-prog'),
+          t=document.getElementById('cap-text');
+          return JSON.stringify({w:+p.getAttribute('width'),bbox:+t.getBBox().width.toFixed(1),
+            tr:getComputedStyle(p).transitionProperty});})()"""))
+        assert abs(st["w"] / st["bbox"] - 0.6) < 0.01, f"减动效下细线照样跟上嘴：{st}"
     finally:
         _kill(chrome)

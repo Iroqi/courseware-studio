@@ -132,7 +132,15 @@ transition 补得到）、**世界层**（跨幕活着的主角，`POSE` + `WORL
 ellipse/path 的在列几何属性写进 transition，框宽从实测字宽长出来，`<text>` 的 x/y
 不在 CSS 清单里）、**擦除揭示**（`.reveal`/`.revealL` 用 `clip-path:inset()` 从左或右
 扫出结论句，只裁不位移，关键帧两端都必须写 `inset()`）、**折叠面板**（侧栏 0↔auto
-高度补间，四件套少一样就退回某一边硬跳）——见 stage.md §3.4。每个视觉步先过
+高度补间，四件套少一样就退回某一边硬跳）——见 stage.md §3.4。这一轮把刻度对准
+**时间本身**：**擦洗态随意图升级**（指针落到条上 / 聚焦 / 拖动时进度条 6→9px、章节刻度
+12→16px、窥探气泡用 `--ease-spring` 弹 7px 落定——"可以拖"画在你正指的地方，过渡
+清单只给几何、不给 `width`）、**句内进度细线**（`#cap-prog`，沿当句字宽划一道
+now-playing 细线；它**不是动效而是时钟读数**，只写呈现属性、不挂 transition、也不进
+reduced-motion 清单，调用点必须排在换句分支之后）、**侧栏滚动驱动入场**（前沿做法
+`animation-timeline: view()`，无 scroll 监听无 IO 无 rAF；整块包在 `@supports` 里、
+隐藏态只写在 keyframe 的 `from`，落点取 entry 段内——静止时必须全部可读）——
+见 stage.md §3.4。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 
