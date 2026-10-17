@@ -2026,6 +2026,23 @@ def test_scrub_affordance_grows_on_intent(full_lesson):
                 ev("new Promise(function(r){requestAnimationFrame("
                    "function(){r(1)})})", await_promise=True)
 
+        def settle_geom(pred):
+            """推帧等到**落定**：谓词成立即返回，否则到截止返回最后一次读数。
+
+            静止态用 `== 6` 这种精确等值会被 runner 快慢绊倒——擦洗是 `.18s` 过渡，
+            靠真实帧时间推进，慢一点的 runner（实测 CI 3.11）固定帧数没走完尾巴就
+            停在 6.02 / 12.03。所以收回/保持这些**落定态**都改成轮询到落定 + 容差，
+            谓词里带 `abs(...) < 0.1`，与上行方向本来就有的 `>= 8.9` 余量同一口径。
+            """
+            deadline = time.time() + 8.0
+            st = geom()
+            while time.time() < deadline:
+                if pred(st):
+                    return st
+                pump()
+                st = geom()
+            return st
+
         st = geom()
         assert st["bar"] == 6 and st["tick"] == 12, f"静止态：{st}"
         rect = json.loads(ev("(function(){var r=document.getElementById('bar')"
@@ -2049,12 +2066,13 @@ def test_scrub_affordance_grows_on_intent(full_lesson):
         assert heights[-1] >= 8.9, f"悬停终态应到 9px，实得 {heights[-1]}"
         assert geom()["tick"] >= 15.9, f"刻度应一起长到 16px，实得 {geom()['tick']}"
 
-        # 移开：收回 6px（擦洗态是"意图"，不是常驻状态）
+        # 移开：收回 6px（擦洗态是"意图"，不是常驻状态）。落定态轮询到收回完成，
+        # 不用 == 6 精确等值——慢一点的 runner 固定帧数收不到最后一格（实测 6.02）。
         send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rect["x"], "y": 6})
-        for _ in range(10):
-            pump()
-        st = geom()
-        assert not st["hov"] and st["bar"] == 6 and st["tick"] == 12, f"离开后应收回：{st}"
+        st = settle_geom(lambda s: not s["hov"]
+                         and abs(s["bar"] - 6) < 0.1 and abs(s["tick"] - 12) < 0.1)
+        assert not st["hov"] and abs(st["bar"] - 6) < 0.1 and abs(st["tick"] - 12) < 0.1, \
+            f"离开后应收回：{st}"
 
         # 按下拖动：同一条规则，data-drag 也演（手指在屏幕上没有 hover）
         send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": rect["x"],
@@ -2076,12 +2094,11 @@ def test_scrub_affordance_grows_on_intent(full_lesson):
         st = geom()
         assert st["drag"] == "", f"松手应退出跟手态：{st}"
         # 松手时指针仍在条上 → 轨道**保持** 9px 是对的（擦洗态跟着意图走，不是跟按钮状态）
-        assert st["bar"] == 9, f"指针还在条上就该保持擦洗态：{st}"
+        assert abs(st["bar"] - 9) < 0.1, f"指针还在条上就该保持擦洗态：{st}"
         send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rect["x"], "y": 6})
-        for _ in range(10):
-            pump()
-        st = geom()
-        assert st["bar"] == 6 and st["tick"] == 12, f"指针离开后收回：{st}"
+        st = settle_geom(lambda s: abs(s["bar"] - 6) < 0.1 and abs(s["tick"] - 12) < 0.1)
+        assert abs(st["bar"] - 6) < 0.1 and abs(st["tick"] - 12) < 0.1, \
+            f"指针离开后收回：{st}"
     finally:
         _kill(chrome)
 
