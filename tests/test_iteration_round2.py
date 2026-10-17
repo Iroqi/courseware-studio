@@ -1829,8 +1829,12 @@ def test_note_accordion_animates_both_ways(full_lesson):
         assert op["seq"][0][1] == "block", f"展开当帧就得是 block：{op}"
         hs = [s[2] for s in op["seq"]]
         assert 0 < hs[1] < hs[2], f"展开应采到递增的中间值：{op}"
-        opened = settle(lambda s: s["disp"] == "block" and s["h"] > 200)
-        assert opened["disp"] == "block" and opened["h"] > 200, opened
+        # 终止判据用**补间结束**，不用"高度超过某个像素数"：同一份 DOM 在不同渲染
+        # 环境下量到的绝对值不一样（侧栏展开高本地 246.5、CI runner 182.1——字体
+        # 解析差一档就会整体矮一截）。写死像素会把环境差异读成"折叠没演完"。这里
+        # 只要求**明显不是一条缝**，真正把终态钉死的是下面与 scrollHeight 那条一致性。
+        opened = settle(lambda s: s["disp"] == "block" and not still_running(s))
+        assert opened["disp"] == "block" and opened["h"] > 20, opened
         assert opened["aria"] == "true", opened
         assert not still_running(opened), f"展开应演完收干净：{opened}"
         assert abs(opened["h"] - ev("document.querySelectorAll('.note')[1]"
@@ -1841,7 +1845,10 @@ def test_note_accordion_animates_both_ways(full_lesson):
         cl = toggle_then_pause("[0,120,290]")
         assert not cl.get("err"), f"收起同样要有高度补间：{cl}"
         hs2 = [s[2] for s in cl["seq"]]
-        assert hs2[0] > 200 and hs2[1] < hs2[0] and hs2[2] <= hs2[1], \
+        # 收起起点 = 展开终态（同一张静止定格），不比绝对像素——理由同上。
+        assert hs2[0] > 20 and abs(hs2[0] - opened["h"]) < 2.5, \
+            f"收起应从展开终态起算：opened={opened['h']} seq={hs2}"
+        assert hs2[1] < hs2[0] and hs2[2] <= hs2[1], \
             f"收起应采到递减的中间值：{cl}"
         assert all(s[1] == "block" for s in cl["seq"]), \
             f"allow-discrete 要把 display 撑到补间结束：{cl}"
@@ -1906,7 +1913,13 @@ def test_growth_reveal_collapse_reduced_motion(full_lesson):
         ev("document.querySelectorAll('.note-h')[1].click()")
         time.sleep(0.05)
         op = disp()
-        assert op["disp"] == "block" and op["h"] > 200, f"展开即完整可见：{op}"
+        # "展开即完整可见"钉的是**终态 = 内容高**（与另一条同一口径），不是某个
+        # 绝对像素数：同一份 DOM 在不同渲染环境下量到的绝对值不一样（侧栏展开高
+        # 本地 246.5、CI runner 182.1），写死像素会把环境差异读成"关档后展不开"。
+        sh = ev("document.querySelectorAll('.note')[1]"
+                ".querySelector('.note-body').scrollHeight")
+        assert op["disp"] == "block" and op["h"] > 20, f"展开即完整可见：{op}"
+        assert abs(op["h"] - sh) < 2.5, f"关档一步到位，终态应等于内容高：{op} vs {sh}"
         assert op["tp"] == "none" and op["an"] == "none", f"两头都要关（含 noteIn）：{op}"
         ev("document.querySelectorAll('.note-h')[1].click()")
         time.sleep(0.05)
@@ -2140,15 +2153,25 @@ def test_caption_progress_is_a_clock_reading(full_lesson):
         assert abs(st["w"] / st["bbox"] - 0.5) < 0.01, f"细线跟着回来了：{st}"
 
         # ⑤ 字号换档：小屏 26px 现量，几何跟着 bbox 走。
-        # 这里**换一句**（index 2）而不是停在 ④b 那句上：capMeasure 只在 capShow 里跑，
-        # 同句重演不重量——真实页面换档走 onCompactChange，它清 lastKey 强制重画，
-        # 这条用例直接改 data-compact，所以自己给一次"换句"。
-        ev("(function(){document.documentElement.dataset.compact='1';return 1;})()")
+        # 断言写成**同一句文案在两档下的宽度之比**，不写绝对像素：17px→26px 这档
+        # 字号比是纯字号决定的，同一环境里桌面/小屏两量一起随字体缩放，比值恒 ≈
+        # 26/17≈1.53（本地实测 356.61→545.74），换渲染环境也不动——比绝对像素稳。
+        # 细线若残留桌面档宽度，下面的比例断言同样会红，所以两档之比既锁"换档有没有
+        # 重量"，又不会被 CI runner 的整体字体差异误伤。
         ev("window.__jump('seg-2', 2)")
         n2 = seg2["runtime"]["narration"][2]
-        st = seek(n2["start"] + n2["duration"] * 0.5)
+        desk = seek(n2["start"] + n2["duration"] * 0.5)
+        assert desk["bbox"] > 0, f"字幕没落上句：{desk}"
 
-        assert st["bbox"] > 500, f"小屏档字号 26px，bbox 应变宽：{st}"
+        # 换档要让 capMeasure 真的重跑：它只在 capShow 里量，同句重演不进那条分支
+        # （真实页面走 onCompactChange：清 lastKey 强制重画）。这里借 ended → 回拖
+        # 同一句，走的是同一条"重挂带子"的公共路径。
+        ev("(function(){document.documentElement.dataset.compact='1';return 1;})()")
+        ev("(function(){document.getElementById('main-audio')"
+           ".dispatchEvent(new Event('ended'));return 1;})()")
+        st = seek(n2["start"] + n2["duration"] * 0.5)
+        assert st["bbox"] > desk["bbox"] * 1.2, \
+            f"26px 档同一句应变宽（比的是两档之比）：desk={desk} compact={st}"
         assert abs(st["w"] / st["bbox"] - 0.5) < 0.01, f"小屏同样按比例：{st}"
         assert abs(st["x"] - st["bx"]) < 0.2, f"起点跟着新 bbox：{st}"
         ev("(function(){delete document.documentElement.dataset.compact;return 1;})()")
