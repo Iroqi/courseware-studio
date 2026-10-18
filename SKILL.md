@@ -140,7 +140,14 @@ now-playing 细线；它**不是动效而是时钟读数**，只写呈现属性�
 reduced-motion 清单，调用点必须排在换句分支之后）、**侧栏滚动驱动入场**（前沿做法
 `animation-timeline: view()`，无 scroll 监听无 IO 无 rAF；整块包在 `@supports` 里、
 隐藏态只写在 keyframe 的 `from`，落点取 entry 段内——静止时必须全部可读）——
-见 stage.md §3.4。每个视觉步先过
+见 stage.md §3.4。这一轮管**边缘的软硬与表面材质**：**羽化揭示**（`.featherR`/`.featherL`
+用 `@property --feather` 驱动 mask 渐变停靠点软边掠出，注册初值取终值 134% = 静止即全显；
+**mask 不裁命中测试**，所以羽化层自带 `pointer-events:none`，需要 Learner 点的图元仍用
+`.reveal`）、**放行键掠光**（`.gate-next .go.shine` 伪元素 `background-position` 120%→−60%，
+静止态停在盒外，只演"放行行从无到有"那一次——差分必须排在 `hidden` 写入之前）、
+**排版留白层**（`text-wrap:balance` + `text-box-trim:trim-both;text-box-edge:text`，非动效、
+不进 reduced-motion 清单）、**主色浅档令牌**（`--key-soft/softer/act`，`color-mix` 现调 +
+rgba 兜底，兜底写在 `@supports` 里而不是"同名两行"）——见 stage.md §3.4。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 

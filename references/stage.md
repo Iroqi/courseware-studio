@@ -153,7 +153,11 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 | `#depth` 属性补间 | 远景视差（同向、更慢） | 镜头每落一次，远景跟着漂一小段 |
 | `.el.swF` / `.swB` | 方向感换场 | **换节**时新画面从行进方向那一侧进场（前进右、后退左） |
 | `#cap-hl` | 结论句划重点 | `hl:true` 那一句沿字宽划一道色带 |
-| `.reveal` / `.revealL` | 擦除揭示（clip-path 扫描） | 某一行/某条线是**刚刚长出来**的，方向带语义 |
+| `.reveal` / `.revealL` | 擦除揭示（clip-path 扫描，硬边） | 某一行/某条线是**刚刚长出来**的，方向带语义 |
+| `.featherR` / `.featherL` | 羽化揭示（mask 渐变带掠出，软边） | 同一句话的轻声版：结论/记法这类**不打扰观众**的内容（不可点） |
+| `.gate-next .go.shine` | 放行键掠光（伪元素 background-position） | 答对后"继续"出现那一下的**点击邀请** |
+| `--key-soft/softer/act` | 主色浅档底色（`color-mix` 现调 + rgba 兜底） | 标签选中、倍速非 1×、hotspot 圈与其 hover |
+| `text-wrap:balance` / `text-box-trim` | 排版留白层（非动效） | 章节标题各行等长、tagline 收掉上下 leading |
 | `.nt` 几何补间（0.15.0） | rect/circle/ellipse/path 的形状滑动 | 框跟着字长大、图元变形 |
 | 侧栏 `.note-body` 折叠 | 0↔auto 高度 + display 时序 | 参考要点展开/收起 |
 
@@ -166,7 +170,8 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 `--dur-fill` / `--dur-cap` / `--dur-fb` / `--dur-hover` / `--dur-cam` /
 `--dur-veil` / `--dur-el` / `--dur-ch` / `--dur-blur` / `--dim-focus` /
 `--dur-dim` / `--dur-swp` / `--dur-hl` / `--dur-tick` / `--dur-rack` /
-`--par-far` / `--dur-grow` / `--dur-reveal` / `--dur-acc` 上，词汇统一引用——改全局
+`--par-far` / `--dur-grow` / `--dur-reveal` / `--dur-acc` / `--dur-scrub` /
+`--dur-tip` / `--dur-feather` / `--dur-shine` 上，词汇统一引用——改全局
 节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：入场与补间共用它，退场用
 inOut。悬浮/幕布/元素淡入这类"本来该有手感却写成魔法数"的地方也一律走令牌
 （0.13.0 收的口）。
@@ -383,6 +388,70 @@ transform/opacity——检查器判字幕可见性走 opacity/visibility 链，�
 落在哪一格是实现说了算，装饰性入场不该把"内容看不看得见"押在没测过的边界上。
 **句内细线不在兜底清单里**：它是读数不是动效。新增 `--dur-scrub` / `--dur-tip`
 两个令牌。
+
+**边缘与材质（0.17.0）**：前几轮把"注意力、空间、时间刻度"都做成了原语，这一轮动的是
+**边缘的软硬**与**表面的材质**。四条都过 CDP + 像素取样，量不到的写进"别这么干"：
+
+- **羽化揭示（`.featherR` / `.featherL`）**：与 `.reveal` 说同一句话（"这一行是刚长出来
+  的"），但**边缘是软的**——`clip-path` 的边界是一条硬边，扫过去像切纸；mask 的渐变带推
+  过去像光晕掠出，适合结论/记法这种不该打扰观众的内容。驱动变量
+  `@property --feather{syntax:'<percentage>';initial-value:134%}`，渐变停靠点跟着它走
+  （`#000 0 calc(var(--feather) - 34%)` + `transparent var(--feather)`，34% 是斜坡宽度）。
+  四条边界：① **静止态必须是全显**——initial 取终值 134%（不透明段占到 100%，整条遮罩带
+  已移出右侧），于是不支持 `@property`（替换后仍是合法 100%）、不支持 CSS mask（声明作废）、
+  导出截图页一刀切掉 animation（落回元素自身值）这三种"动画没跑"的情形**都落在完整可见**
+  上（纪律 3 的同一口径）；② **mask 不裁命中测试**——这是它与 `clip-path` 最关键的区别
+  （实测把 rect 左半边遮掉之后 `elementFromPoint` 打在那半边照样命中），所以羽化层自带
+  `pointer-events:none`：宁可这一层不可点，也不留"看不见却点得着"的幽灵区。**需要 Learner
+  点的图元一律用 `.reveal`**；③ 挂在**包装 `<g>`** 上、不进 `.nt` 的 transition 清单（mask
+  的参考盒是元素包围盒，与 transform 补间同节点会一起被缩放，0.15.0 那条 clip-path 教训
+  同一课），实测 `getBBox()` 全程 [4,6,292,28] 一格不动；④ 两端都写百分比 + `backwards`。
+  实测逐帧采到 0% → 88.5% → 128.8% → 133.8% → 134% 的连续值，不透明停靠点恒等于
+  `--feather − 34%`（软边宽度确实挂在移动的渐变带上）。范本消费者是舞台 D 末句那行绿色
+  记法（`d-fix-w`）。
+- **放行键掠光（`.gate-next .go.shine`）**：答对之后"继续"出现的那一下，一道高光从左掠到
+  右——CTA 的邀请语言（Stripe / Linear 那类主按钮同款）。四条边界：① 用**伪元素 +
+  `background-position`**，不是 mask（这里要"加一道亮"不是"遮一块"）；② **静止态停在盒外**
+  （base `background-position:120% 0`，keyframes 两端都写位置 120% → −60%），跑完与 reduced-motion
+  都是"无光泽的正常按钮"（实测静止取色 27,35,48 = 纯底色，跑动中同一位置 133,137,144）；
+  ③ `pointer-events:none` + 宿主 `overflow:hidden`——不抢点击、出界被圆角盒裁住；④ 只演
+  "这一行从无到有"那一次，判据是 `hidden` 的**旧值**，所以 `var nextShown = !gateNext.hidden;`
+  必须排在 `gateNext.hidden = false;` **之前**（写后面判据恒真，同一个键会被反复刷亮，
+  那是闪烁不是邀请；差分口径同 0.16.0 气泡）。
+- **排版留白层（`text-wrap:balance` + `text-box-trim`）**：两条都**不是动效**、不新增时钟。
+  `balance` 让多行标题每行等长（340px 容器实测 [317,223] → [279,261]；单行两档逐值相同，
+  对短标题零成本）；`text-box-trim:trim-both;text-box-edge:text` 收走行盒上下的 leading
+  （`.tagline` 实测盒高 22 → 15，而 40px 字在 line-height 1.9 下墨区 38px 裁与不裁都是这
+  38px——只搬留白、不动可读内容）。`text-box-edge` **只认 `text`**（`cap`/`text-alphabetic`/`ex`
+  在本机 `CSS.supports()` 全 false，写上去整条作废）；`pretty` 不写（靠空格分词，中文没有
+  空格）。只管 HTML 侧文本，SVG `<text>` 与字幕带完全不受影响。不支持的浏览器整条声明
+  作废、一个字不少。
+- **主色浅档令牌（`--key-soft` / `--key-softer` / `--key-act`）**：散在六处的
+  `rgba(245,166,35,.08~.16)` 收成三档，认得 `color-mix` 的浏览器由 `--key` 现调（换主色
+  底色跟着走）。实测 `color-mix(in oklab,var(--key) 14%,transparent)` 与手写 rgba **合成
+  像素逐值相同**（48,39,26 / 52,42,26），所以是纯收口不是改观感。**兜底写在 `@supports`
+  里，不靠"同名两条声明"**：自定义属性解析期什么都收，`--x:color-mix(…)` 在不支持的浏览器
+  照样成立，坏的是**替换之后**那条 `background`——非法计算值让属性落 `unset`（背景透明），
+  不是退回上一行。选区 `.28` 与刻度辉光 `.55` 各一处，不为它们造令牌（一个消费者不叫令牌
+  系统）；SVG 侧那几处淡底是 amber/red/blue **三套语义色各自的底**，并进来会把"语义色的底"
+  说成"主色的底"，不收。
+
+`prefers-reduced-motion` 兜底同步：羽化 `.featherR/.featherL` 关 animation（落回元素自己的
+134% = 全显，与 `.reveal` 关掉落 `clip-path:none` 对齐，没有"半截羽化"留在定格上）；掠光
+关 animation、伪元素留着（静止态本就停在盒外）。**掠光那行兜底必须带 `#gate-next` 抬特异度**
+——基础规则 `.gate-next .go.shine::after` 写在 §④ 播放器行那段里、源序排在媒体块**之后**，
+朴素同形选择器 (0,3,0) 平手时后来者胜（0.15.0 折叠、0.16.0 侧栏入场同一课：兜底不是写了就
+生效，要真的盖过基础规则）。排版与底色两条**不进兜底清单**：它们不是动效。新增
+`--dur-feather` / `--dur-shine` 两个令牌。
+
+**别这么干（本轮实测否决）**：① `@property` 数字 + `counter()` 的里程表数字——不支持
+`@property` 时那一段渲染成**空字符串**，把内容锁进一个可能不跑的门，纪律 3 直接不合格
+（这是研究报告列为 P0 的建议，量完退回）；② conic-gradient 扫描遮罩用在这套**被缩放的
+SVG** 上——圆心与象限在 px/% 两套口径下不一致，实测 sweep_90/180/270 三档扇区全错位；
+③ View Transitions / `content-visibility` / `calc-size()` 与"逐句冷启动截图"的导出模型
+冲突（各自原因见范本注释）；④ `animation` 简写里引用未定义的自定义属性（`var(--e)` 没
+定义）会让**整条简写**在计算值阶段作废、动画根本不跑——探针第一次就是这么"验"出羽化
+失效的，写简写时缓动/时长要么给字面量，要么保证令牌在 `:root` 里。
 
 用弱化时记住它是**真的把颜色变暗**，不是错觉：`saturate()`/`brightness()` 与
 `opacity` 一样按合成后的颜色吃对比度，被弱化的那一块仍要过 §8 的对比度三查。

@@ -3,6 +3,75 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.17.0] - 2026-10-18
+
+### 新增（边缘与材质——羽化揭示 / 放行键掠光 / 排版留白层 / 主色浅档令牌）
+
+**羽化揭示。** 新增 `@property --feather{syntax:'<percentage>';inherits:false;initial-value:134%}`，
+注册之后 CSS 才能逐帧补间它，`mask-image:linear-gradient(90deg,#000 0 calc(var(--feather) - 34%),transparent var(--feather) 100%)`
+里的 calc 才会跟着走。`initial-value` 必须同时是**终值**（134%）——这样不播、不能播、被导出注入
+`animation:none!important` 时都落在"全可见"，兑现"动效不能当内容的门"那条硬约束（进场从 0% 由
+`@keyframes feSoft{from{--feather:0%}to{--feather:134%}}` 负责）。34% 的羽化带让整行字
+**先认得出、再读完整**，而不是硬边划过去。
+
+关键一条：**mask 不裁命中区**（和 0.15 的 clip-path 正相反）。134% 时整行可点、点不出东西，
+这个交互是坏的——所以 `.featherR/.featherL` 带 `pointer-events:none`，外层 `<g>` 只当几何锚点，
+可点层照旧压在下面。实测补间取 `pause()+currentTime=t`：0→88.5→128.8→133.8→134，
+渐变两个 stop 始终是 `feather-34%` / `feather`；`getBBox` 全程 `[4,6,292,28]` 一格不变（mask 不改几何，
+对排版、导出、"不读 getBBox"那条纪律全都无扰动）。
+
+**放行键掠光。** 只在"刚被解锁的那一下"扫过 `.go`：伪元素 `background-size:260% 100%`，
+静息位 `120% 0`——**静息态是光带停在盒子外**，所以不播等于没有光带，导出侧天然干净。
+`@keyframes passShine{from{background-position:120% 0}to{background-position:-60% 0}}`，
+重放靠 `void gateGo.getBoundingClientRect()` 强制 reflow（0.14 实测 `offsetWidth` 同样有效，
+`getBoundingClientRect` 语义更直白）。`syncGate()` 里**先取差异再写状态**：`var nextShown =
+!gateNext.hidden;` 必须在 `gateNext.hidden = false;` 之前——写在之后则每次 sync 都"变了"，
+掠光连点连闪，成了装饰而不是反馈。
+
+一个 CDP 才浮出来的时序：`#pregate` 那 1.1 秒 overlay 还挂着期间，`#gate` 是 `display:none`，
+`.go` 的盒子 0×0，**伪元素上的动画根本不会被创建、也不进 `document.getAnimations()`**。
+所以"掠光没触发"这种误报要等 overlay 撤下、`gate-next` 真的可见之后再判；`currentTime`
+在注册后的第一帧读也是 0，取增量得等它 > 0。reduced-motion 的关闭清单里写的是 `#gate-next .go.shine::after`
+（`#gate-next` 特异度压过 `.gate-next`）——光带停盒外、不播即无光，终态天然成立。
+
+**排版留白层。** `text-wrap:balance` 上标题（两行 19px：`[317,223]` → `[279,261]`，单行是 no-op）；
+`text-box-trim:trim-both` + `text-box-edge:text` 上 tagline（盒高 22 → 15，字的位置不动）。
+trim 只把行盒上下的 leading 收回，视觉上像
+"字自己贴住上沿"，其实是排版盒子被削到字面——这一层跟运动无关，但直接决定元素之间"喘不喘气"。
+Chrome 152 只认 `edge:text`，`cap` / `ex` 解析失败整条丢弃。
+
+**主色浅档令牌。** `--key-soft / --key-softer / --key-act`（14% / 8% / 16%），基线是手抄 rgba、
+`@supports (color:color-mix(in oklab,var(--key) 14%,transparent))` 里换 color-mix。
+**不能写同名行**——不支持 color-mix 的浏览器会"后写覆盖"拿到一个无效的 `color-mix(...)` 而不是退回 rgba。
+消费点是 HTML 侧那四处浅档（`.chapter .tag` 底色、`.rack .spd[data-off]`、`.hotspot-stage .hs` 的
+虚线底、`.hs:hover`）；SVG 里的 `.12` / `.13` 字面量与 `::selection` 的 `.28` **不改**——
+它们不是浅档，硬套令牌会顺带改掉暖色温。
+
+### 修正（一处测试写法）
+
+`.chapter .tag` 的 computed background 是 `oklab(...)`（color-mix 的解析结果），canvas 的 `fillStyle`
+getter 原样回吐作者写的规格串，所以"字符串相等"不是像素相等的合法证法。改成两块同底色
+（`#101319`）各自铺满后 `getImageData` 比像素——实测 `color-mix(in oklab,… 14%)` 与
+`rgba(245,166,35,.14)` 合成结果都是 `(48,39,26)`，16% 那一对都是 `(52,42,26)`，逐字节相同。
+
+### 否决（四种看着前沿、实测不合格的写法）
+
+`@property` 整数 + `counter()` 数字轮（缺 `@keyframes` 与计数器变量时**直接渲染空串**，
+不是退化成静态数字）；缩放 `<svg>` 上的 conic 扫描（栅格化按缩放后的盒子做，边缘糊）；
+View Transitions / `content-visibility` / `calc-size()`（要么拿不到可靠的"跳过动画"开关，
+要么直接崩导出侧逐句冷启的帧）；`animation` 简写属性引用未定义变量（一条 ACVT 警告把整个简写
+作废，动画无声消失）。写进 references/stage.md 的"别这么干"，免得下轮重新踩。
+
+### 其他
+
+`references/stage.md` §3.4 增四行 + "边缘与材质（0.17.0）"一节；`references/runtime.md` §7 明确
+这两条动画导出侧**不需要** shot-mode 分支（羽化落在 134% 全可见、掠光静息在盒外且 shot 里
+`syncGate()` 提前 return，`gate-next` 永不开）；`SKILL.md` §5 增补一段。
+`tests/test_iteration_round2.py` +4 例（共 37 例）：静态契约（令牌串、补间端点、JS 语句先后顺序、
+禁用技法清单）+ CDP 三条（羽化补间与命中区、掠光走**真链路** recall 揭示 → `dataset.locked`
+→ MutationObserver → `syncGate` 差异判断，只播一次不重播、静息回盒外、reduced-motion 下列表为空）。
+模板未新增门、未动 GATES。
+
 ## [0.16.1] - 2026-10-17
 
 ### 修复（测试口径：浏览器用例别再拿绝对像素当契约，CI 与本地字体环境不同）

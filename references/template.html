@@ -29,6 +29,29 @@
     --dur-grow:.42s; --dur-reveal:.5s; --dur-acc:.3s;
     /* 焦点弱化：降饱和+微压暗的强度与补间时长（--dimmer 走 .nt 的 transition） */
     --dim-focus:.62; --dur-dim:.45s;
+    /* 主色的浅色档（0.17.0「材质」）：底色上的淡主色以前每处手写一档
+       rgba(245,166,35,.08~.16)，散在六处。收成三档令牌由 --key 现调出来——
+       作者换主色时浅色底跟着走，不用满仓找魔法数。实测三条口径：
+         · **逐像素同值**：同一块底色上 color-mix(in oklab,…14%) 与手写
+           rgba(245,166,35,.14) 取色完全一致（.12/.13/.14 三档都是 54,49,42 /
+           56,49,43 / 59,51,42）——这不是换色，是把散落的数收进令牌；
+         · **不能拿它做动画**：`color-mix()` 是静态计算函数，transition 接不住
+           （实测：改 --num / 改色都只落终态），所以这里只做底色终态替换；
+         · **兜底写在 @supports 里，不靠"同名两条声明"**：自定义属性在解析期
+           什么都收，`--x:color-mix(…)` 在实现不支持时照样成立，坏的是**替换之后**
+           那条 `background`——非法计算值让属性落 `unset`（背景透明），不是退回
+           上一行写法。所以基础值给 rgba，认得 color-mix 的浏览器才覆盖（与
+           0.16.0 滚动入场同一口径）。
+       只收 .08~.16 这一档"浅色背景"；选区 .28 与刻度辉光 .55 各用一次的高透明
+       值不为它们造令牌——一个消费者不叫令牌系统。
+       SVG 侧那几处淡主色（TONE.amber.box / badge 底 / 点亮格底）**不并进这套令牌**：
+       它们不是一个主色的三档，而是 amber / red / blue 三套语义色各自的底色
+       （.12 / .13 / .14 各一处）。`fill` 上写 var() 替换是成立的（Chrome 152 实测
+       `fill="var(--fc,#f5a623)"` 算得出 rgb(245,166,35)），但把它们并到 --key-soft
+       会把"语义色的底"说成"主色的底"——那三处各只有一个消费者，收口收益为零。 */
+    --key-soft:rgba(245,166,35,.14);     /* 选中/点亮那一下的底色 */
+    --key-softer:rgba(245,166,35,.08);   /* 更轻的一档：hotspot 圈里 */
+    --key-act:rgba(245,166,35,.16);      /* 控件被占用（非 1× / hover）的底色 */
     /* 换场与空间（0.14.0）：--dur-swp 方向感换场时长、--dur-hl 结论句划重点时长、
        --dur-tick 章节刻度点亮、--dur-rack 窄屏播放器行浮起、--par-far 远景视差系数
        （0=无限远完全不动，1=与近景同步；JS 从这里读，不在代码里写死第二个数）。 */
@@ -38,6 +61,11 @@
        --dur-tip 窥探气泡弹簧落定。句内进度细线**不给时长令牌**——它是时钟的
        逐拍读数（与 #fill 同类），补间只会让它永远落后于正在念的那个字。 */
     --dur-scrub:.18s; --dur-tip:.26s;
+    /* 边缘与材质（0.17.0）：--dur-feather 羽化揭示的掠出时长。比硬边擦除
+       （--dur-reveal .5s）略长一档：软边要在同样的距离上走出可见的坡度，
+       快了读起来是"糊了一下"而不是"羽化出来"。--dur-shine 放行键掠光：一道高光
+       走过按钮的时间，比入场类长、比揭示类短——它是"可以点了"的邀请，不是内容。 */
+    --dur-feather:.62s; --dur-shine:.9s;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -48,6 +76,24 @@
      #8d95a8 变成 #e9ecf3）。所以这里用 --dimmer，并在改任何注册属性名之前先
      全仓 grep 一遍同名令牌。 */
   @property --dimmer{syntax:'<number>';inherits:true;initial-value:0}
+  /* 羽化揭示的驱动变量（0.17.0）：注册成 <percentage> 才能被 transition / animation
+     逐帧补间，而它**只被 mask-image 的渐变停靠点消费**（见 .feather 那一组）。
+     终值 134% 是"整条遮罩带移出元素右侧"的落点：不透明段占到
+     `calc(134% − 34%) = 100%`，也就是全显。initial-value 取这个终值，所以
+     不支持 @property 的浏览器里 `calc(var(--feather) - 34%)` 替换后仍是合法的
+     100%，遮罩直接全开——**内容一格不少**（纪律③：绝不把内容锁进可能不跑的门）。
+     名字与 --dimmer 同一课：动手前全仓 grep 一遍，别撞上已有令牌。 */
+  @property --feather{syntax:'<percentage>';inherits:false;initial-value:134%}
+  /* color-mix 的覆盖档：认得它的浏览器用现调的浅色，换主色时底色跟着走。
+     写成 @supports 而不是"同名两行"——自定义属性解析期什么都收，第二行照样
+     成立，坏的是替换后的那条 background（非法计算值 → 属性 unset → 背景透明）。 */
+  @supports (color:color-mix(in oklab,red 50%,transparent)){
+    :root{
+      --key-soft:color-mix(in oklab,var(--key) 14%,transparent);
+      --key-softer:color-mix(in oklab,var(--key) 8%,transparent);
+      --key-act:color-mix(in oklab,var(--key) 16%,transparent);
+    }
+  }
   *{box-sizing:border-box}
   /* 背景光晕**不用 background-attachment:fixed**：iOS Safari 对它的支持是坏的
      （键盘弹起/滚动时整层抖动或空白）。改成一条 position:fixed 的伪元素层，
@@ -132,10 +178,28 @@
   .col-stage{min-width:0}
   .chapter{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin:0 0 10px}
   .chapter .tag{font-size:11px;padding:2px 8px;border-radius:5px;flex:none;
-                background:rgba(245,166,35,.14);color:var(--key)}
-  .chapter h1{font-size:19px;margin:0;font-weight:700}
+                background:var(--key-soft);color:var(--key)}
+  /* 排版留白层（0.17.0，前沿做法：text-wrap:balance + text-box-trim）。两条都
+     **不是动效**、不新增时钟，所以不进 reduced-motion 清单，但都过四条纪律，
+     逐条在真实 Chrome 里量过：
+       · `balance` 让**多行标题每行等长**（340px 容器实测：不均衡两行收在
+         [317, 223] → 均衡 [279, 261]，那条长短差 94px 的参差边不再拽视线）；
+         **单行标题一格不动**（窄容器 195/195、宽容器 508/508 两档逐值相同），
+         所以对短课标题是零成本；`pretty` 不写——它靠空格分词，中文没有空格；
+       · `text-box-trim` 收走行盒上下的 leading：`.tagline` 继承正文 1.7 的行高，
+         13px 那行实测盒高 22 → 15，而**字身一格没裁**（40px 字在 line-height 1.9
+         下墨区 38px，裁与不裁两种情况下都是这 38px）——它只搬留白，不动可读内容；
+         挂在 flex baseline 组里也只收自己那一格（同排 h1 盒高 32 不变）；
+       · **`text-box-edge` 只写 `text`**：`cap` / `text-alphabetic` / `ex` 在本机
+         Chrome 的 `CSS.supports()` 全 false，写上去整条声明作废；
+       · 只管 HTML 侧的文本。SVG 的 `<text>` 不换行、它的 x/y 也不在 CSS 清单里
+         （0.15.0 实测），字幕带那套排版完全不受影响。
+     不支持的浏览器整条声明作废：标题照旧换行、照旧带 leading，一个字不少——
+     又是纪律③那条：内容与装饰不能押在同一个可能不跑的门上。 */
+  .chapter h1{font-size:19px;margin:0;font-weight:700;text-wrap:balance}
   /* tagline 独占一行：和标题挤同一行时长句会在随机位置断行，起行后整句完整 */
-  .chapter .tagline{font-size:13px;color:var(--dim);margin:0;flex:1 1 100%}
+  .chapter .tagline{font-size:13px;color:var(--dim);margin:0;flex:1 1 100%;
+                    text-wrap:balance;text-box-trim:trim-both;text-box-edge:text}
   .chapter .tagline:empty{display:none}
 
   /* 舞台：宽度决定高度。**宽度 = 左栏宽度，不单独设 max-width。**
@@ -290,6 +354,42 @@
   @keyframes wipeL{from{clip-path:inset(0 0 0 100%)}to{clip-path:inset(0 0 0 0)}}
   .reveal{animation:wipeR var(--dur-reveal) var(--ease-out) backwards}
   .revealL{animation:wipeL var(--dur-reveal) var(--ease-out) backwards}
+  /* 羽化揭示（0.17.0，前沿做法：mask 渐变停靠点补间）：与 .reveal 同一句话
+     "这一行是刚长出来的"，但**边缘是软的**——clip-path 的边界是一条硬边，扫过去
+     像切纸；mask 的渐变带推过去像光晕掠出，读起来更轻，适合"结论/记法"这种
+     不想打扰观众的内容。四条边界都是实测出来的：
+       ① **静止态必须是全显**：驱动变量 --feather 注册成 `<percentage>`，
+          initial-value 取终值 134%（不透明段占到 calc(134% − 34%) = 100%，
+          整条遮罩带已移出元素右侧）。这一条同时兜住三种"动画没跑"的情形：
+          不支持 @property（替换后仍是合法 100%，遮罩直接全开）、不支持
+          CSS mask（声明作废、完整可见）、导出截图页一刀切掉 animation
+          （落回元素自身值 = 全显）。**内容绝不锁进可能不跑的门**（纪律③），
+          与 0.16.0 滚动入场那条同一口径；
+       ② **mask 不裁命中测试**——这是它和 clip-path 最关键的区别，实测：把
+          rect 左半边遮掉之后，`document.elementFromPoint` 打在那半边**照样命中
+          rect**（clip-path 同样操作则不命中）。所以羽化层必须自带
+          `pointer-events:none`：宁可"这一层不可点"，也不能留一块
+          "看不见却点得着"的幽灵区（.reveal 靠裁剪天然没有这个问题）。
+          **需要 Learner 点的图元一律用 .reveal，不用 .featherL/R**；
+       ③ 挂在**包装 `<g>`** 上，不进 .nt 的 transition 清单：mask 的参考盒是元素
+          包围盒，跟 .nt 的 transform 补间同节点会一起被缩放（0.15.0 那条
+          clip-path 教训同一课）。实测 `getBBox()` 全程 [4,6,292,28] 一格不动，
+          所以相机取景、窄屏兜底与 QA 几何判定不受影响；
+       ④ 两端都写百分比、且用 `backwards`：动画从 0%（全遮）推到 134%（全显），
+          fill-mode 不写 forwards——跑完落回元素自身的 134%，与 .reveal 同口径。
+     实测逐帧采到 0% → 27.9% → 53.0% → 78.2% → 103.3% → 134% 一路连续的
+     --feather，像素层也确认是**从左到右逐段显影**（右端最后落地）；走
+     transition 那条（renderer 只写目标档位的口径）同样采到 0/19.5/41.9/64.2/
+     86.5/108.9% 的中间值。 */
+  @keyframes feSoft{from{--feather:0%}to{--feather:134%}}
+  .featherR,.featherL{pointer-events:none;mask-repeat:no-repeat;
+        animation:feSoft var(--dur-feather) var(--ease-out) backwards}
+  /* 遮罩带 = 34% 宽的斜坡 + 其后全不透明；**方向只由 gradient 轴向决定**，
+     补间本身两头共用一条 keyframes（90deg 的 0% 在左、270deg 的 0% 在右）。 */
+  .featherR{mask-image:linear-gradient(90deg,#000 0 calc(var(--feather) - 34%),
+                        transparent var(--feather) 100%)}
+  .featherL{mask-image:linear-gradient(270deg,#000 0 calc(var(--feather) - 34%),
+                         transparent var(--feather) 100%)}
   /* 章节头翻场微动效：只在**真的换节**时由 tick() 重触发（同字幕翻句的口径——
      文本没变就不重放）。它是"你换了一节"的位置 cue，不承担信息：入场用
      backwards，终态就是元素本来的样子，导出切掉动画后定格不变。 */
@@ -363,6 +463,17 @@
        这时兜住画面的是 §⑤ 那条 `.01ms!important` 的时长钳制，不是这一行）。`li.note`
        把特异度抬过基础规则、`li.note[data-open="1"]` 抬过展开态各一级，两头才都关成 none。 */
     .reveal,.revealL{animation:none}
+    /* 羽化揭示同口径：关掉动画后落在**元素自己的 --feather**（注册值 134% =
+       整条遮罩带已移出右侧）上，也就是完整可见——与 .reveal 关掉后落
+       `clip-path:none` 完全对齐，没有"半截羽化"留在定格上。 */
+    .featherR,.featherL{animation:none}
+    /* 掠光：关掉 animation、伪元素本身留着（静止态 background-position 就停在
+       盒外 120%，本来就看不见）。兜底行必须**带 id 抬特异度**：那条
+       `.gate-next .go.shine::after` 写在 §④ 播放器行那一段里，源序排在**本块之后**，
+       朴素同形选择器会被它顶掉（(0,3,0) 平手时后来者胜）——与 0.15.0 折叠、
+       0.16.0 侧栏入场同一课：兜底不是写了就生效，要真的盖过基础规则。
+       掠光是纯装饰，关掉后按钮仍是那颗完整的按钮。 */
+    #gate-next .go.shine::after{animation:none}
     li.note .note-body,li.note[data-open="1"] .note-body{transition:none;animation:none}
     /* 0.16.0 同口径，但三条各不相同，值得逐条说：
        · 擦洗态几何（条变厚 / 刻度变长）是 transition——关时长即直接落 9px/16px，
@@ -414,7 +525,7 @@
              font:11px/1 ui-monospace,Consolas,monospace}
   .rack .spd:hover{background:rgba(255,255,255,.18)}
   /* 非 1× 常亮描色：当下时钟被改过速，得一眼看得见，不然读数会对不上嘴 */
-  .rack .spd[data-off]{background:rgba(245,166,35,.16);color:var(--key)}
+  .rack .spd[data-off]{background:var(--key-act);color:var(--key)}
   .rack .fs{width:26px;height:26px;flex:none;border-radius:50%;border:0;cursor:pointer;
             background:rgba(255,255,255,.09);color:var(--fg);display:grid;place-items:center}
   .rack .fs:hover{background:rgba(255,255,255,.18)}
@@ -506,6 +617,27 @@
   .gate-next .go,.act-row .go{background:var(--key);color:#14181f;border:0;border-radius:999px;
                  padding:8px 18px;cursor:pointer;font-weight:600;font-size:13.5px;
                  transition:filter var(--dur-fast)}
+  /* 放行键掠光（0.17.0，前沿做法：CTA shine）：答对之后"继续"出现的那一下，
+     一道高光从左掠到右——邀请点击的动效语言，Stripe / Linear 那类官网的主按钮
+     同款。四条边界：
+       ① 高光带是**伪元素 + background-position**，不是 mask：这里要的是"加一道
+         亮"，不是"遮一块"，用 mask 反而把按钮本体裁掉；
+       ② **静止态必须停在盒外**（base `background-position:120% 0`）：keyframes
+         两端都写位置（120% → −60%），跑完落回 120% = 看不见；导出截图页一刀切掉
+         animation、reduced-motion 关掉 animation，两种情形得到的都是**无光泽的
+         正常按钮**——掠光是装饰，不承担状态（实测静止取色 27,35,48 = 纯底色，
+         跑动中同一位置 133,137,144 = 高光在场上）；
+       ③ `pointer-events:none` + `overflow:hidden`：伪元素盖在文字上不抢点击，
+         高光带出界时被圆角盒裁住，不会漏到卡片上；
+       ④ 只演一次、由 JS 摘重挂：`.gate-next` 每次 hidden→visible 都可能出现，
+         无脑重放会让同一个键被反复刷亮（口径同 0.16.0 气泡的差分判据）。 */
+  .gate-next .go{position:relative;overflow:hidden}
+  .gate-next .go:not(:disabled)::after{content:"";position:absolute;inset:0;pointer-events:none;
+        border-radius:inherit;background:linear-gradient(105deg,transparent 0 42%,
+        rgba(255,255,255,.55) 50%,transparent 58% 100%);
+        background-size:260% 100%;background-repeat:no-repeat;background-position:120% 0}
+  @keyframes passShine{from{background-position:120% 0}to{background-position:-60% 0}}
+  .gate-next .go.shine::after{animation:passShine var(--dur-shine) linear}
   /* 提交/继续键同款按压手感：disabled 时不缩（点不动的东西不该有"按到了"的错觉） */
   .gate-next .go:active:not(:disabled),.act-row .go:active:not(:disabled){scale:.94}
   .gate-next .go:hover:not(:disabled),.act-row .go:hover:not(:disabled){filter:brightness(1.1)}
@@ -524,11 +656,11 @@
      挂在 transform 上的居中位移一起缩——实测缩到 .9 时圆心漂 2.2px；挪到
      translate 属性上之后实测位移 0，按压时圈还在原位。视觉与命中区都不变。 */
   .hotspot-stage .hs{position:absolute;translate:-50% -50%;border-radius:50%;
-        border:1.6px dashed #62708c;background:rgba(245,166,35,.08);padding:0;
+        border:1.6px dashed #62708c;background:var(--key-softer);padding:0;
         display:flex;align-items:center;justify-content:center;cursor:pointer;
         font-weight:700;font-size:15px;color:#98a2b8;transition:var(--dur-hover)}
   .hotspot-stage .hs:active{scale:.9}
-  .hotspot-stage .hs:hover{border-color:var(--key);background:rgba(245,166,35,.16);color:var(--key)}
+  .hotspot-stage .hs:hover{border-color:var(--key);background:var(--key-act);color:var(--key)}
   .hotspot-stage .hs[data-hotspot-state="hit"]{border-style:solid;border-color:var(--ok);
         background:rgba(46,204,113,.18);color:var(--ok)}
   .hotspot-stage .hs[data-hotspot-state="hit"]::after{content:"✓"}
@@ -1658,9 +1790,21 @@
       txt('d-body', 'd-quiet', {x:196, y:306, 'text-anchor':'middle', 'font-size':13,
         fill:'#ef4d4d'}, '不报错');
     }
-    if (step === 5) txt('d-body', 'd-fix', {x:500, y:374, 'text-anchor':'middle',
-      'font-size':16, 'font-family':MONO, 'font-weight':'600', fill:'#2ecc71'},
-      '(a, b) => a - b');
+    if (step === 5) {
+      /* 正确写法那一行用**羽化揭示**（0.17.0）：这一幕前面全是红（错法、被搞乱
+         的数据、不报错），最后一行是绿——它是结论而不是"又一行字"。硬边擦除
+         （.reveal）读起来像切纸，太机械；软边掠出来读起来像"这行自己浮上来"，
+         和它"答案终于出现"的角色对得上。
+         三条口径：① 挂在**包装 `<g>`** 上，内层 `txt` 不给 class（put 会给新
+         建档塞 'nt in'，擦除/羽化本身就是入场，两层入场叠一起只会互相糊掉——
+         与 0.15.0 那两个消费者同一写法）；② 这一层不可点（.featherR 自带
+         pointer-events:none），它只是一行字，不是热区；③ 截图模式一刀切掉
+         animation 后落在完整可见的定格上（静止态 --feather = 134%）。 */
+      var fixw = put('d-body', 'g', 'd-fix-w', {class:'featherR'});
+      txt(fixw, 'd-fix', {class:null, x:500, y:374, 'text-anchor':'middle',
+        'font-size':16, 'font-family':MONO, 'font-weight':'600', fill:'#2ecc71'},
+        '(a, b) => a - b');
+    }
     sweep('d-body');
   }
 
@@ -2230,6 +2374,11 @@
     var card = gateCard(gOpen);
     Array.prototype.forEach.call(card.querySelectorAll('button'),
       function(b){ b.disabled = true; });
+    // 掠光只演"这一行从无到有"那一次：观察者可能因 data-locked 被重写而再进
+    // 这条分支（runtime 每次尝试都会写锁定标记），所以**先取 hidden 的旧值**做
+    // 差分，再放开显示。判据口径与 0.16.0 气泡、0.14.0 换场同源——差分必须在
+    // JS 里、且必须排在状态写入之前，不能指望 CSS 自己认出"这是第一次"。
+    var nextShown = !gateNext.hidden;
     gateNext.hidden = false;
     // "是不是最后一题"要按**时间锚点**比，不能按 GATES 数组下标——
     // 声明顺序和播放顺序可以不同（范本就是 seg-6 排在最前），按下标会把文案配反。
@@ -2238,6 +2387,13 @@
     gateGo.disabled = false;
     gateGo.textContent = last ? '继续看完这一课 →' : '继续（后面还有一题）→';
     gateHint.innerHTML = '也可以按 <b>空格</b> 继续';
+    // 掠光：放行这一行**刚出现**的那一下演一次（nextShown 是上面差分出来的旧值，
+    // 已经开着的那一行不重放——同一个键被反复刷亮是闪烁，不是邀请）。
+    // 重挂口径与章节翻场、字幕翻句同款：摘 → 读一次几何 → 挂。
+    if (!nextShown){
+      gateGo.classList.remove('shine'); void gateGo.getBoundingClientRect();
+      gateGo.classList.add('shine');
+    }
     gateGo.focus();
   });
   Object.keys(CARDS).forEach(function(k){

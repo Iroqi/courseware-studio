@@ -2370,3 +2370,453 @@ def test_time_scale_reduced_motion_fallback(full_lesson):
         assert abs(st["w"] / st["bbox"] - 0.6) < 0.01, f"减动效下细线照样跟上嘴：{st}"
     finally:
         _kill(chrome)
+
+
+# ── 12. 边缘与材质：羽化揭示 / 放行键掠光 / 排版留白层 / 主色浅档（0.17.0）──
+
+def test_edge_texture_layer_present():
+    """模板结构契约：0.17.0 四条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是这一轮实测出来"为什么只能这么写"的边界：
+      · 羽化揭示的驱动变量必须注册成 `<percentage>` 且 **initial-value 取终值 134%**
+        （静止态 = 全显）：不支持 @property / 不支持 mask / 导出切掉 animation 三种
+        "动画没跑"的情形都落在完整可见上（纪律③），initial 若取 0% 就把内容锁进门里；
+      · 两端都必须写百分比：`inset()` 那类硬边擦除是两端同函数才可插值，mask 停靠点
+        若写成 `none`/关键字同样会退成 discrete（两格闪烁）；
+      · `.featherR/.featherL` 必须自带 `pointer-events:none`：**mask 不裁命中测试**
+        （与 clip-path 相反，实测被遮住的左半边照样命中），需要 Learner 点的图元
+        只能用 .reveal，不能拿羽化层当遮罩用；
+      · 掠光静止态必须停在盒外（base `background-position:120% 0`、keyframes 两端都
+        写位置），跑完/关掉都是"无光泽的正常按钮"；伪元素带 `pointer-events:none`
+        且宿主 `overflow:hidden`，不抢点击也不漏光；
+      · 掠光的差分排在状态写入之前（先读 hidden 的旧值，再放开显示）——写在
+        `gateNext.hidden = false` 之后判据恒真，同一个键会被反复刷亮；
+      · 减动效兜底那行必须带 `#gate-next` 抬特异度：基础规则源序排在媒体块之后，
+        朴素同形选择器平手时后来者胜（0.15.0 折叠、0.16.0 侧栏同一课）；
+      · 主色浅档走 `@supports` 覆盖，不靠"同名两行"：自定义属性解析期什么都收，
+        坏的是替换后的那条声明（非法计算值 → unset → 背景透明）；
+      · 排版两条只管 HTML 侧文本，`text-box-edge` 只写 `text`（`cap`/`ex` 在本机
+        Chrome 的 CSS.supports 全 false，写上去整条作废）。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+
+    # ① 令牌：羽化比硬边擦除略长一档，掠光比揭示短——都是实测调出来的相对关系
+    assert "--dur-feather:.62s; --dur-shine:.9s;" in html
+
+    # ② 羽化揭示：注册变量的终值即静止值（纪律③那条门不能反过来锁内容）
+    assert ("@property --feather{syntax:'<percentage>';inherits:false;"
+            "initial-value:134%}") in html
+    assert "@keyframes feSoft{from{--feather:0%}to{--feather:134%}}" in html
+    assert (".featherR,.featherL{pointer-events:none;mask-repeat:no-repeat;\n"
+            "        animation:feSoft var(--dur-feather) var(--ease-out) backwards}") in html
+    assert ("mask-image:linear-gradient(90deg,#000 0 calc(var(--feather) - 34%),\n"
+            "                        transparent var(--feather) 100%)") in html
+    assert ("mask-image:linear-gradient(270deg,#000 0 calc(var(--feather) - 34%),\n"
+            "                         transparent var(--feather) 100%)") in html
+    # 消费者：挂在包装 <g> 上，内层文字不带 class（两层入场叠在一起只会互糊）
+    assert "var fixw = put('d-body', 'g', 'd-fix-w', {class:'featherR'});" in html
+    assert "txt(fixw, 'd-fix', {class:null," in html
+    assert html.count("{class:'featherR'}") == 1, "羽化层每个消费者都要 pointer-events:none，别给热区用"
+
+    # ③ 放行键掠光：伪元素 + background-position（不是 mask——这里要加亮不是裁剪）
+    assert ".gate-next .go{position:relative;overflow:hidden}" in html
+    assert ('.gate-next .go:not(:disabled)::after{content:"";position:absolute;'
+            'inset:0;pointer-events:none;\n'
+            '        border-radius:inherit;background:linear-gradient(105deg,'
+            'transparent 0 42%,\n'
+            '        rgba(255,255,255,.55) 50%,transparent 58% 100%);\n'
+            '        background-size:260% 100%;background-repeat:no-repeat;'
+            'background-position:120% 0}') in html
+    assert ("@keyframes passShine{from{background-position:120% 0}"
+            "to{background-position:-60% 0}}") in html
+    assert ".gate-next .go.shine::after{animation:passShine var(--dur-shine) linear}" in html
+    # 差分排在状态写入之前，摘 → 读几何 → 挂 的三段式重触发
+    assert "var nextShown = !gateNext.hidden;" in html
+    assert html.index("var nextShown = !gateNext.hidden;") < html.index("    gateNext.hidden = false;\n"
+                                                                        "    // \"是不是最后一题\""), \
+        "hidden 的旧值必须写在放开显示之前，否则判据恒真"
+    assert ("if (!nextShown){\n"
+            "      gateGo.classList.remove('shine'); void gateGo.getBoundingClientRect();\n"
+            "      gateGo.classList.add('shine');\n"
+            "    }") in html
+
+    # ④ 排版留白层：只在 HTML 侧，edge 只认 text
+    assert ".chapter h1{font-size:19px;margin:0;font-weight:700;text-wrap:balance}" in html
+    assert (".chapter .tagline{font-size:13px;color:var(--dim);margin:0;flex:1 1 100%;\n"
+            "                    text-wrap:balance;text-box-trim:trim-both;"
+            "text-box-edge:text}") in html
+    assert "text-wrap:pretty" not in html, "pretty 靠空格分词，中文没有空格"
+    assert "text-box-edge:cap" not in html and "text-box-edge:ex" not in html, \
+        "这两个 edge 值本机 CSS.supports 全 false，写上去整条声明作废"
+
+    # ⑤ 主色浅档令牌：rgba 兜底 + @supports 覆盖，消费者一律引用令牌
+    assert "--key-soft:rgba(245,166,35,.14);" in html
+    assert "--key-softer:rgba(245,166,35,.08);" in html
+    assert "--key-act:rgba(245,166,35,.16);" in html
+    assert ("@supports (color:color-mix(in oklab,red 50%,transparent)){\n"
+            "    :root{\n"
+            "      --key-soft:color-mix(in oklab,var(--key) 14%,transparent);\n"
+            "      --key-softer:color-mix(in oklab,var(--key) 8%,transparent);\n"
+            "      --key-act:color-mix(in oklab,var(--key) 16%,transparent);") in html
+    assert "background:var(--key-soft);color:var(--key)}" in html        # .chapter .tag
+    assert ".rack .spd[data-off]{background:var(--key-act);color:var(--key)}" in html
+    assert "border:1.6px dashed #62708c;background:var(--key-softer);padding:0;" in html
+    assert ".hotspot-stage .hs:hover{border-color:var(--key);background:var(--key-act);color:var(--key)}" in html
+    # 一次性的高透明值不造令牌（一个消费者不叫令牌系统），SVG 侧那几处是**语义色**的底
+    assert "::selection{background:rgba(245,166,35,.28);color:#fff}" in html
+    assert "box-shadow:0 0 5px rgba(245,166,35,.55)}" in html
+    assert "fill:'rgba(245,166,35,.12)'" in html
+    assert "amber: {fill:'#f5a623', stroke:'#f5a623', box:'rgba(245,166,35,.13)'}" in html
+
+    # ⑥ 减动效兜底：羽化关动画即落静止态 134%（全显）；掠光兜底要带 id 抬过基础规则
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    assert ".featherR,.featherL{animation:none}" in rm
+    assert "#gate-next .go.shine::after{animation:none}" in rm
+    assert "\n    .gate-next .go.shine::after{animation:none}" not in rm, \
+        "朴素同形选择器会被源序在后的基础规则顶掉（兜底不是写了就生效）"
+    # 羽化不进 .nt 的 transition 清单：mask 的参考盒跟着缩放走，同节点会互相干扰
+    nt_at = html.index(".nt{transition:transform")
+    nt_block = html[nt_at:html.index("--dimmer var(--dur-dim)", nt_at)]
+    assert "mask" not in nt_block, "mask 不参与 .nt 的几何补间清单"
+
+    # ⑦ 本轮实测否决的三条，别被下一轮再请回来：
+    #    counter() 里程表在不支持 @property 时渲染**空字符串**（纪律③直接不合格）；
+    #    conic-gradient 扫描遮罩在被缩放的 SVG 上圆心/方向不可靠；
+    #    View Transitions / content-visibility / calc-size 与逐句冷启动截图模型冲突。
+    assert "counter(" not in html
+    assert "conic-gradient" not in html
+    assert "view-transition" not in html and "content-visibility" not in html
+    assert "calc-size(" not in html
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_feather_reveal_sweeps_softly_and_settles(full_lesson):
+    """真实浏览器：羽化揭示是**遮罩停靠点的连续补间**，静止态与定格都是完整可见。
+
+    量的四条边界都来自这轮实测：
+      · --feather 走过 0%→134% 的连续值（未注册的自定义属性不会补间，只整档跳变）；
+        不透明停靠点恒等于 `--feather − 34%`，也就是"软边"确实挂在移动的渐变带上；
+      · mask 不改几何：`getBBox()` 全程一格不动（相机取景与 QA 几何判定不受影响）；
+      · **mask 不裁命中测试**，所以羽化层不可点——elementFromPoint 打在那行字上
+        拿到的必须不是它本身（.reveal 靠 clip-path 天然没这问题，两者口径相反）；
+      · 跑完落回元素自己的 134%（fill-mode 不写 forwards），导出那一刀切掉 animation
+        之后同样是完整可见的定格。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "feather")
+    try:
+        ev(_SEEK)
+        probe = """(function(){
+          function raf(){return new Promise(function(r){requestAnimationFrame(function(){r(1)})});}
+          window.__jump('seg-5', 4);                 // 先落上一拍，把 d-fix-w 从 DOM 撤走
+          return raf().then(raf).then(function(){
+            window.__jump('seg-5', 5);               // 这一步才建羽化包装
+            var g=document.getElementById('d-fix-w'), t=document.getElementById('d-fix');
+            g.getBoundingClientRect();
+            var as=g.getAnimations(), a=null;
+            for (var i=0;i<as.length;i++) if (as[i].animationName==='feSoft') a=as[i];
+            if (!a) return JSON.stringify({err:as.map(function(x){
+              return x.animationName||x.transitionProperty;})});
+            a.pause(); a.currentTime=0;
+            var seq=[];
+            [0,120,310,500,620].forEach(function(ms){
+              a.currentTime=ms;
+              var cs=getComputedStyle(g), bb=t.getBBox();
+              seq.push([ms, cs.getPropertyValue('--feather').trim(), cs.maskImage,
+                        +bb.width.toFixed(2)]);
+            });
+            var out={seq:seq, dur:a.effect.getTiming().duration,
+                     pe:getComputedStyle(g).pointerEvents,
+                     cls:g.getAttribute('class'), tcls:t.getAttribute('class')};
+            a.play();
+            return JSON.stringify(out);
+          });})()"""
+        got = json.loads(ev(probe, await_promise=True))
+        assert not got.get("err"), f"seg-5 末句应演 feSoft：{got}"
+        assert got["dur"] == 620, f"时长读 --dur-feather：{got['dur']}"
+        assert got["pe"] == "none", "羽化层必须自带 pointer-events:none（mask 不裁命中测试）"
+        assert "featherR" in got["cls"] and got["tcls"] == "nt", \
+            f"羽化挂包装 g、内层文字不带入场类：{got['cls']!r} / {got['tcls']!r}"
+
+        def stops(mask):
+            """从计算值取（不透明段终点, 透明段起点）两个百分数。"""
+            assert mask.startswith("linear-gradient(90deg, rgb(0, 0, 0) 0px"), \
+                f"静止与途中都该是那条渐变遮罩：{mask!r}"
+            vals = re.findall(r"(-?[\d.eE+-]+)%", mask)
+            assert len(vals) >= 2, mask
+            return float(vals[0]), float(vals[1])
+
+        pcts = []
+        for ms, feather, mask, bbw in got["seq"]:
+            f = float(feather.rstrip("%"))
+            pcts.append(f)
+            opaque, clear = stops(mask)
+            assert abs(opaque - (f - 34.0)) < 1e-3, f"软边宽度该恒为 34%：{ms} → {feather} / {mask}"
+            assert abs(clear - f) < 1e-3, f"透明段起点该贴着 --feather：{ms} → {mask}"
+        assert pcts[0] == 0.0 and pcts[-1] == 134.0, f"两端写死 0%→134%：{pcts}"
+        assert pcts == sorted(pcts) and len(set(pcts)) == len(pcts), \
+            f"--feather 应逐帧连续推过去：{pcts}"
+        assert 0 < pcts[2] < 134, f"中途要采到真正的软边行进：{pcts}"
+        widths = [s[3] for s in got["seq"]]
+        assert len(set(widths)) == 1, f"遮罩不该改变几何包围盒：{widths}"
+
+        # 落定：回到元素自己的静止态（134% = 整条遮罩带已移出右侧 = 全显）
+        assert _wait_idle(ev, "#d-fix-w") == [], "羽化跑完不该留下在跑的动画"
+        st = json.loads(ev("""(function(){var g=document.getElementById('d-fix-w'),
+          t=document.getElementById('d-fix'), cs=getComputedStyle(g);
+          var q=t.getBoundingClientRect();
+          var hit=document.elementFromPoint(q.left+q.width/2, q.top+q.height/2);
+          return JSON.stringify({f:cs.getPropertyValue('--feather').trim(),
+            op:cs.maskImage.indexOf('rgb(0, 0, 0) 100%')>=0,
+            rects:t.getClientRects().length,
+            hit:hit?(hit.id||hit.tagName):null,
+            self:(hit===t)||(hit===g)});})()"""))
+        assert st["f"] == "134%", f"静止态应落回注册终值：{st}"
+        assert st["op"], f"静止态不透明段应铺满 100%（全显）：{st}"
+        assert st["rects"] > 0, f"落定后文字要有盒子：{st}"
+        assert not st["self"], f"羽化层不可点（命中区不被 mask 裁掉）：{st}"
+
+        # 导出截图页口径：一刀切掉 animation 后落在**完整可见**的定格上
+        ev("var s=document.createElement('style');"
+           "s.textContent='*,*::before,*::after{transition:none!important;"
+           "animation:none!important}';document.head.appendChild(s);")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-5', 4)")
+        ev("window.__jump('seg-5', 5)")
+        time.sleep(0.2)
+        assert _anims(ev, "#d-fix-w") == [], "切掉动画后不该有在跑的揭示"
+        st = json.loads(ev("""(function(){var g=document.getElementById('d-fix-w'),
+          t=document.getElementById('d-fix'), cs=getComputedStyle(g);
+          return JSON.stringify({f:cs.getPropertyValue('--feather').trim(),
+            op:cs.maskImage.indexOf('rgb(0, 0, 0) 100%')>=0,
+            rects:t.getClientRects().length});})()"""))
+        assert st["f"] == "134%" and st["op"] and st["rects"] > 0, \
+            f"导出定格必须是完整可见的一行：{st}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_gate_shine_fires_once_on_gate_open(full_lesson):
+    """真实浏览器：掠光只在放行那一行"从无到有"时演一次，静止态高光带停在盒外。
+
+    走真实通路（seek 到 seg-2 末句之后的空档 → recall 揭开参考答案 → 运行时写
+    data-locked → 页面侧 MutationObserver），不手工加 class——因为要验的正是那条
+    差分判据：
+      · 第一次 locked：`.shine` 挂上、passShine 跑起来（时长读 --dur-shine）；
+      · 跑途中再写一次 locked（观察者会重进）：判据是 hidden 的**旧值**，
+        同一条动画继续走（currentTime 只增不减），不会从头重放；
+      · 跑完之后又写：摘重挂只在"这一行刚出现"时做一次，已经亮着的键不该闪第二遍；
+      · 位置补间两头都写在盒外（120% → −60%），落定回到 120% = 看不见。
+
+    时序上有个实测踩到的坑：**引导浮层（preGate）那 1.1s 里 `#gate` 整层还是
+    display:none**，放行行虽然被摘了 hidden 也没有盒——伪元素的动画要到元素**第一次
+    有盒**才登记进 document.getAnimations()。所以这里等的是"浮层揭开"，与学习者
+    真正看到那一行的时刻对齐；抢先点 recall 也能走通（JS click 不看可见性），
+    但那时采到的"没有动画"是取景时刻的假阴性。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "shine")
+    try:
+        ev(_SEEK)
+
+        def pump(n=2):
+            """推 n 帧：类挂上 ≠ 时间线已登记，元素要等下一次样式重算才有盒、
+            动画才进 getAnimations()（同 0.15.0 擦除用例那条取样口径）。"""
+            for _ in range(n):
+                ev("new Promise(function(r){requestAnimationFrame(function(){r(1)})})",
+                   await_promise=True)
+
+        def wait(pred_js, timeout=4.0):
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                if ev(pred_js):
+                    return True
+                time.sleep(0.05)
+            return False
+
+        def shines():
+            return json.loads(ev("""(function(){
+              var as=document.getAnimations().filter(function(a){
+                return a.animationName==='passShine';});
+              return JSON.stringify(as.map(function(a){
+                return [Math.round(a.currentTime||0), a.playState];}));})()"""))
+
+        def next_state():
+            return json.loads(ev("""(function(){var nx=document.getElementById('gate-next'),
+              go=document.getElementById('gate-go'), cs=getComputedStyle(go,'::after');
+              return JSON.stringify({hidden:nx.hidden, dis:go.disabled,
+                shine:go.classList.contains('shine'), an:cs.animationName,
+                pos:cs.backgroundPosition, pe:cs.pointerEvents});})()"""))
+
+        # 空档里开 recall 门禁：先落末句（不越锚点），再落到锚点之后 0.2s
+        tl = json.loads(ev("JSON.stringify(window.__tl)"))
+        seg2 = [s for s in tl["scenes"] if s["step_id"] == "seg-2"][0]["runtime"]
+        last = seg2["narration"][-1]
+        anchor = last["start"] + last["duration"]
+        ev("window.__jump('seg-2', %d)" % (len(seg2["narration"]) - 1))
+        ev("(function(){window.__t=%r;document.getElementById('main-audio')"
+           ".dispatchEvent(new Event('timeupdate'));return 1;})()" % (anchor + 0.2))
+        # 等**整层浮层揭开**（preGate 1.1s 之后），不是只等卡片摘 hidden
+        assert wait("!document.getElementById('gate').hidden", 4.0), "recall 门禁未开"
+        assert ev("!document.getElementById('gate-recall').hidden")
+        st = next_state()
+        assert st["hidden"] is True, f"答对之前放行那行该收着：{st}"
+        assert st["shine"] is False and st["an"] == "none", f"没演过掠光：{st}"
+        assert st["dis"] is True, "未答对时继续键该 disabled（伪元素不生成）"
+
+        # 真实通路：点「看参考答案」→ 运行时写 data-locked → 观察者放行
+        ev("document.querySelector('#gate-recall [data-recall-reveal]').click()")
+        assert wait("!document.getElementById('gate-next').hidden", 2.0), "答对后放行行未出现"
+        pump()
+        st = next_state()
+        assert st["shine"] and not st["dis"], f"放行行应出现并挂上掠光：{st}"
+        seq = shines()
+        assert len(seq) == 1, f"只该有一条 passShine：{seq}"
+        dur = ev("""(function(){ var a = document.getAnimations().filter(function(x){
+          return x.animationName === 'passShine'; })[0];
+          return a ? a.effect.getTiming().duration : null; })()""")
+        assert dur == 900, f"时长读 --dur-shine：{dur}"
+        assert st["an"] == "passShine" and st["pe"] == "none", f"伪元素在跑且不抢点击：{st}"
+
+        # 途中再写一次 locked：差分判据（旧值已显示）不该让它从头重放。
+        # 先等 currentTime 真的走起来——刚登记那一瞬它还是 0（起播时刻未定），
+        # 拿 0 去比"只增不减"等于什么都没验。
+        assert wait("(function(){var a=document.getAnimations().filter(function(x){"
+                    "return x.animationName==='passShine';})[0];"
+                    "return !!a && a.currentTime>0;})()", 2.0), \
+            f"掠光应在放行行出现后开走：{shines()}"
+        before = shines()[0][0]
+        assert before < 900, f"应仍在掠光途中再写 locked：{before}"
+        ev("document.getElementById('gate-recall').dataset.locked = '1'")
+        pump()
+        after = shines()
+        assert len(after) == 1, f"重写 locked 不该重放掠光：{before} → {after}"
+        assert after[0][0] >= before, f"同一条动画应继续走：{before} → {after}"
+
+        # 位置补间：静止与起点都在盒外右侧，途中单调左移（暂停取样，同擦除用例的
+        # 取样口径）。终点 −60% 由静态契约锁 keyframes 两端；这里取 880ms 而不是
+        # 整 900ms——fill 不写 forwards 时 local time == duration 已属 after 相，
+        # 计算值会落回静止态，拿 −60% 断言会踩模型边界。
+        track = json.loads(ev("""(function(){
+          var go=document.getElementById('gate-go'), a=null;
+          var as=document.getAnimations();
+          for (var i=0;i<as.length;i++) if (as[i].animationName==='passShine') a=as[i];
+          if (!a) return JSON.stringify({err:as.map(function(x){return x.animationName;})});
+          a.pause();
+          var out=[];
+          [0,300,600].forEach(function(ms){a.currentTime=ms;
+            out.push(getComputedStyle(go,'::after').backgroundPosition);});
+          a.currentTime=880;
+          out.push(getComputedStyle(go,'::after').backgroundPosition);
+          a.play();
+          return JSON.stringify({seq:out});})()"""))
+        assert not track.get("err"), f"伪元素动画应可取样：{track}"
+        xs = [float(re.match(r"(-?[\d.]+)%", p).group(1)) for p in track["seq"]]
+        assert xs[0] == 120.0, f"起点该停在盒外右侧：{track['seq']}"
+        assert xs[-1] < -50, f"掠到末段应已越出左侧：{track['seq']}"
+        assert xs == sorted(xs, reverse=True), f"高光带应一路向左掠：{track['seq']}"
+
+        # 落定：跑完回到静止态 120%（看不见），没有残留动画
+        assert wait("document.getAnimations().filter(function(a){"
+                    "return a.animationName==='passShine';}).length===0", 3.0), \
+            f"掠光跑完不该留在场：{shines()}"
+        st = next_state()
+        assert st["pos"].startswith("120%"), f"静止态高光带应停在盒外：{st}"
+
+        # 放行行已经开着：之后再写 locked 一律不重放
+        ev("document.getElementById('gate-recall').dataset.locked = '1'")
+        pump()
+        assert shines() == [], f"已亮着的键不该再闪：{shines()}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_edge_texture_reduced_motion_fallback(full_lesson):
+    """关掉动效：羽化直接全显、掠光不演但放行行照旧出现、浅档底色照旧落色。
+
+    两条新原语的兜底方式是同一句话的两面——**静止态就是终态**：
+      · 羽化关掉 animation 后落在元素自己的 --feather=134%（不透明段 100%），
+        与 .reveal 关掉落 `clip-path:none` 对齐，没有"半截羽化"留在定格上；
+      · 掠光关掉后伪元素仍在那儿，但位置停在盒外 120%，本来就看不见；
+        这一行必须带 `#gate-next` 抬特异度才真的落上（源序在后的基础规则会顶掉它）。
+    底色那组令牌是**静态取值**（color-mix 不参与动画），减动效下算得出同一个浅色，
+    顺带验一次 @supports 覆盖后的值仍等于兜底 rgba。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm17")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+        ev("window.__jump('seg-5', 5)")
+        time.sleep(0.15)
+        st = json.loads(ev("""(function(){var g=document.getElementById('d-fix-w'),
+          t=document.getElementById('d-fix'), cs=getComputedStyle(g);
+          return JSON.stringify({an:cs.animationName,
+            f:cs.getPropertyValue('--feather').trim(),
+            op:cs.maskImage.indexOf('rgb(0, 0, 0) 100%')>=0,
+            rects:t.getClientRects().length});})()"""))
+        assert st["an"] == "none", f"减动效下羽化动画该整条关掉：{st}"
+        assert st["f"] == "134%" and st["op"], f"关掉后必须全显（内容不锁进门里）：{st}"
+        assert st["rects"] > 0, f"减动效下这一行照样在场：{st}"
+
+        # 浅色令牌：@supports 覆盖生效时，**合成到同一个底色上的像素**应与 rgba 兜底一致。
+        # 不能比字符串：canvas 的 fillStyle getter 原样保留作者写的颜色规范（实测
+        # `color-mix(...)` 取回还是那串 oklab()，不换算成 rgba()），比字符串会把
+        # "像素相同"这条实测结论误判成失败——所以拿 getImageData 比合成结果。
+        tint = json.loads(ev("""(function(){
+          function px(css){var c=document.createElement('canvas');c.width=c.height=4;
+            var g=c.getContext('2d');g.fillStyle='#101319';g.fillRect(0,0,4,4);
+            g.fillStyle=css;g.fillRect(0,0,4,4);
+            var d=g.getImageData(0,0,4,4).data;return String([d[0],d[1],d[2]]);}
+          var raw=getComputedStyle(document.getElementById('ch-tag')).backgroundColor;
+          return JSON.stringify({sup:CSS.supports('color','color-mix(in oklab,red 50%,transparent)'),
+            mix:px('color-mix(in oklab,rgb(245,166,35) 14%,transparent)'),
+            rgba:px('rgba(245,166,35,.14)'), token:px(raw), raw:raw,
+            act:px('color-mix(in oklab,rgb(245,166,35) 16%,transparent)'),
+            actRgba:px('rgba(245,166,35,.16)')});})()"""))
+        if tint["sup"]:
+            assert tint["mix"] == tint["rgba"], f"现调浅色应与兜底 rgba 同值：{tint}"
+            assert tint["act"] == tint["actRgba"], f"16% 那档同理：{tint}"
+            assert tint["token"] == tint["mix"], f"消费者应取到令牌：{tint}"
+
+        # 掠光：放行行出现、文字照旧，但那条动画整条关掉且底色不闪
+        tl = json.loads(ev("JSON.stringify(window.__tl)"))
+        seg2 = [s for s in tl["scenes"] if s["step_id"] == "seg-2"][0]["runtime"]
+        last = seg2["narration"][-1]
+        ev("window.__jump('seg-2', %d)" % (len(seg2["narration"]) - 1))
+        ev("(function(){window.__t=%r;document.getElementById('main-audio')"
+           ".dispatchEvent(new Event('timeupdate'));return 1;})()"
+           % (last["start"] + last["duration"] + 0.2))
+        deadline = time.time() + 4.0
+        while time.time() < deadline:
+            if ev("!document.getElementById('gate-recall').hidden"):
+                break
+            time.sleep(0.1)
+        assert ev("!document.getElementById('gate-recall').hidden"), "减动效下门禁照旧开"
+        ev("document.querySelector('#gate-recall [data-recall-reveal]').click()")
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            if ev("!document.getElementById('gate-next').hidden"):
+                break
+            time.sleep(0.05)
+        st = json.loads(ev("""(function(){var go=document.getElementById('gate-go'),
+          cs=getComputedStyle(go,'::after');
+          return JSON.stringify({hidden:document.getElementById('gate-next').hidden,
+            txt:go.textContent, shine:go.classList.contains('shine'),
+            an:cs.animationName, pos:cs.backgroundPosition,
+            ps:document.getAnimations().filter(function(a){
+              return a.animationName==='passShine';}).length});})()"""))
+        assert st["hidden"] is False and st["txt"], f"减动效下放行行照样出现：{st}"
+        assert st["shine"], "class 仍挂上（判据没变），只是不演：{}".format(st)
+        assert st["an"] == "none", f"兜底行要真的盖过基础规则（带 #gate-next 抬特异度）：{st}"
+        assert st["pos"].startswith("120%"), f"静止态本就看不见：{st}"
+        assert st["ps"] == 0, f"减动效下不该有掠光在跑：{st}"
+    finally:
+        _kill(chrome)

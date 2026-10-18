@@ -49,6 +49,9 @@
 - **进度条兼章节地图**：每节起点一根刻度，悬停报段名，可点可拖；指针落上来那一刻
   轨道与刻度一起变厚（"现在可以拖"画在你正指的地方），字幕下面还有一条细线跟着
   旁白走完这一句；
+- **会呼吸的画面**：某一行"刚刚长出来"时可以是软边掠出（羽化揭示）而不是切纸；
+  答对之后那颗"继续"会被一道高光掠过去邀请你点；标题两行等长、副行上下留白收紧。
+  关掉系统动效偏好后这些一律落回完整定格，一格信息都不少；
 - **0.75× 到 2× 倍速、全屏**：画面字幕门禁全是时钟的纯函数，变速只是时钟走快些；
 - **键盘可达**：空格播放/暂停、←→ 快擦、F 全屏、**M 静音**之外，进度条本身是
   可聚焦的 slider（←/→ 细调 1s、Home/End 到头/尾）；课程结束点 ▶ 即从头重播；
@@ -361,6 +364,28 @@ python -m pytest tests/ -q
   环境不动，比绝对像素稳，且细线残留桌面宽度照样被这条比例抓红）；擦洗态收回同理，
   落定态改成 `settle_geom()` 轮询到过渡走完 + 容差 0.1，不再 `== 6` 精确等值、不再
   固定帧数就取数（慢一点的 runner 收不到最后一格，实测 3.11 停在 6.02）；
+- 0.17.0 的回归：`test_iteration_round2.py::test_edge_texture_layer_present` 锁四条
+  原语的静态口径（`--dur-feather`/`--dur-shine`、`@property --feather` 注册成
+  `<percentage>` 且 **initial 取终值 134%**、`feSoft` 两端都写百分比、`.featherR/L`
+  自带 `pointer-events:none` 且**不进** `.nt` 的补间清单、掠光 keyframes 两端都在盒外
+  （120%→−60%）且宿主 `overflow:hidden`、`var nextShown = !gateNext.hidden;` 排在
+  `gateNext.hidden = false;` **之前**、排版两条只管 HTML 侧且 `text-box-edge` 只写
+  `text`（`cap`/`ex` 本机 `CSS.supports` 全 false）、浅档令牌的 rgba 兜底 + `@supports`
+  覆盖、reduced-motion 兜底写 `#gate-next .go.shine::after` 而不许出现朴素同形选择器，
+  外加**本轮实测否决的四条**不得回流：`counter()`、`conic-gradient`、View Transitions /
+  `content-visibility` / `calc-size()`）。三条 CDP 用例：羽化逐帧采 `--feather` 的连续值
+  并核"不透明停靠点恒等于 `--feather − 34%`"（证明软边确实挂在移动的渐变带上）、
+  `getBBox()` 全程恒定、`elementFromPoint` 证明**命中区不被 mask 裁掉**（所以这一层
+  必须不可点）、跑完与截图模式一刀切后都落回 134% 的全显定格；掠光走真实通路
+  （seek 到空档 → 点「看参考答案」→ 运行时写 `data-locked`）验"只演一次"——跑途中
+  重写 locked 时 `currentTime` 只增不减、跑完之后重写不重放，位置补间采到
+  120→60→0→−56 一路左掠（取 880ms 不取整 900ms：`fill` 不写 forwards 时末刻已属
+  after 相，计算值落回静止态）、reduced-motion 下 class 照挂但 `animationName=none`
+  且没有时间在跑；浅档底色比**合成像素**而不是字符串（canvas 的 `fillStyle` getter
+  原样保留 `oklab()`，比字符串会把"像素相同"这条实测结论误判成失败）。用例还踩出一个
+  取景坑：**preGate 引导浮层那 1.1s 里 `#gate` 整层仍是 `display:none`**，伪元素动画要
+  到元素第一次有盒才登记进 `getAnimations()`，所以断言等的是"浮层揭开"而不是"class
+  挂上"；本机全量 **385 passed / 2 skipped**；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴
