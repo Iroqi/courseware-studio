@@ -66,6 +66,18 @@
        快了读起来是"糊了一下"而不是"羽化出来"。--dur-shine 放行键掠光：一道高光
        走过按钮的时间，比入场类长、比揭示类短——它是"可以点了"的邀请，不是内容。 */
     --dur-feather:.62s; --dur-shine:.9s;
+    /* 连线与标注（0.18.0）：--dur-flow 沿线流光的掠出时长——它演的是"这条关系刚被
+       走通一遍"，比画线（--dur-draw .55s）长一档：光段要走完一整条路，才读得出
+       "从这头到那头"。--flow-seg 光段占路长的比例（pathLength=1 的归一单位，见 .flow）。 */
+    --dur-flow:.9s; --flow-seg:.16;
+    /* 自动错峰的两只旋钮（0.18.0，公式见 .stag）：档间距默认 .06s，但**最晚一项不超过
+       .18s**——与 .st1/.st2/.st3 的 60/120/180ms 三档同一族读数（--stag-cap 就是 .st3
+       那一档），组越大间距自动摊薄，不会出现"十项排到 0.6s"。--halo-bg 是标注光环色：
+       取**舞台局部的底色**而不是 --bg——标注几乎都落在画布里，而 .stage 是渐变
+       （#1c212d → --panel → #161a23），--bg 是页面底，拿它当垫子会在画布上留一圈
+       更深的描边、变成"字被圈起来"。取弧线标注所在那一档（y≈110~140）。 */
+    --stagger:.06s; --stag-cap:.18s;
+    --halo-bg:#1a2029;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -84,6 +96,16 @@
      100%，遮罩直接全开——**内容一格不少**（纪律③：绝不把内容锁进可能不跑的门）。
      名字与 --dimmer 同一课：动手前全仓 grep 一遍，别撞上已有令牌。 */
   @property --feather{syntax:'<percentage>';inherits:false;initial-value:134%}
+  /* 错峰排程的驱动变量（0.18.0）：注册成 <time> 且 **inherits:false**，为的是把
+     "组内位置"这件事**锁在分组的那一层**：`.stag>*` 只给直接子节点写 --delay，
+     孙子节点拿不到（落 initial 0s）。不注册时它只是个继承的 token，会在**每一个
+     后代**上重新求值 sibling-index()，于是嵌套建档（`put` 的常态：g 里还有 rect
+     与 text）会把同一组里的深层小图元也各自错开——那不是错峰入场，是满屏乱闪。
+     实测（注册 + `.stag>*`，三项组的直接子得 0s / .06s，其内部后代全部 0s）。
+     名字沿用 .in 已有的 --delay（0.10.0），语法收窄成 <time>：现有写法
+     `.st1{--delay:.06s}` 与 `style="--delay:.55s"` 都仍合法，
+     非法值（不支持 sibling-index 的浏览器留下的 token）落回 0s = 整组同进。 */
+  @property --delay{syntax:'<time>';inherits:false;initial-value:0s}
   /* color-mix 的覆盖档：认得它的浏览器用现调的浅色，换主色时底色跟着走。
      写成 @supports 而不是"同名两行"——自定义属性解析期什么都收，第二行照样
      成立，坏的是替换后的那条 background（非法计算值 → 属性 unset → 背景透明）。 */
@@ -329,6 +351,98 @@
   @keyframes ntDraw{from{stroke-dashoffset:1}}
   .pulse{animation:ntPulse var(--dur-pulse) ease-in-out infinite}
   @keyframes ntPulse{0%,100%{opacity:1}50%{opacity:.45}}
+  /* 沿线流光（0.18.0，"这条关系刚被走通一遍"）：.draw 说"线存在"，这一条说
+     "有一个方向、有一次通过"——一小段光沿路掠过去，从头到尾。口径全部长在
+     pathLength=1 的归一单位上（与 .draw 同一族），所以同一条 d 换个 class 就换
+     一句话，不用重算 dash 数学：
+       stroke-dasharray: var(--flow-seg) 1   → 一个光段(.16) + 一整条空隙(1)
+       静止态 stroke-dashoffset: var(--flow-seg)
+       @keyframes 从 --flow-seg 走到 -1
+     四条实测边界（Chrome 152，CDP 冻结采样 + 像素扫描）：
+       ① **静止态 = 看不见**：dashoffset 落在 .16 时，光段整体在路头之外（虚线
+          图案往回缩一个光段长），像素扫描整条路上零橙色——不演就没有光，
+          导出/关动效天然落回"一条普通线"（纪律③同一口径，终态写在属性上）；
+       ② **终态也 = 看不见**：补间终点 -1 把光段推到路尾之外，实测采到
+          0.16 → -0.13 → -0.42 → -0.71 → -0.999 一路连续，跑完和静止是同一个
+          画面。这不是缺陷，是这条原语的正确语义：掠光是**事件**不是**状态**，
+          它不留痕迹；要说"线还在"用 .draw，要说"刚走通过"叠一层 .flow；
+       ③ **必须叠在一条看得见的底线上面**：它自己静止时是隐形的，单独挂 .flow
+          等于什么都没有。范本的消费者全部按"底线 .draw + 流光 .flow 分两个节点"
+          摆（同 d、同坐标，一个画满线一个演掠动），谁也不许单独用 .flow；
+       ④ **与 .draw 同节点 = 相互抵消**：两条规则都声明 stroke-dasharray，源序
+          后者胜（实测 .draw .flow 叠在一起只剩 .16/1 的图案，线根本画不满）。
+          要"先画出来再流光"，就按 ③ 分节点，用 --delay 排先后。
+     animation-timing 用 linear：easeOutExpo 会把大半行程挤进路尾，光段在起点
+     附近糊一下就走完了，读不出"一路走过去"。--flow-seg 改大只改光段长度，
+     两个"看不见"的端点由 calc 关系自动跟着走，不用重算。
+     ⑤ **pointer-events:none 是规矩不是可选项**：虚线的**空隙不透明但不可命中**
+        （实测 hit 落在 dash 间隙返回的不是这条 path），于是"看不见的流光层"会
+        在整条路上挡住底下的热区。流光只是装饰，装饰一律不吃命中。 */
+  .flow{stroke-dasharray:var(--flow-seg) 1;stroke-dashoffset:var(--flow-seg);
+        animation:ntFlow var(--dur-flow) linear backwards;animation-delay:var(--delay,0s);
+        pointer-events:none}
+  @keyframes ntFlow{from{stroke-dashoffset:var(--flow-seg)}to{stroke-dashoffset:-1}}
+  /* 恒定线宽（0.18.0，相机层的注记不该跟着镜头变粗）：#cam 推到 1.8 时，
+     1px 的世界分栏线在屏幕上变 1.8px、糊成一团；vector-effect:non-scaling-stroke
+     把描边钉回**屏幕像素**宽度。实测（SVG transform 属性缩放下逐像素扫描）：
+     普通描边 0.5/1/2/3× → 2/4/6/10 屏幕像素，nss 恒为 4——正是要的行为。
+     两条必须知道的边界：
+       ① **它不继承**：写在相机分组（#cam 那层）上等于没写（实测父层计算值
+          non-scaling-stroke、子节点 none），必须逐图元挂 .crisp；
+       ② **只给注记/参照线用，不给内容图元用**：卡片边框、结论色带这些"世界的
+          东西"跟着镜头变粗是对的（那是真实摄影机的前后关系）；分栏线、刻度、
+          辅助网格这些"画面上的注记"要的是恒定读数。用错对象，推近后内容会
+          显出纸片感（描边不变 = 平面贴图）。 */
+  .crisp{vector-effect:non-scaling-stroke}
+  /* 自动错峰（0.18.0，前沿做法：sibling-index() / sibling-count()）：一组图元按序
+     上浮，节奏不再靠作者数个数写 .st1/.st2/.st3，也不再靠 nth-child 的三份魔法数。
+     档间距取 --stagger，但**总时长封顶在 --stag-cap**：组越大，实际间距由
+     sibling-count() 现算摊薄——实测同一份 CSS 在 2 / 3 / 6 项的组里分别得到
+     0s；0/.06/.12s；0/.036/.072/.108/.144/.18s，**最后一项永远不超过 .18s**
+     （总量守恒）。作者往组里加图元不用回头改 CSS，也不用担心十项排到 0.6s。
+     四条实测边界：
+       ① **减号两侧必须有空格**：写成紧凑的 `sibling-count()-1` 时整条 calc()
+          在计算值阶段作废，而动画**照样跑**（animationName 仍是 ntIn），只是
+          --delay 落回 initial 0s——整组同时蹦出来，控制台一句话都不报。本轮最容易
+          静默通过的一条，静态契约用例锁的就是这两处空格；
+       ② **必须锁在分组那一层**：--delay 注册成 `<time>` + `inherits:false`
+          （见文件上方那条 @property）。`.stag>*` 写在容器上、只命中直接子节点，
+          孙子拿不到 → 落 0s。不注册的话它是个会继承的 token，在**每个后代**上
+          各自重算 sibling-index()，而 `put()` 的常态就是嵌套建档（一个 g 里
+          还有 rect 与 text），结果是同一组里的深层小图元也各自错开——那不是
+          错峰入场，是满屏乱闪；
+       ③ **--stag-cap 分母用 max(…, 1) 兜住单项组**：sibling-count() 为 1 时
+          分母是 0，整条 calc() 作废（不会退化成 0s 而是非法值），单项组反而
+          看不见；
+       ④ 不支持这一族函数的浏览器（Firefox 正式版未开）：calc() 作废 → --delay
+          落 initial 0s → 整组同时入场，**内容一格不少**。外面那层 @supports
+          只是省掉注定作废的声明，不是正确性前提——正确性由 @property 的
+          initial-value 负责（纪律③：绝不把内容锁进一个可能不跑的门里）。
+     .stag 只声明 --delay，自己不动画；入场动作仍归 .in / 门禁卡片的 cardIn——
+     错峰是**排程**、入场是**动作**，分开才各自关得掉（reduced-motion 只关动画，
+     排程留着也没有可见效果，不必单独列进兜底清单）。 */
+  @supports (animation-delay:calc(1ms * sibling-index())){
+    .stag>*{--delay:calc(min(var(--stagger),
+                             var(--stag-cap) / max(sibling-count() - 1, 1))
+                          * (sibling-index() - 1))}
+  }
+  /* 标注留白（0.18.0，paint-order:stroke）：压在连线/图元上的短标注最容易被
+     "线穿字"糊成一片。给它一圈**垫子色**的描边，并把描边画在字**下面**——读起来
+     是"字自己浮起一块垫子"，不是"字被圈起来了"。三条实测口径：
+       ① stroke-width 用 **em**：.22em 在 13px 档算出 2.86px（CDP 读 computed
+          strokeWidth），`put()` 在小屏把字号统一放大时，留白跟着字号走，不用为
+          两档字号各写一份数——字面 px 那版在大字号下明显不够宽；
+       ② paint-order 不支持时会**反过来啃字**：描边落在字面上方，同样 .22em 的
+          描边把笔画盖细一圈（实测 po:normal 那一行的字明显更瘦）。所以这条不能
+          只靠声明——@supports 包住，不认 paint-order 的浏览器连描边都不写，
+          退回"就是一行字"，仍是可读定格；
+       ③ 垫子色取 --halo-bg（舞台局部底色），不取 --bg（页面底）、也不是 --panel：
+          弧线标注落在 .stage 那圈渐变里，用错一档会在字周围留一圈看得见的深色边。
+     stroke-linejoin:round 让笔画拐角不炸毛刺。它不是动效，不进 reduced-motion
+     清单，与 0.17.0 排版留白层同一口径。 */
+  @supports (paint-order:stroke){
+    .halo{stroke:var(--halo-bg);stroke-width:.22em;stroke-linejoin:round;paint-order:stroke}
+  }
   /* 擦除揭示（0.15.0，前沿做法：wipe reveal）：不是"淡进来"，而是**从一侧扫出来**——
      像擦掉一块遮布。用在"这一行/这条线是刚刚长出来的"那种场合，方向本身带信息
      （左→右读作"往后推演"，右→左读作"回溯"），比同质的淡入多一层语义。
@@ -439,6 +553,26 @@
     .el,.el.on{transition:none}
     #cam,.nt,.bar-fill{transition:none}
     .in,.pop,.draw,.pulse,.gate,.gate.leaving,.gate .g-card>*{animation:none}
+    /* 沿线流光（0.18.0）关的是 **animation**，静止态本来就落在"光段在路头之外"
+       （stroke-dashoffset = --flow-seg，实测整条路上零像素光段），所以关掉之后
+       这一层直接隐形、留给它下面那条 .draw 底线——画面仍是"一条完整的连线"，
+       一格信息不少。与 .reveal / .featherR 同一课：兜底落的正是终态。
+       这一行**不需要抬特异度**（与 0.15.0 折叠、0.16.0 侧栏、0.17.0 掠光那三条
+       不同）：.flow 的基础规则写在 §③ 动效原语区（本块之前），同特异度 (0,1,0)
+       时源序后者胜，媒体块在这边赢。那三条之所以要抬，是因为它们的基础规则
+       写在媒体块**之后**。 */
+    .flow{animation:none}
+    /* 门禁这一族（0.18.0 补）：**上面那行抢不过**——`.gate{…animation:gateIn…}` 与
+       `.gate .g-card>*{…animation:cardIn…}` 写在 §②b 门禁那一段里，源序排在**本块之后**，
+       同特异度时后来者胜（与 0.15.0 折叠、0.16.0 侧栏入场、0.17.0 掠光完全同一课：
+       兜底不是写了就生效，要真的盖过基础规则）。带 `#gate` 抬到 id 特异度才落得上。
+       这一条在 0.18.0 之前一直没被发现，是因为 §⑤ 那条 `animation-duration:.01ms!important`
+       的时长钳制把动画压成不可感知——**但 animation-delay 不在钳制范围内**：门禁卡片一挂
+       自动错峰（.stag），减少动效下三张卡片仍然按 0 / 60 / 120ms 依次出现，那正是该关掉的
+       "一个接一个动"。所以这不是锦上添花：不抬特异度，本轮的 .stag 就是在给可及性加回归。
+       旧那行的选择器整串保留（它同时兜住 `.in/.pop/.draw/.pulse`，那四条基础规则写在本块
+       之前，正常生效），只在这里补门禁三条。 */
+    #gate,#gate.leaving,#gate .g-card>*{animation:none}
     #cam.blurpass{animation:none}   /* 运镜模糊同关：镜头照旧补间，只是不糊 */
     #cap-text.capLift,
     .interaction-feedback.is-correct,.interaction-feedback.is-wrong{animation:none}
@@ -571,10 +705,13 @@
   .gate .g-card{width:100%;max-width:660px;margin:auto;background:#1e2431;   /* 比 --panel 亮一档才压得住背景；居中靠 auto 边距，align-items:center 配 overflow 会把卡片顶部裁掉且滚不回来 */
         border:1px solid #3a4359;border-radius:14px;padding:18px 20px;
         box-shadow:0 20px 56px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.06)}
-  .gate .g-card>*{animation:cardIn var(--dur-gate) var(--ease-out) both}
-  .gate .g-card>*:nth-child(1){animation-delay:.04s}
-  .gate .g-card>*:nth-child(2){animation-delay:.11s}
-  .gate .g-card>*:nth-child(3){animation-delay:.18s}
+  .gate .g-card>*{animation:cardIn var(--dur-gate) var(--ease-out) both;
+        animation-delay:var(--delay,0s)}
+  /* 错峰排程交给 .stag（0.18.0）：原来这里写死三份 nth-child 魔法数（.04/.11/.18），
+     runtime 动态生成的交互块一旦多于三项，第四项起延迟落回 0 与第三项同时进；
+     少于三项时后面的档位白占着。卡片挂上 .stag 后由 sibling-count() 现算摊薄，
+     项数变了也不用回头改 CSS。@supports 不成立时 --delay 空 → var() 接住 0s →
+     整组同进，卡片内容一格不少（门禁是学习证据通道，不是装饰，绝不允许看不见）。 */
   @keyframes cardIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
   .gate .kick{margin:0 0 9px;font-size:11.5px;letter-spacing:.07em;color:var(--key)}
   .gate .q{font-weight:600;font-size:16.5px;line-height:1.55;margin:0 0 12px}
@@ -988,7 +1125,12 @@
                 <path d="M0 0 L9 4.5 L0 9 z" fill="#8d95a8"/>
               </marker>
             </defs>
-            <line x1="0" y1="230" x2="1000" y2="230" stroke="#1b2029" stroke-width="1" opacity=".35"/>
+            <!-- 世界分栏线（0.18.0 挂 .crisp）：它是"画面上的注记"而不是世界里的
+                 东西——镜头推到 1.8 时，1px 的世界坐标描边在屏幕上变 1.8px 并糊一档，
+                 读起来像"线变粗了"而不是"我凑近了"。vector-effect 把描边钉回屏幕
+                 像素（实测 0.5/1/2/3× 下普通描边 2/4/6/10px、nss 恒 4px）。
+                 **必须逐图元挂**：它不继承，写在 #cam 上等于没写。 -->
+            <line class="crisp" x1="0" y1="230" x2="1000" y2="230" stroke="#1b2029" stroke-width="1" opacity=".35"/>
 
             <!-- 世界层：跨幕常驻的主角数组，不随场景重建（WORLD/POSE 两张表说话） -->
             <g id="world"></g>
@@ -1083,7 +1225,9 @@
              五块卡片 = 五种门禁形态（前四种判定、recall 只对照），开哪块由 openGate
              决定；形态怎么挑见 interactions.md §2。用不上的那几块可以不写进页面。 -->
         <section class="gate" id="gate" hidden>
-          <div class="g-card">
+          <!-- .stag：三项直接子节点（提示行 / 题目宿主 / 继续行）的错峰排程，
+               见上面 .stag 的注释——项数变了不用回头改 CSS。 -->
+          <div class="g-card stag">
             <p class="kick" id="gate-kick" aria-live="polite">播放已暂停 · 答对后继续</p>
             <div id="gate-host">
 
@@ -1606,12 +1750,20 @@
       put(arcs, 'path', 'a-arc-1', {class:'draw', pathLength:1, fill:'none',
         stroke:'#8d95a8', 'stroke-width':1.5, 'marker-end':'url(#ah)',
         d:'M300,178 Q500,96 700,178'});
-      txt(arcs, 'a-arc-1-lab', {x:500, y:112, 'text-anchor':'middle', 'font-size':13,
+      // 流光叠在**同一个包装 g** 里、另建一个节点（0.18.0 边界③/④）：底线说
+      // "这两张卡有先后"，光段说"刚顺着这条关系走了一遍"。两条规则都声明
+      // stroke-dasharray，同节点会互相顶掉（实测只剩 .16/1 的图案、线画不满），
+      // 所以必须分节点。--delay 排在画线之后（.draw 是 --dur-draw .55s），
+      // 先有线、后走光；箭头 marker 只留给底线，光段不带头——它是个事件不是路径。
+      put(arcs, 'path', 'a-arc-1-flow', {class:'flow', pathLength:1, fill:'none',
+        stroke:'#f5a623', 'stroke-width':2.5, style:'--delay:.55s',
+        d:'M300,178 Q500,96 700,178'});
+      txt(arcs, 'a-arc-1-lab', {class:'halo', x:500, y:112, 'text-anchor':'middle', 'font-size':13,
         fill:'#8d95a8'}, "'1' 先");
       put(arcs, 'path', 'a-arc-2', {class:'draw', pathLength:1, fill:'none',
         stroke:'#8d95a8', 'stroke-width':1.5, 'marker-end':'url(#ah)',
         d:'M500,178 Q400,140 300,178'});
-      txt(arcs, 'a-arc-2-lab', {x:400, y:136, 'text-anchor':'middle', 'font-size':13,
+      txt(arcs, 'a-arc-2-lab', {class:'halo', x:400, y:136, 'text-anchor':'middle', 'font-size':13,
         fill:'#8d95a8'}, "'10' 先");
     }
     if (step === 2) badge('a-body', 'a-rule', 500, 322, '默认规则', '#f5a623');

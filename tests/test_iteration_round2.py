@@ -2820,3 +2820,542 @@ def test_edge_texture_reduced_motion_fallback(full_lesson):
         assert st["ps"] == 0, f"减动效下不该有掠光在跑：{st}"
     finally:
         _kill(chrome)
+
+
+# ── 12. 连线与标注：沿线流光 / 恒定线宽 / 自动错峰 / 描边光环（0.18.0）──
+
+def test_line_and_label_primitives_present():
+    """模板结构契约：0.18.0 四条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮在 Chrome 里量出来"为什么只能这么写"的边界：
+      · 流光的**两端都必须落在"看不见"**（静止 = 光段在路头之外、终点 -1 推到路尾之外），
+        掠光是事件不是状态——导出切掉 animation、系统关掉动效，得到的都是"一条普通连线"，
+        纪律③与"终态落在属性上"同时成立；
+      · `.flow` 必须自带 `pointer-events:none`：虚线的**空隙不可命中**，看不见的一层会在
+        整条路上挡掉底下的热区（与 0.17.0 羽化层同一课）；
+      · `.flow` 与 `.draw` **不许同节点**（两条都声明 stroke-dasharray，源序后者胜，实测
+        叠在一起只剩 .16/1 的图案、线根本画不满），消费者一律分两个节点、用 --delay 排先后；
+      · `.crisp` 的 `vector-effect` **不继承**，只能逐图元挂；且只给注记/参照线用；
+      · `.stag` 的 calc 里**两处减号两侧必须有空格**：写成紧凑的 `sibling-count()-1` 时
+        整条 calc() 在计算值阶段作废、延迟全落 0s，而**动画照样跑**、控制台一句话都不报
+        ——本轮最容易静默通过的一条，所以下面既锁带空格的写法、也锁紧凑写法不在规则里出现；
+      · `--delay` 必须注册成 `<time>` 且 `inherits:false`：把错峰锁在分组那一层，否则
+        `put()` 嵌套建档的深层小图元会各自重算 sibling-index()（那是满屏乱闪不是错峰）；
+      · `.halo` 的 `paint-order` 必须包在 `@supports` 里：不支持时描边压在字面上会啃细笔画；
+      · 门禁卡片整族的 reduced-motion 兜底**必须抬特异度**（带 #gate）：那两条基础规则
+        源序排在媒体块之后，朴素同形选择器平手时后来者胜（0.15.0 折叠 / 0.16.0 侧栏 /
+        0.17.0 掠光同一课）。本轮挂上 .stag 之后这才成为真问题——§⑤ 那条
+        `animation-duration:.01ms!important` 钳得住时长、**钳不住 animation-delay**，
+        兜不住的话减少动效下三张卡片仍然一个接一个冒出来。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+
+    # ① 令牌：流光比画线长一档；错峰两只旋钮与 .st1/.st2/.st3 同族；光环色取舞台局部底色
+    assert "--dur-flow:.9s; --flow-seg:.16;" in html
+    assert "--stagger:.06s; --stag-cap:.18s;" in html
+    assert "--halo-bg:#1a2029;" in html
+    assert "--halo-bg:var(--bg)" not in html and "--halo-bg:var(--panel)" not in html, \
+        "光环色必须取舞台局部底色：取 --bg/--panel 会在字周围留一圈看得见的深色边"
+
+    # ② --delay 注册：收窄成 <time> 且不继承（错峰只属于分组那一层）
+    assert ("@property --delay{syntax:'<time>';inherits:false;initial-value:0s}") in html
+    assert "@property --delay{syntax:'<time>';inherits:true}" not in html
+
+    # ③ 沿线流光：静止态 = 起点、终点 = 路尾之外，两端都"看不见"
+    assert (".flow{stroke-dasharray:var(--flow-seg) 1;stroke-dashoffset:var(--flow-seg);\n"
+            "        animation:ntFlow var(--dur-flow) linear backwards;"
+            "animation-delay:var(--delay,0s);\n"
+            "        pointer-events:none}") in html
+    assert ("@keyframes ntFlow{from{stroke-dashoffset:var(--flow-seg)}"
+            "to{stroke-dashoffset:-1}}") in html
+    # linear + 不写 infinite：easeOut 会把行程挤进路尾，循环则违反"0% 必须等于静止态"
+    assert "ntFlow var(--dur-flow) linear" in html
+    assert "ntFlow var(--dur-flow) var(--ease-out)" not in html
+    assert "ntFlow infinite" not in html
+    # 掠光是**补间出来的**、不是补间回去的：dashoffset 不得混进 .nt 的过渡清单
+    nt_at = html.index(".nt{transition:")
+    nt_block = html[nt_at:html.index("--dimmer var(--dur-dim)", nt_at)]
+    assert "stroke-dashoffset" not in nt_block, \
+        "renderer 同帧写起点与终态时 transition 根本不补间（实测计算值一步落终值），" \
+        "掠光必须走 animation"
+
+    # ④ 恒定线宽：只有一条声明，消费者只有注记/参照线
+    assert ".crisp{vector-effect:non-scaling-stroke}" in html
+    assert '<line class="crisp" x1="0" y1="230" x2="1000" y2="230"' in html, \
+        "世界分栏线是画面上的注记，推近时该保持屏幕读数"
+
+    # ⑤ 自动错峰：整块包在 @supports 里，两处减号两侧都带空格
+    stag_at = html.index("@supports (animation-delay:calc(1ms * sibling-index())){")
+    stag_block = html[stag_at:html.index("\n  }", stag_at)]
+    assert (".stag>*{--delay:calc(min(var(--stagger),\n"
+            "                             var(--stag-cap) / max(sibling-count() - 1, 1))\n"
+            "                          * (sibling-index() - 1))}") in stag_block
+    # 规则里绝不允许出现紧凑写法（注释里提到它是反面教材，所以只查规则段）
+    assert "sibling-count()-1" not in stag_block and "sibling-index()-1" not in stag_block, \
+        "紧凑减号让整条 calc() 作废、延迟全落 0s，而动画照跑——静默回归"
+    assert "max(sibling-count() - 1, 1)" in stag_block, \
+        "单项组分母为 0 会让 calc() 作废（不是退化成 0s）"
+
+    # ⑥ 描边光环：paint-order 不支持时不能只靠声明（描边会啃字），必须 @supports 包住
+    assert "@supports (paint-order:stroke){" in html
+    assert (".halo{stroke:var(--halo-bg);stroke-width:.22em;stroke-linejoin:round;"
+            "paint-order:stroke}") in html
+    assert ".halo{stroke-width:2.86px" not in html, \
+        "描边宽度必须用 em 跟着字号走：小屏档 put() 统一放大字号时 px 常数会露缝"
+
+    # ⑦ 消费者：底线 + 流光分两个节点、同 d、流光排在画线之后，且不带头
+    assert "put(arcs, 'path', 'a-arc-1-flow', {class:'flow', pathLength:1, fill:'none'," in html
+    assert "style:'--delay:.55s'" in html, "掠光要排在 --dur-draw .55s 之后：先有线、后走光"
+    assert "class:'flow draw'" not in html and "class:'draw flow'" not in html, \
+        "同节点两条 stroke-dasharray 会互相顶掉"
+    flow_at = html.index("'a-arc-1-flow'")
+    assert "marker-end" not in html[flow_at:flow_at + 320], \
+        "箭头只留给底线：光段是一个事件，不是一条路径"
+    assert html.count("class:'flow'") == 1, "本轮只加一个流光消费者，别把掠光撒满全场"
+
+    # ⑧ 门禁卡片：挂 .stag、旧的三份 nth-child 魔法数必须整条消失
+    assert '<div class="g-card stag">' in html
+    assert ":nth-child(1){animation-delay" not in html and \
+        ".gate .g-card>*:nth-child(2)" not in html, \
+        "runtime 动态生成的交互块多于三项时，nth-child 那份魔法数会把第四项顶回 0s"
+    assert (".gate .g-card>*{animation:cardIn var(--dur-gate) var(--ease-out) both;\n"
+            "        animation-delay:var(--delay,0s)}") in html
+
+    # ⑨ reduced-motion 兜底：流光关 animation（落回"看不见"），门禁一族抬特异度
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    assert ".flow{animation:none}" in rm
+    assert "#gate,#gate.leaving,#gate .g-card>*{animation:none}" in rm
+    # 旧那行保留（它同时兜住 .in/.pop/.draw/.pulse，那四条基础规则写在本块之前）
+    assert ".in,.pop,.draw,.pulse,.gate,.gate.leaving,.gate .g-card>*{animation:none}" in rm
+    # 线宽/错峰/光环**不进**兜底清单：前两条是静态口径、第三条只影响排程
+    rm_rules = re.sub(r"/\*.*?\*/", "", rm, flags=re.S)
+    assert "vector-effect" not in rm_rules and ".stag>" not in rm_rules \
+        and ".halo{" not in rm_rules, "线宽口径 / 错峰排程 / 描边顺序都不是动效，不进兜底清单"
+
+    # ⑩ 本轮实测否决的四条，别被下一轮再请回来
+    assert "<animate" not in html and "animateMotion" not in html, \
+        "SMIL 不吃 animation:none，getAnimations() 也冻不住——可及性与导出两侧都管不了它"
+    assert "offset-path" not in html and "offset-distance" not in html, \
+        "offset-path 的移动体不进 getBBox()，且有实体：切掉动画后落在起点多出一个小点"
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_flow_comet_sweeps_and_vanishes(full_lesson):
+    """真实浏览器：一条弧线先被画满、再被一段光掠过去，两端都"看不见"。
+
+    取样口径是 **`isPointInStroke()` 沿路扫一遍**，不是像素扫描：虚线的命中区跟着
+    dash 图案走（实测静止态 201 个采样点全不中、中段只有一段命中），于是"光段在不在
+    场上""在路的哪一段"这两件事用 DOM API 就能读到，不必引入位图阈值——0.16.1 的教训
+    是别把某个渲染环境的绝对像素当契约，这里连"像素"这一层都省了。
+    锁四件事：① 静止/延迟期/跑完三处**都是零命中**（掠光是事件不是状态）；
+    ② 补间过程中命中段一路往路尾挪（连续行程，不是两格闪烁）；
+    ③ 底线与流光层几何同源（同 d、同 getBBox），掠过去的是同一条路；
+    ④ 流光层不吃命中，而它下面那条底线照旧点得到（虚线空隙不命中 → 不禁用命中就是
+    一条"看不见的挡热区的带子"）。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "flow")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-1', 1)")           # 弧线在这一句建档：建档即演
+        st = json.loads(ev("""(function(){
+          var f = document.getElementById('a-arc-1-flow'), b = document.getElementById('a-arc-1');
+          var cf = getComputedStyle(f), cb = getComputedStyle(b);
+          return JSON.stringify({dash:cf.strokeDasharray, off:cf.strokeDashoffset,
+            name:cf.animationName, dur:cf.animationDuration, delay:cf.animationDelay,
+            fill:cf.animationFillMode, iter:cf.animationIterationCount, pe:cf.pointerEvents,
+            baseName:cb.animationName, baseDash:cb.strokeDasharray,
+            sameD:b.getAttribute('d') === f.getAttribute('d'),
+            box:[b.getBBox().x, b.getBBox().y, b.getBBox().width, b.getBBox().height],
+            fbox:[f.getBBox().x, f.getBBox().y, f.getBBox().width, f.getBBox().height]});
+        })()"""))
+        assert st["name"] == "ntFlow" and st["iter"] == "1", f"掠光该演一次：{st}"
+        assert st["dur"] == "0.9s" and st["delay"] == "0.55s", \
+            f"时长走 --dur-flow、排在画线（--dur-draw .55s）之后：{st}"
+        assert st["fill"] == "backwards", f"延迟期间停在还没起头：{st}"
+        assert st["pe"] == "none", f"装饰层不吃命中：{st}"
+        assert st["dash"] == "0.16px, 1px" and st["off"] == "0.16px", \
+            f"静止态 = 光段整体在路头之外（--flow-seg）：{st}"
+        assert st["baseName"] == "ntDraw" and st["baseDash"] == "1px, 1px", \
+            f"底线仍归 .draw 画满，两层各管各的：{st}"
+        assert st["sameD"] and st["box"] == st["fbox"], f"两层同一条路：{st}"
+        # 建档即演：动画在**这一拍**就登记进 getAnimations()（晚一步建档就只剩淡入）
+        assert "ntFlow" in _anims(ev, "#a-arc-1-flow"), _anims(ev, "#a-arc-1-flow")
+
+        # 沿路扫命中：返回 (dashoffset, 命中点数, 连续段数, 首段位置)。
+        # fill-mode 是 backwards，动画**跑完就不在 getAnimations() 里挂着了**（实测自然
+        # 落定后 getAnimations() 为空、计算值回到 .16px、沿路零命中）——所以每次取样前
+        # 先按范本三段式重挂（摘 class → 读一次几何 → 挂回），再 pause + 设 currentTime；
+        # 而"演完之后"那一档反倒要**让它自然跑完**，量到的才是导出/兜底真正会落的那一格。
+        REARM = r"""(function(){
+          var e = document.getElementById('a-arc-1-flow');
+          e.setAttribute('class', ''); void e.getBoundingClientRect();
+          e.setAttribute('class', 'nt flow'); void e.getBoundingClientRect();
+          var a = (e.getAnimations() || []).filter(function(x){
+            return x.animationName === 'ntFlow'; })[0];
+          return JSON.stringify({found: !!a});
+        })()"""
+        SCAN = r"""(function(){
+          var e = document.getElementById('a-arc-1-flow');
+          var a = (e.getAnimations() || []).filter(function(x){
+            return x.animationName === 'ntFlow'; })[0];
+          if(!a) return JSON.stringify({err:'重挂后 ntFlow 没登记进 getAnimations()'});
+          a.pause(); a.currentTime = %d;
+          var L = e.getTotalLength(), lit = 0, runs = 0, prev = false, first = -1, last = -1;
+          for (var i = 0; i <= 200; i++){
+            var hit = e.isPointInStroke(e.getPointAtLength(L * i / 200));
+            if (hit){ lit++; if(!prev) runs++; if(first < 0) first = i; last = i; }
+            prev = hit;
+          }
+          return JSON.stringify({t:%d, off:getComputedStyle(e).strokeDashoffset,
+                                 lit:lit, runs:runs, first:first, last:last, L:L});
+        })()"""
+        # 延迟窗口内（--delay .55s）与行程中（.55s ~ 1.45s）
+        shots = []
+        for t_ms in (0, 400, 549, 700, 900, 1200, 1400):
+            assert json.loads(ev(REARM))["found"], t_ms
+            shots.append(json.loads(ev(SCAN % (t_ms, t_ms))))
+        for s in shots:
+            assert "err" not in s, f"取不到动画：{s}"
+        # ① 静止 / 延迟期：零命中（"不演就没有光"）
+        assert shots[0]["lit"] == 0 and shots[1]["lit"] == 0 and shots[2]["lit"] == 0, \
+            f"0 ~ --delay 期间光段必须完全不在路上：{shots[:3]}"
+        # ② 行程连续往路尾走，且任何时刻路上只有一段光
+        for s in shots[3:]:
+            assert s["lit"] > 0 and s["runs"] == 1, f"路上应当只有一段光：{s}"
+        assert shots[3]["first"] < shots[4]["first"] < shots[5]["first"] < shots[6]["first"], \
+            f"命中段一路往路尾挪：{[s['first'] for s in shots[3:]]}"
+        offs = [float(s["off"].rstrip("px")) for s in shots[3:]]
+        assert offs == sorted(offs, reverse=True), f"dashoffset 单调递减（线性掠过）：{offs}"
+        assert float(shots[6]["off"].rstrip("px")) < -0.9, \
+            f"演到路尾那一带来才算走完一整条路：{shots[6]['off']}"
+        # ③ 演完之后落回"看不见"，与静止态同一读数（让它自然跑完，不冻结）
+        assert json.loads(ev(REARM))["found"]
+        deadline = time.time() + 4.0
+        while time.time() < deadline and _anims(ev, "#a-arc-1-flow"):
+            time.sleep(0.1)
+        after = json.loads(ev(r"""(function(){
+          var e = document.getElementById('a-arc-1-flow'), cs = getComputedStyle(e);
+          var L = e.getTotalLength(), lit = 0;
+          for (var i = 0; i <= 200; i++){
+            if (e.isPointInStroke(e.getPointAtLength(L * i / 200))) lit++;
+          }
+          return JSON.stringify({off:cs.strokeDashoffset, lit:lit,
+                                 anims:(e.getAnimations() || []).length});
+        })()"""))
+        assert after["lit"] == 0 and after["off"] == "0.16px", \
+            f"跑完与静止是同一格画面（掠光不留痕迹）：{after}"
+        assert not [n for n in _anims(ev, "#a-arc-1-flow") if n == "ntFlow"], \
+            f"backwards 的动画跑完不再挂在 getAnimations() 里：{after}"
+
+        # ④ 命中：把镜头推到 playing（幕布退场），路中点应落在底线上而不是流光层
+        hit = json.loads(ev(r"""(function(){
+          document.getElementById('stage').setAttribute('data-state', 'playing');
+          var f = document.getElementById('a-arc-1-flow'), b = document.getElementById('a-arc-1');
+          var a = (f.getAnimations() || []).filter(function(x){
+            return x.animationName === 'ntFlow'; })[0];
+          if(a){ a.pause(); a.currentTime = 700; }        // 光段就停在采样点附近
+          var L = f.getTotalLength(), pt = f.getPointAtLength(L / 2);
+          var sp = new DOMPoint(pt.x, pt.y).matrixTransform(f.getScreenCTM());
+          var t = document.elementFromPoint(sp.x, sp.y);
+          return JSON.stringify({hit:t.id, isFlow:t === f, underFlow:f.contains(t),
+                                 isBase:t === b});
+        })()"""))
+        assert not hit["isFlow"] and not hit["underFlow"], \
+            f"流光层绝不能当命中目标：{hit}"
+        assert hit["isBase"], f"底线路径必须照旧点得到（上一层没挡住它）：{hit}"
+
+        # ⑤ 导出/兜底同一口径：一刀切掉 animation 后落回静止态（光段在路外）。
+        # 注入与取值分两次 CDP 调用：同一份脚本里刚 appendChild 的那条规则，样式
+        # 重算未必已经落上（读到的还是旧计算值），分调用天然跨过一次 flush。
+        ev(r"""(function(){
+          var st = document.createElement('style'); st.id = 'shot-cut';
+          // 导出那一刀是 `*,*::before,*::after{…!important}`（export_video.py），
+          // 这里只对这一个是图元素来一刀（id 选择器 + !important），读到的就是
+          // 截图帧上这一层的落点。style 节点另起 id：与被测路径重名的话，
+          // getElementById 会先抓到这个 <style>（它在 <head> 里，排在前面）。
+          st.textContent = '#a-arc-1-flow,#a-arc-1{transition:none!important;'
+                         + 'animation:none!important}';
+          document.head.appendChild(st); return 1;
+        })()""")
+        cut = json.loads(ev(r"""(function(){
+          var e = document.getElementById('a-arc-1-flow'), cs = getComputedStyle(e);
+          var b = document.getElementById('a-arc-1'), cb = getComputedStyle(b);
+          var L = e.getTotalLength(), lit = 0;
+          for (var i = 0; i <= 200; i++){
+            if (e.isPointInStroke(e.getPointAtLength(L * i / 200))) lit++;
+          }
+          var bl = b.getTotalLength(), bhit = 0;
+          for (var j = 0; j <= 200; j++){
+            if (b.isPointInStroke(b.getPointAtLength(bl * j / 200))) bhit++;
+          }
+          return JSON.stringify({off:cs.strokeDashoffset, name:cs.animationName, lit:lit,
+                                 dash:cs.strokeDasharray, baseName:cb.animationName,
+                                 baseOff:cb.strokeDashoffset, baseHit:bhit});
+        })()"""))
+        ev("var s=document.getElementById('shot-cut'); s.parentNode.removeChild(s); 1")
+        assert cut["name"] == "none" and cut["baseName"] == "none", \
+            f"这一刀要把两条动画都关成 none：{cut}"
+        assert cut["off"] == "0.16px" and cut["lit"] == 0, \
+            f"截图帧上这一层隐形、画面仍是那条底线：{cut}"
+        assert cut["baseOff"] == "0px" and cut["baseHit"] >= 195, \
+            f"底线切掉动画后仍是画满、可命中的那条线：{cut}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_auto_stagger_locks_at_group_level(full_lesson):
+    """真实浏览器：错峰只发生在**分组那一层**，且总量封顶；顺带量恒定线宽与描边光环。
+
+    ① 门禁卡片三项实测 0 / .06 / .12s（换掉原来三份 nth-child 魔法数），卡片里的
+      runtime 生成物（题目、选项、放行键）**全部落回 0s**——`--delay` 注册成
+      `inherits:false` 才有的行为。不注册的话它在每个后代上各自重算 sibling-index()，
+      而 `put()` 的常态就是嵌套建档，那会把"错峰入场"变成"满屏乱闪"。
+    ② 总量守恒：1 / 2 / 3 / 6 项的组各测一次，最后一项永远 ≤ --stag-cap（.18s），
+      6 项摊薄成 .036s 一档。
+    ③ 减号两侧没空格的那版**必须静默失败**：把带空格与不带空格两条规则同时挂上去对比，
+      不带空格那组动画照跑（animationName 仍是 cardIn）但延迟全是 0s——控制台一句话
+      都不报。静态契约锁的是写法，这一条锁的是"写法错了会怎样"。
+    ④ `vector-effect` **不继承**：给 #cam 整层写 nss，子层照旧 none，而逐图元挂的
+      `.crisp` 才是 non-scaling-stroke。线宽的视觉口径用 canvas 位图 A/B 量墨量
+      （threshold-free 的亮度累加，不比绝对像素）：同一条 1.8× 的缩放里普通描边的墨量
+      明显变大、`.crisp` 与 1× 时持平。
+    ⑤ `.halo`：paint-order 落 stroke、描边色就是 --halo-bg、描边宽度按 em 跟着字号走。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "stag")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-1', 1)")
+
+        # ① 分组层有错峰、深层没有
+        grp = json.loads(ev(r"""(function(){
+          var direct = [], deep = [];
+          document.querySelectorAll('.g-card>*').forEach(function(e){
+            var c = getComputedStyle(e);
+            direct.push([e.id, c.animationDelay, c.animationName]); });
+          ['gate-kick', 'gate-host', 'gate-q', 'gate-opts', 'gate-block', 'gate-fb',
+           'gate-next', 'gate-go', 'gate-hint'].forEach(function(id){
+            var e = document.getElementById(id);
+            if(!e) return;
+            var c = getComputedStyle(e);
+            deep.push([id, c.getPropertyValue('--delay').trim(),
+                       e.parentElement.classList.contains('stag')]); });
+          return JSON.stringify({direct:direct, deep:deep,
+                                 card:document.querySelector('.g-card').getAttribute('class')});
+        })()"""))
+        assert "stag" in grp["card"], f"卡片必须真的挂上 .stag：{grp['card']}"
+        assert [d[1] for d in grp["direct"]] == ["0s", "0.06s", "0.12s"], \
+            f"门禁三项按 --stagger 逐位错开：{grp['direct']}"
+        assert all(d[2] == "cardIn" for d in grp["direct"]), f"动作仍归 cardIn：{grp['direct']}"
+        deep_in_card = [d for d in grp["deep"] if not d[2]]
+        assert deep_in_card and all(d[1] == "0s" for d in deep_in_card), \
+            f"卡片内的深层节点不得各自错峰（--delay 不继承）：{deep_in_card}"
+
+        # ② 总量守恒：组越大间距越摊薄，最后一项永远 ≤ .18s
+        GRP = r"""(function(){
+          var d = document.createElement('div'); d.className = 'stag';
+          for (var i = 0; i < @N@; i++){ d.appendChild(document.createElement('span')); }
+          document.body.appendChild(d);
+          var o = [].slice.call(d.children).map(function(c){
+            return getComputedStyle(c).getPropertyValue('--delay').trim(); });
+          d.parentNode.removeChild(d); return JSON.stringify(o);
+        })()"""
+        got = {n: json.loads(ev(GRP.replace("@N@", str(n)))) for n in (1, 2, 3, 6)}
+        assert got[1] == ["0s"], f"单项组不能被 0 分母作废：{got[1]}"
+        assert got[2] == ["0s", "0.06s"], got[2]
+        assert got[3] == ["0s", "0.06s", "0.12s"], got[3]
+        assert got[6] == ["0s", "0.036s", "0.072s", "0.108s", "0.144s", "0.18s"], \
+            f"六项摊薄到 --stag-cap 封顶：{got[6]}"
+        for n, lst in got.items():
+            assert float(lst[-1].rstrip("s")) <= 0.18 + 1e-9, f"{n} 项组末尾超过 .18s：{lst}"
+
+        # ③ 紧凑减号那条必须"看着在动、其实没错峰"
+        ab = json.loads(ev(r"""(function(){
+          var st = document.createElement('style');
+          st.textContent =
+            '.sbad>*{--delay:calc(min(var(--stagger),var(--stag-cap) / '
+            + 'max(sibling-count()-1,1)) * (sibling-index()-1));'
+            + 'animation:cardIn .4s both;animation-delay:var(--delay,0s)}'
+            + '.sgood>*{--delay:calc(min(var(--stagger),var(--stag-cap) / '
+            + 'max(sibling-count() - 1, 1)) * (sibling-index() - 1));'
+            + 'animation:cardIn .4s both;animation-delay:var(--delay,0s)}';
+          document.head.appendChild(st);
+          function grp(cls){
+            var d = document.createElement('div'); d.className = cls;
+            for (var i = 0; i < 3; i++){ d.appendChild(document.createElement('span')); }
+            document.body.appendChild(d);
+            var o = [].slice.call(d.children).map(function(c){
+              var cs = getComputedStyle(c);
+              return [cs.getPropertyValue('--delay').trim(), cs.animationName]; });
+            d.parentNode.removeChild(d); return o;
+          }
+          var r = {bad:grp('sbad'), good:grp('sgood')};
+          st.parentNode.removeChild(st); return JSON.stringify(r);
+        })()"""))
+        assert [x[0] for x in ab["good"]] == ["0s", "0.06s", "0.12s"], ab["good"]
+        assert [x[0] for x in ab["bad"]] == ["0s", "0s", "0s"], \
+            f"带空格那版是唯一的正确写法，紧凑版静默作废：{ab['bad']}"
+        assert all(x[1] == "cardIn" for x in ab["bad"]), \
+            "紧凑版只坏掉排程、动画照跑——所以它不会自己报错，只能靠用例钉住"
+
+        # ④ vector-effect 不继承 + 线宽的位图 A/B
+        ve = json.loads(ev(r"""(function(){
+          var st = document.createElement('style');
+          st.textContent = '#cam{vector-effect:non-scaling-stroke}';
+          document.head.appendChild(st);
+          var cam = document.getElementById('cam');
+          var o = {cam:getComputedStyle(cam).vectorEffect,
+                   world:getComputedStyle(document.getElementById('world')).vectorEffect,
+                   crisp:getComputedStyle(cam.querySelector('line.crisp')).vectorEffect};
+          st.parentNode.removeChild(st);
+          o.crispAfter = getComputedStyle(cam.querySelector('line.crisp')).vectorEffect;
+          o.bareAfter = getComputedStyle(document.getElementById('world')).vectorEffect;
+          return JSON.stringify(o);
+        })()"""))
+        assert ve["cam"] == "non-scaling-stroke", ve
+        assert ve["crisp"] == "non-scaling-stroke", ve
+        assert ve["world"] == "none", \
+            f"父层写了 nss、子层照旧 none——它不继承，必须逐图元挂：{ve}"
+
+        INK = r"""new Promise(function(res, rej){
+          var K = @K@;
+          var s = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"'
+            + ' viewBox="0 0 400 400"><rect width="400" height="400" fill="black"/>'
+            + '<g transform="scale(' + K + ')">'
+            + '<line x1="10" y1="20" x2="180" y2="20" stroke="white" stroke-width="4"/>'
+            + '<line x1="10" y1="70" x2="180" y2="70" stroke="white" stroke-width="4"'
+            + ' vector-effect="non-scaling-stroke"/></g></svg>';
+          var img = new Image();
+          img.onload = function(){
+            var c = document.createElement('canvas'); c.width = 400; c.height = 400;
+            var x = c.getContext('2d', {willReadFrequently:true});
+            x.drawImage(img, 0, 0);
+            function ink(cx, y0, y1){ var t = 0;
+              for (var y = y0; y < y1; y++){ t += x.getImageData(cx, y, 1, 1).data[0] / 255; }
+              return Math.round(t * 100) / 100; }
+            res(JSON.stringify({k:K, plain:ink(90, Math.round(20*K) - 12, Math.round(20*K) + 12),
+                                crisp:ink(90, Math.round(70*K) - 12, Math.round(70*K) + 12)}));
+          };
+          img.onerror = function(){ rej(new Error('内联 SVG 没解码成位图')); };
+          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+        })"""
+        one = json.loads(ev(INK.replace("@K@", "1"), True))
+        zoom = json.loads(ev(INK.replace("@K@", "1.8"), True))
+        assert abs(one["plain"] - one["crisp"]) < 0.5, \
+            f"1× 时两条线本该一模一样（基准档）：{one}"
+        assert zoom["plain"] >= one["plain"] * 1.4, \
+            f"普通描边跟着镜头变粗（实测约 1.8×）：{one} → {zoom}"
+        assert abs(zoom["crisp"] - one["crisp"]) <= 0.5, \
+            f".crisp 的读数不随镜头变粗——这才是恒定屏幕线宽：{one} vs {zoom}"
+
+        # ⑤ 描边光环
+        halo = json.loads(ev(r"""(function(){
+          var t = document.getElementById('a-arc-1-lab');
+          var c = getComputedStyle(t);
+          var root = getComputedStyle(document.documentElement)
+                       .getPropertyValue('--halo-bg').trim();
+          return JSON.stringify({cls:t.getAttribute('class'), po:c.paintOrder,
+            sw:c.strokeWidth, fs:c.fontSize, stroke:c.stroke, token:root,
+            join:c.strokeLinejoin, fill:c.fill});
+        })()"""))
+        assert "halo" in halo["cls"] and halo["po"] == "stroke", halo
+        assert halo["token"] and halo["stroke"] == "rgb(26, 32, 41)", \
+            f"光环色取舞台局部底色令牌：{halo}"
+        ratio = float(halo["sw"].rstrip("px")) / float(halo["fs"].rstrip("px"))
+        assert abs(ratio - 0.22) < 0.01, f"描边宽度按 .22em 跟着字号走：{halo}"
+        assert halo["join"] == "round", halo
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_line_and_label_reduced_motion_fallback(full_lesson):
+    """关掉动效：流光整层隐形（底线照旧完整）、门禁一族真的落回 none（含错峰）。
+
+    两条口径都在这一轮被实测重新定义：
+      · 流光的兜底**落的正是终态**——animation 关掉后 stroke-dashoffset 回到 --flow-seg，
+        光段在路头之外，沿路扫零命中，画面仍是那条被 .draw 画满的连线，一格信息不少；
+      · 门禁那一族的兜底行**必须带 #gate 抬特异度**。旧那行 `.gate,.gate .g-card>*`
+        被源序在后的基础规则顶掉过（实测计算值仍是 gateIn / cardIn），此前靠 §⑤ 那条
+        `animation-duration:.01ms!important` 混过去——但 **animation-delay 不在钳制范围
+        内**，卡片一挂 .stag，减少动效下三张卡片就会按 0 / .06 / .12s 一个接一个冒出来，
+        正是该关掉的行为。本轮顺手补上。
+    `.crisp` / `.halo` / `.stag` 不是动效，关动效后它们的静态口径照旧在场。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm18")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+        ev("window.__jump('seg-1', 1)")
+
+        st = json.loads(ev(r"""(function(){
+          var f = document.getElementById('a-arc-1-flow'), b = document.getElementById('a-arc-1');
+          var L = f.getTotalLength(), lit = 0;
+          for (var i = 0; i <= 200; i++){
+            if (f.isPointInStroke(f.getPointAtLength(L * i / 200))) lit++;
+          }
+          var bl = b.getTotalLength(), bhit = 0;
+          for (var j = 0; j <= 200; j++){
+            if (b.isPointInStroke(b.getPointAtLength(bl * j / 200))) bhit++;
+          }
+          var cards = [];
+          document.querySelectorAll('.g-card>*').forEach(function(e){
+            var c = getComputedStyle(e);
+            cards.push([e.id, c.animationName, c.animationDelay]); });
+          var g = document.getElementById('gate');
+          return JSON.stringify({
+            flow:[getComputedStyle(f).animationName, getComputedStyle(f).strokeDashoffset, lit],
+            base:[getComputedStyle(b).animationName, getComputedStyle(b).strokeDashoffset, bhit],
+            gate:getComputedStyle(g).animationName, leaving:getComputedStyle(g).animationName,
+            cards:cards,
+            dur:getComputedStyle(g).animationDuration,
+            pe:getComputedStyle(f).pointerEvents});
+        })()"""))
+        assert st["flow"][0] == "none", f"流光动画整条关掉：{st['flow']}"
+        assert st["flow"][1] == "0.16px" and st["flow"][2] == 0, \
+            f"关掉后落在静止态 = 光段在路外、沿路零命中：{st['flow']}"
+        assert st["base"][0] == "none" and st["base"][1] == "0px", \
+            f"底线不演但画满是完整的：{st['base']}"
+        assert st["base"][2] >= 195, f"底线路径几乎全程可命中（画面仍是那条连线）：{st['base']}"
+        assert st["pe"] == "none", st
+
+        # 本轮补的那条兜底：门禁一族关到 none，错峰也不再留延迟
+        assert st["gate"] == "none", \
+            "旧那行 `.gate{animation:none}` 会被源序在后的基础规则顶掉，必须带 #gate"
+        assert st["cards"] and all(c[1] == "none" for c in st["cards"]), \
+            f"卡片三项的 cardIn 也要真的关掉：{st['cards']}"
+        assert all(c[2] == "0s" for c in st["cards"]), \
+            f"animation-delay 不在 .01ms 钳制之内，兜不住就是三张卡片一个接一个冒出来：" \
+            f"{st['cards']}"
+        # 时长钳制那条仍在那儿（它兜的是别的），但这一轮不靠它
+        assert float(st["dur"].replace("1e-05s", "0.00001")) <= 0.00001 + 1e-9, st["dur"]
+
+        # 静态口径不跟着关：线宽、光环、错峰令牌照旧在场
+        keep = json.loads(ev(r"""(function(){
+          var cam = document.getElementById('cam');
+          var t = document.getElementById('a-arc-1-lab');
+          var d = document.createElement('div'); d.className = 'stag';
+          for (var i = 0; i < 3; i++){ d.appendChild(document.createElement('span')); }
+          document.body.appendChild(d);
+          var delays = [].slice.call(d.children).map(function(c){
+            return getComputedStyle(c).getPropertyValue('--delay').trim(); });
+          d.parentNode.removeChild(d);
+          return JSON.stringify({
+            crisp:getComputedStyle(cam.querySelector('line.crisp')).vectorEffect,
+            po:getComputedStyle(t).paintOrder, sw:getComputedStyle(t).strokeWidth,
+            delays:delays});
+        })()"""))
+        assert keep["crisp"] == "non-scaling-stroke", keep
+        assert keep["po"] == "stroke" and keep["sw"], keep
+        assert keep["delays"] == ["0s", "0.06s", "0.12s"], \
+            f".stag 只写排程、不是动效，兜底清单里没有它也不该缺席：{keep}"
+    finally:
+        _kill(chrome)

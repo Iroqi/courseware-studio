@@ -51,6 +51,8 @@
   旁白走完这一句；
 - **会呼吸的画面**：某一行"刚刚长出来"时可以是软边掠出（羽化揭示）而不是切纸；
   答对之后那颗"继续"会被一道高光掠过去邀请你点；标题两行等长、副行上下留白收紧。
+  连线也能"从这头跑到那头"——一条流光掠过底线、掠完隐形，不改变这条线说了什么；
+  标注字直接压在弧线图形上还读得清（描边光环），一组卡片进场自动错峰。
   关掉系统动效偏好后这些一律落回完整定格，一格信息都不少；
 - **0.75× 到 2× 倍速、全屏**：画面字幕门禁全是时钟的纯函数，变速只是时钟走快些；
 - **键盘可达**：空格播放/暂停、←→ 快擦、F 全屏、**M 静音**之外，进度条本身是
@@ -386,6 +388,24 @@ python -m pytest tests/ -q
   取景坑：**preGate 引导浮层那 1.1s 里 `#gate` 整层仍是 `display:none`**，伪元素动画要
   到元素第一次有盒才登记进 `getAnimations()`，所以断言等的是"浮层揭开"而不是"class
   挂上"；本机全量 **385 passed / 2 skipped**；
+- 0.18.0 的回归：`test_iteration_round2.py::test_line_and_label_primitives_present`
+  锁四条原语的静态口径（`--dur-flow`/`--flow-seg`/`--stagger`/`--stag-cap`/`--halo-bg`
+  五个令牌与 `@property --delay` 注册成 `<time>` 且 **`inherits:false`**、`.flow` 的
+  dasharray 与 keyframes 两端（`--flow-seg` → `-1`）且不得 `infinite`/ease-out/混进
+  `.nt` 的过渡清单、`.crisp` 的消费者是静态分栏线、`.stag` 里两处减号**必须带空格**
+  且分母 `max(sibling-count() - 1, 1)`、`.halo` 整块包在 `@supports` 里且描边用 `em`、
+  门禁卡片挂 `.stag` 而旧的三份 `nth-child` 延迟整条消失、reduced-motion 兜底新增
+  `#gate,#gate.leaving,#gate .g-card>*{animation:none}`，外加**本轮实测否决的四条**
+  不得回流：SMIL、`offset-path`、蚂蚁线、`transition` 驱动 dashoffset）。三条 CDP
+  用例：流光沿路 201 点扫出"两端零命中、中段一路往路尾挪且始终只有一段光"，并按
+  范本三段式重挂取样（`fill:backwards` 跑完就不在 `getAnimations()` 里了）、切掉
+  animation 后落回 `.16px` 隐形而底线 `.draw` 照完整、`elementFromPoint` 证明流光层
+  不挡热区；错峰分组层得 0/.06/.12s 而深层后代全 0s（证 `inherits:false`）、1/2/3/6
+  项的总量守恒在 `.18s`、带空格与不带空格 A/B（后者延迟作废但**动画照跑**，所以只能
+  这样钉）、`vector-effect` 不继承与 canvas 墨量 A/B（不比绝对像素）；减少动效下门禁
+  一族真的关成 `none` 且三份延迟归零、流光落回静止态。另修一处**一直没被发现的
+  reduced-motion 缺陷**（媒体块那行被源序排在它之后的基础规则顶掉，此前靠 `.01ms`
+  时长钳制掩盖，但 `animation-delay` 不在钳制范围内）；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

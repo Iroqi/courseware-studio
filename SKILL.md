@@ -147,7 +147,18 @@ reduced-motion 清单，调用点必须排在换句分支之后）、**侧栏滚
 静止态停在盒外，只演"放行行从无到有"那一次——差分必须排在 `hidden` 写入之前）、
 **排版留白层**（`text-wrap:balance` + `text-box-trim:trim-both;text-box-edge:text`，非动效、
 不进 reduced-motion 清单）、**主色浅档令牌**（`--key-soft/softer/act`，`color-mix` 现调 +
-rgba 兜底，兜底写在 `@supports` 里而不是"同名两行"）——见 stage.md §3.4。每个视觉步先过
+rgba 兜底，兜底写在 `@supports` 里而不是"同名两行"）——见 stage.md §3.4。这一轮回到**连线
+与它上面的注记**：**沿线流光**（`.flow`，`pathLength:1` 归一后用 `stroke-dashoffset`
+让一段光沿路掠过，`linear` + `--dur-flow`；**静止态与终态都"看不见"**，掠光是事件不是
+状态，所以必须叠在一条 `.draw` 底线之上、且与 `.draw` 分两个节点——同节点两条规则都声明
+`stroke-dasharray` 会相互抵消。装饰层一律 `pointer-events:none`：虚线空隙不可命中，看不见
+的层会挡住热区）、**恒定线宽**（`.crisp` = `vector-effect:non-scaling-stroke`，相机推近时
+注记/参照线保持屏幕像素读数；**它不继承**，必须逐图元挂，也不给"世界的东西"用）、
+**自动错峰**（`.stag` 用 `sibling-index()/sibling-count()` 现算 `--delay`，间距取
+`--stagger`、总量封顶在 `--stag-cap`；`--delay` 注册成 `inherits:false` 的 `<time>`，
+把错峰锁在分组那一层——否则 `put()` 嵌套建档的深层小图元会各自错开，那是满屏乱闪）、
+**描边光环**（`.halo` = `paint-order:stroke` + 舞台局部底色 `--halo-bg`，标注字直接压在
+图形上还读得清，不用垫药丸底）——见 stage.md §3.4。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 
