@@ -1983,7 +1983,9 @@ def test_time_scale_layer_present():
     assert html.index("capShow(hit.sentence);") < html.index("    capProgWrite(t);"), \
         "细线必须在本句的几何与句子写完之后读"
     assert "capSent = s;" in html and "capMeasure(t);" in html
-    assert "capSent = null; capProgWrite(0); return;" in html, "收起必须把细线归零"
+    # 0.19.0 在同一处归零后面接了 capLitWrite(0)：细线与点亮都停在"句子收起来"那一格
+    assert "capSent = null; capProgWrite(0); capLitWrite(0); return;" in html, \
+        "收起必须把细线归零（点亮同步回满档）"
     # ④ 侧栏滚动入场：整块 @supports 包裹（Firefox 正式版未开）
     assert "@supports (animation-timeline: view()){" in html
     assert "@keyframes noteReveal{from{opacity:0;translate:0 10px}" in html
@@ -3357,5 +3359,617 @@ def test_line_and_label_reduced_motion_fallback(full_lesson):
         assert keep["po"] == "stroke" and keep["sw"], keep
         assert keep["delays"] == ["0s", "0.06s", "0.12s"], \
             f".stag 只写排程、不是动效，兜底清单里没有它也不该缺席：{keep}"
+    finally:
+        _kill(chrome)
+
+
+# ── 0.19.0：跟读点亮 + 收拢退场 + CJK 行首标点 ────────────────────────
+
+def test_reading_and_tuck_primitives_present():
+    """模板结构契约：0.19.0 三条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮在 Chrome 152 里量出来"为什么只能这么写"的边界：
+      · `--lit` 的 initial 必须取 **118% = 100% + --lit-ramp**，不能写 100%——写 100%
+        就把每句**末尾那 18%** 永久留在灰阶地板上，静止态变成"句尾永远没念到"，
+        纪律③（绝不把内容锁进可能不跑的门）直接不合格；
+      · 地板档 `--lit-floor` 必须是 **.85**：合成后的实测对比度非结论 7.97:1、
+        结论 6.08:1；.72 那一档墨量差更大（均值比 1.20 vs 1.10）但结论字色掉到
+        4.76:1（贴线），.92 那一档均值比只剩 1.05（肉眼分不出念没念过）。
+        这条是本轮改错过一次的地方：第一版按截图像素的**平均亮度**算出"8.04:1"
+        并据此选了 .72——量法本身就不对（§8 要的是合成色对底色）；
+      · 收拢两端都必须是**带四个长度的 `inset()`**、静止档 **-15%**（外扩，`inset(0 0 0 0)`
+        会沿 fill-box 边缘啃掉描边与 marker-end 箭头）、收拢档 **115%**（= 100% + 那 15%
+        余量；写 85% 实测留 46px 能点着的残角）；
+      · 收拢走 **transition** 且只挂在纯包装 g 上：`.nt` 与本条都是 transition 简写，
+        同节点时源序靠后的那条把另一条的清单整串顶掉（实测计算值只剩 `clip-path`，
+        transform / opacity 一步落终值）——所以两个消费者只换 `gone`，不写 opacity；
+      · `#cap-prog` 与 `--lit` 都**不进** reduced-motion 清单（它们是时钟的逐拍读数），
+        `.tuckR/.tuckL` 进，且这一条**不需要**抬特异度（基础规则源序在本块之前）；
+      · CJK 行首标点只挂会换行的 HTML 正文，**字幕 `#cap-text` 不挂**：它在 SVG `<text>`
+        上确实生效（实测 bbox 宽 −0.5em），但字幕单行不换行，收益看不见、却要动三个
+        派生视图共用的 bbox 读数。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+
+    # ① 令牌：收拢比揭示短一档、点亮地板 .85、软过渡带 18%
+    assert "--dur-tuck:.42s; --lit-floor:.85; --lit-ramp:18%;" in html
+    assert "--lit-floor:.72" not in html, \
+        ".72 那档合成后结论字色只剩 4.76:1（贴线零余量），本轮实测否决"
+    assert "--lit-floor:1" not in html and "--lit-ramp:34%" not in html
+
+    # ② --lit 注册：initial 取满亮档 118%，不是 100%
+    assert ("@property --lit{syntax:'<percentage>';inherits:false;"
+            "initial-value:118%}") in html
+    assert "@property --lit{syntax:'<percentage>';inherits:false;initial-value:100%}" \
+        not in html, "initial 写 100% = 每句句尾永久留在地板上"
+    assert "@property --lit{syntax:'<percentage>';inherits:true}" not in html, \
+        "继承会把读数漏给 #cap-text 之外的节点（与 --delay 同一课）"
+
+    # ③ 跟读点亮：停靠点用注册变量算，地板写成 rgba 的 alpha（不是颜色）
+    assert ("#cap-text{mask-image:linear-gradient(90deg,#000 0 "
+            "calc(var(--lit) - var(--lit-ramp)),\n"
+            "                        rgba(0,0,0,var(--lit-floor)) var(--lit) 100%)}") in html
+    assert "clip-path" not in html.split("#cap-text{mask-image:")[1].split("}")[0], \
+        "字幕上不能用 clip-path：那会把命中与 client rects 一起裁掉，QA 认不可见"
+
+    # ④ 收拢退场：四长度 inset()、静止外扩 -15%、收拢 115%
+    assert (".tuckR,.tuckL{clip-path:inset(-15% -15% -15% -15%);\n"
+            "        transition:clip-path var(--dur-tuck) var(--ease-out)}") in html
+    assert ".tuckR.gone{clip-path:inset(-15% -15% -15% 115%)}" in html
+    assert ".tuckL.gone{clip-path:inset(-15% 115% -15% -15%)}" in html
+    for bad in ("inset(0 0 0 0)", "inset(-15% -15% -15% 85%)", "inset(-15% 85% -15% -15%)"):
+        assert bad not in html.split(".tuckR,.tuckL{")[1].split(".tuckL.gone")[1], \
+            f"收拢档位写成 {bad} 就漏：-15% 外扩才不啃箭头，115% 才收掉那 15% 残角"
+    assert ".tuckR,.tuckL{clip-path:none" not in html, \
+        "inset() 与 none 不可插值（0.15.0 那条 discrete 教训）"
+
+    # ⑤ JS 写手：满亮档常量与 @property 同数、逐拍写 style、同值不重写
+    assert "var LIT_FULL = 118;" in html
+    assert "function capLitWrite(t){" in html
+    assert "el2.style.setProperty('--lit', v)" in html
+    assert "el2.style.getPropertyValue('--lit') !== v" in html, "同值不重写：每帧都跑"
+    # 调用点：capShow 的收起分支 + tick 尾部（且必须排在 capProgWrite 之后）
+    assert "capProgWrite(0); capLitWrite(0); return; }" in html
+    tick_at = html.index("  function tick(){")
+    tail = html[tick_at:tick_at + 4200]
+    assert tail.index("capProgWrite(t);") < tail.index("capLitWrite(t);"), \
+        "必须排在换句分支之后：capShow 才写 capSent，写在前面会拿上一句的时长算亮度"
+
+    # ⑥ 两个消费者：纯包装 g、只换 gone，旧那句 opacity 淡出必须整条消失
+    assert ("var arcs = put('a-body', 'g', 'a-arcs',\n"
+            "        {class: step === 1 ? 'tuckR' : 'tuckR gone'});") in html
+    assert ("var ties = put('e-body', 'g', 'e-ties',\n"
+            "        {class: step === 1 ? 'tuckL' : 'tuckL gone'});") in html
+    assert "{opacity: step === 1 ? 1 : 0}" not in html, \
+        "收拢与淡出是两件事：留着 opacity 就同时有两条退场词汇"
+    assert html.count("'tuckR") == 2 and html.count("'tuckL") == 2, \
+        "本轮各一个消费者，别把收拢撒满全场（.flow 同口径）"
+    # 连线挪进包装 g：key 与图元不变，只是换了爹
+    assert "put(ties, 'line', 'e-tie-'" in html
+    assert "put('e-body', 'line', 'e-tie-'" not in html
+
+    # ⑦ reduced-motion：收拢关 transition；--lit 与细线都不进这一栏
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    assert ".tuckR,.tuckL{transition:none}" in rm
+    rm_rules = re.sub(r"/\*.*?\*/", "", rm, flags=re.S)
+    assert "--lit" not in rm_rules and "#cap-prog" not in rm_rules, \
+        "点亮与细线是时钟读数不是动效，关了动效它们得跟上嘴"
+
+    # ⑧ CJK 行首标点：@supports 包住，只挂 HTML 正文，字幕不挂
+    assert "@supports (text-spacing-trim:trim-start){" in html
+    assert (".n-txt,.gate .q,.interaction-feedback,.chapter .tagline"
+            "{text-spacing-trim:trim-start}") in html
+    trim_block = html.split("@supports (text-spacing-trim:trim-start){")[1].split("\n  }")[0]
+    assert "cap-text" not in trim_block and "n-code" not in trim_block and \
+        "kv" not in trim_block, f"单行/等宽/对照行不进这一档：{trim_block}"
+    assert "text-autospace" not in html, "autospace 各取值实测零差值，不写进范本"
+    assert "font-variant-numeric" not in html, "tabular-nums 在现用字体上零差值，同上"
+
+    # ⑨ 本轮实测否决的三条，别被下一轮再请回来
+    assert "position-anchor" not in html and "anchor(" not in html.split("<style>")[1] \
+        .split("</style>")[0].replace("anchor:none", ""), \
+        "anchor() 给指针那一类跟随会开第二个时钟：页面只允许 currentTime 一个钟"
+    assert "forced-colors" not in html, "headless 模拟不了 forced-colors，量过的才算数"
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_caption_lit_is_a_clock_reading(full_lesson):
+    """真实浏览器：跟读点亮的 `--lit` 是 currentTime 的**逐拍读数**，且遮罩不改几何。
+
+    与 0.16.0 那条细线用例同构，但量的东西不同：细线量 width（几何），这一层量一个
+    注册自定义属性。四个回归点都来自本轮实测：
+      · 句内 0 / 50% / 99.9% 三点 `--lit` = 118%×k 对得上，且落在 **style** 上
+        （导出截图页那一刀只切 transition/animation，属性与 style 读数都留着）；
+      · 遮罩不改盒：`getClientRects().length` 与 bbox 全程逐值不变——这正是
+        `check_gates.py` 的 `captionShown()` 与相机取景读的两样东西（mask 与
+        clip-path 最关键的差别，clip-path 会把 rects 裁掉）；
+      · 换句归位、空档停在满亮、播完落回 118%（capSent 为 null 走满亮而不是清零），
+        结束态回拖同一句又跟着走；
+      · 字号换档（小屏 26px）不影响 k 的读数：写的是比例，不是像素。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "caplit")
+    try:
+        ev(_SEEK)
+        tl = json.loads(ev("JSON.stringify(window.__tl)"))
+        seg2 = [s for s in tl["scenes"] if s["step_id"] == "seg-2"][0]
+        n0 = seg2["runtime"]["narration"][0]
+
+        def seek(t):
+            ev("(function(){window.__t=%r;document.getElementById('main-audio')"
+               ".dispatchEvent(new Event('timeupdate'));return 1;})()" % t)
+            return json.loads(ev("""(function(){var t=document.getElementById('cap-text'),
+              cs=getComputedStyle(t);
+              var b=t.getBBox();
+              return JSON.stringify({lit:cs.getPropertyValue('--lit').trim(),
+                style:t.style.getPropertyValue('--lit'),
+                mask:cs.maskImage, bw:+b.width.toFixed(2), bx:+b.x.toFixed(2),
+                rects:t.getClientRects().length, cap:t.textContent.slice(0,8)});})()"""))
+
+        # ① 句内三点：读数即时钟比例
+        ev("window.__jump('seg-2', 0)")
+        geo = None
+        for frac in (0.0, 0.5, 0.999):
+            st = seek(n0["start"] + n0["duration"] * frac)
+            want = 118 * frac
+            # 断言写成读数与 118×k 的差（容差 0.1），不写死字符串：页内是
+            # `(118 * ((t - start) / duration)).toFixed(1)`，t 由这里加出来的浮点
+            # 与页内再除一次会有 1e-16 量级的尾差，写死 "59.0%" 会在别的 runner 上红。
+            assert abs(float(st["lit"].rstrip("%")) - want) <= 0.1, \
+                f"亮度读数 {frac} 实得 {st['lit']}（应 ≈{want:.1f}%）：{st}"
+            assert st["style"], f"--lit 必须落在 style 上（截图页一刀切后仍读得到）：{st}"
+            if geo is None:
+                geo = (st["bw"], st["bx"], st["rects"])
+            assert (st["bw"], st["bx"], st["rects"]) == geo, \
+                f"遮罩不该改 bbox / client rects（QA 与取景都读这两样）：{geo} → {st}"
+        # 软过渡带恒等于 --lit-ramp：不透明段终点 = --lit − 18%
+        for frac in (0.25, 0.75):
+            st = seek(n0["start"] + n0["duration"] * frac)
+            vals = [float(v) for v in re.findall(r"(-?[\d.eE+-]+)%", st["mask"])]
+            edge = float(st["lit"].rstrip("%"))
+            assert abs(vals[0] - (edge - 18.0)) < 1e-3, f"软边该恒为 18%：{st['mask']}"
+            assert abs(vals[1] - edge) < 1e-3, f"地板段起点贴着 --lit：{st['mask']}"
+
+        # ② 同值不重写：同一拍连读两次，style 字符串完全一致（不是"每次刷新"）
+        a = seek(n0["start"] + n0["duration"] * 0.4)
+        b = seek(n0["start"] + n0["duration"] * 0.4)
+        assert a["style"] == b["style"], (a, b)
+
+        # ③ 空档：字幕停在上一句，亮度停在满亮（gap-hold 同一口径，不闪白）
+        st = seek(n0["start"] + n0["duration"] + 0.06)
+        assert abs(float(st["lit"].rstrip("%")) - 118.0) <= 0.1, f"空档应停在满亮：{st}"
+
+        # ④ 换句：新句从 0 重新点亮
+        ev("window.__jump('seg-2', 1)")
+        st = seek(seg2["runtime"]["narration"][1]["start"])
+        # 注意：计算值会归一化（style 写 "0.0%" → 读回 "0%"），所以比的是**数值**，
+        # 只有 style 那一格才是逐字的字符串（同值不重写靠它）。
+        assert st["style"] == "0.0%" and float(st["lit"].rstrip("%")) == 0.0, \
+            f"换句必须归零重亮（整句起点那一拍）：{st}"
+
+        # ⑤ 播完：capShow(null) → 满亮（收起态不留"整句压暗"的计算值）
+        ev("(function(){document.getElementById('main-audio')"
+           ".dispatchEvent(new Event('ended'));return 1;})()")
+        assert abs(float(ev("document.getElementById('cap-text')"
+                            ".style.getPropertyValue('--lit')").rstrip("%")) - 118.0) <= 0.1, \
+            "结束态字幕收起，亮度不能留一档压暗"
+
+        # ⑤b 结束态回拖同一句：读数跟着回来（纯函数律）
+        n1 = seg2["runtime"]["narration"][1]
+        st = seek(n1["start"] + n1["duration"] * 0.5)
+        assert abs(float(st["lit"].rstrip("%")) - 59.0) <= 0.1, \
+            f"回拖进活跃句子，点亮必须跟着回来：{st}"
+
+        # ⑥ 字号换档：写的是比例，26px 档同样落 0.5
+        ev("window.__jump('seg-2', 2)")
+        n2 = seg2["runtime"]["narration"][2]
+        desk = seek(n2["start"] + n2["duration"] * 0.5)
+        assert abs(float(desk["lit"].rstrip("%")) - 59.0) <= 0.1, desk
+        ev("(function(){document.documentElement.dataset.compact='1';return 1;})()")
+        ev("(function(){document.getElementById('main-audio')"
+           ".dispatchEvent(new Event('ended'));return 1;})()")
+        st = seek(n2["start"] + n2["duration"] * 0.5)
+        assert abs(float(st["lit"].rstrip("%")) - 59.0) <= 0.1, \
+            f"小屏同样是比例读数：compact={st} desk={desk}"
+        assert st["bw"] > desk["bw"] * 1.2, f"26px 档 bbox 应变宽（比的是两档之比）：{st} {desk}"
+        ev("(function(){delete document.documentElement.dataset.compact;return 1;})()")
+
+        # ⑦ 导出截图模式：一次 tick 就落那一秒的读数
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-2', 0)")
+        st = seek(n0["start"] + n0["duration"] * 0.42)
+        assert abs(float(st["lit"].rstrip("%")) - 49.56) <= 0.1, \
+            f"截图模式一次 tick 就要落读数：{st}"
+        ev("delete window.__coursewareShotMode")
+
+        # ⑧ 字幕不挂 CJK 行首标点：三档正文挂、#cap-text 恒 normal
+        typ = json.loads(ev(r"""(function(){
+          var t = document.getElementById('cap-text');
+          var note = document.querySelector('.n-txt');
+          var q = document.querySelector('.gate .q');
+          var tag = document.querySelector('.chapter .tagline');
+          return JSON.stringify({cap:getComputedStyle(t).textSpacingTrim,
+            supports:CSS.supports('text-spacing-trim','trim-start'),
+            note:note?getComputedStyle(note).textSpacingTrim:null,
+            q:q?getComputedStyle(q).textSpacingTrim:null,
+            tag:tag?getComputedStyle(tag).textSpacingTrim:null,
+            capW:+t.getBBox().width.toFixed(2)});})()"""))
+        assert typ["supports"], "本机 Chrome 应支持 text-spacing-trim（否则这条用例失去意义）"
+        assert typ["cap"] == "normal", f"字幕刻意不挂 trim-start：{typ}"
+        assert typ["note"] == "trim-start" and typ["q"] == "trim-start" \
+            and typ["tag"] == "trim-start", typ
+    finally:
+        _kill(chrome)
+
+
+
+
+# 收拢退场的量法：读 clip-path 四边内缩百分比，A/C 两条用例共用。
+# 用 @ID@ + replace 传参（JS 里到处是 %，% 格式化会炸）。
+_TUCK_SNAP = r"""(function(){
+  var n = document.getElementById('@ID@'), cs = getComputedStyle(n);
+  var m = cs.clipPath.match(/inset\(([^)]*)\)/);
+  var f = m ? m[1].trim().split(/\s+/).map(function(v){ return parseFloat(v); }) : [];
+  while (f.length < 4){ f.push(f[0]); }
+  return JSON.stringify({cls:n.getAttribute('class'), cp:cs.clipPath, ins:f,
+    tp:cs.transitionProperty, tdur:cs.transitionDuration,
+    bbox:+n.getBBox().width.toFixed(2), rw:+n.getBoundingClientRect().width.toFixed(2),
+    an:(n.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;}),
+    kids:[].slice.call(n.children).map(function(k){ return k.id; })});
+})()"""
+
+# 暂停补间取 0 / 120 / 260 / 419ms 四档，量的是"裁切线真的在走"而不是两格闪烁；
+# 采完 cancel()：补间撤销后计算值回到 after-change style（就是终档），后续命中与
+# 下一次换档都从干净状态起，不会留一条被暂停的补间挂在节点上。
+_TUCK_SWEEP = r"""(function(){
+  var n = document.getElementById('@ID@');
+  var list = (n.getAnimations()||[]).filter(function(a){
+    return a.transitionProperty === 'clip-path';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'clip-path 补间不在场', an:(n.getAnimations()||[]).map(
+      function(a){ return a.transitionProperty || a.animationName; })});
+  }
+  var out = {dur:list[0].effect.getComputedTiming().duration, frames:[]};
+  [0, 120, 260, 419].forEach(function(ms){
+    list[0].pause(); list[0].currentTime = ms;
+    var cs = getComputedStyle(n);
+    var m = cs.clipPath.match(/inset\(([^)]*)\)/);
+    var f = m ? m[1].trim().split(/\s+/).map(function(v){ return parseFloat(v); }) : [];
+    while (f.length < 4){ f.push(f[0]); }
+    out.frames.push({ms:ms, cp:cs.clipPath, ins:f,
+      bbox:+n.getBBox().width.toFixed(2),
+      rw:+n.getBoundingClientRect().width.toFixed(2)});
+  });
+  list[0].cancel();
+  return JSON.stringify(out);
+})()"""
+
+
+def _tuck_snap(ev, node_id):
+    return json.loads(ev(_TUCK_SNAP.replace("@ID@", node_id)))
+
+
+def _tuck_sweep(ev, node_id):
+    return json.loads(ev(_TUCK_SWEEP.replace("@ID@", node_id)))
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_tuck_retracts_on_reused_node(full_lesson):
+    """真实浏览器：收拢退场在**复用节点**上连续走完行程，且只补间 clip-path。
+
+    四条口径全是量出来的：
+      · 边界 ⑤ 的后果——`put()` 把 class 拼成 `nt tuckR`，同节点两条 transition 简写
+        只有一条活：计算值 `transition-property` 只剩 `clip-path`（transform / opacity
+        一步落终值）。这正是"收拢只挂纯包装 g"的理由，所以这里锁的就是计算值；
+      · 行程连续：暂停补间采四档，动的那一边严格单调 −15% → 115%（两端正好落在声明值
+        上：85% 留 46px 能点着的残角，`inset(0 0 0 0)` 啃描边与 marker-end 箭头），
+        其余三边全程钉在 −15%，时长 420ms（--dur-tuck）；
+      · 裁切不动几何、但动命中：bbox 与 getBoundingClientRect 宽逐值不变，而沿路采样
+        展开档 4/4 可命中、收拢档 0/4（需要 Learner 点的图元别收拢，边界 ④）；
+      · 导出那一刀（`transition:none!important`）直接落终档且 getAnimations() 为空：
+        成片帧里根本不存在"收拢中"那一格，退场要么演、要么就是没了，不留半档。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "tuck")
+    try:
+        ev(_SEEK)
+        # idle 态 #veilplay 铺满舞台会接走 elementFromPoint（实测命中全是 veilplay），
+        # 命中那一档先把舞台打到 playing——口径同 0.13.0 按住反馈那条。
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+
+        # ── ① .tuckR：建档 → 收拢 → 回展开 ──
+        ev("window.__jump('seg-1', 1)")
+        st = _tuck_snap(ev, "a-arcs")
+        assert st["cls"] == "nt tuckR", f"put 的拼法是 'nt ' + class：{st}"
+        assert st["cp"] == "inset(-15%)" and st["ins"] == [-15.0] * 4, \
+            f"静止档四边外扩 −15%（inset(0 0 0 0) 会啃掉描边与 marker-end 箭头）：{st}"
+        assert st["kids"] == ["a-arc-1", "a-arc-1-flow", "a-arc-1-lab",
+                              "a-arc-2", "a-arc-2-lab"], f"复用节点的子层顺序不变：{st}"
+        assert st["tp"] == "clip-path", \
+            f"边界 ⑤：同节点时 .nt 那份长简写被整串顶掉，计算值只剩 clip-path：{st}"
+        assert st["tdur"] == "0.42s", f"时长走 --dur-tuck：{st}"
+
+        ev("window.__jump('seg-1', 2)")
+        fwd = _tuck_sweep(ev, "a-arcs")
+        assert "err" not in fwd, fwd
+        assert abs(fwd["dur"] - 420) <= 0.01, \
+            f"收拢行程 .42s（比揭示 --dur-reveal .5s 短一档）：{fwd}"
+        edge = [f["ins"][3] for f in fwd["frames"]]     # inset(top right bottom left)
+        assert abs(edge[0] + 15) < 1e-6 and abs(edge[3] - 115) < 1e-6, \
+            f"两端落在声明值上（115% = 100% + 那 15% 外扩余量）：{edge}"
+        assert edge[0] < edge[1] < edge[2] < edge[3], f"裁切线一路往右走，不是两格闪烁：{edge}"
+        assert all(abs(f["ins"][i] + 15) < 1e-6 for f in fwd["frames"] for i in (0, 1, 2)), \
+            f"只有动的那一边在变：{[f['ins'] for f in fwd['frames']]}"
+        assert len({f["bbox"] for f in fwd["frames"]}) == 1 and \
+            len({f["rw"] for f in fwd["frames"]}) == 1, \
+            f"裁切不动几何（QA 可见性与取景读的就是这两把尺）：{fwd['frames']}"
+        open_bbox = fwd["frames"][0]["bbox"]
+
+        ev("window.__jump('seg-1', 1)")
+        back = _tuck_sweep(ev, "a-arcs")
+        assert "err" not in back, back
+        redge = [f["ins"][3] for f in back["frames"]]
+        assert abs(redge[0] - 115) < 1e-6 and abs(redge[3] + 15) < 1e-6 \
+            and redge[0] > redge[1] > redge[2] > redge[3], \
+            f"回拖是同一趟行程倒着走（纯函数律：读数跟着回来）：{redge}"
+        assert back["frames"][0]["bbox"] == open_bbox, "反向补间同样不改动几何"
+
+        # ── ② 命中：clip-path 把命中一起裁掉（与 mask 的关键差别）──
+        HIT = r"""(function(){
+          var lab = document.getElementById('a-arc-1-lab'), lr = lab.getBoundingClientRect();
+          var e = document.elementFromPoint(lr.left + lr.width / 2, lr.top + lr.height / 2);
+          return JSON.stringify({hit:e ? (e.id || e.tagName) : null,
+                                 inside:e ? ((e === lab || lab.contains(e)) ? 1 : 0) : 0});
+        })()"""
+        time.sleep(0.6)                       # 补间已 cancel，档位就是终态；等一拍稳
+        assert json.loads(ev(HIT))["inside"] == 1, "展开档标注照旧可命中"
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.6)
+        gone = json.loads(ev(HIT))
+        assert gone["inside"] == 0, f"收拢后不吃命中（实测命中的是底下的卡片 rect）：{gone}"
+
+        # ── ③ .tuckL：新建档没有上一状态、消费者按边界 ① 多停一拍 ──
+        ev("window.__jump('seg-6', 1)")
+        st = _tuck_snap(ev, "e-ties")
+        assert st["cls"] == "nt tuckL" and st["ins"] == [-15.0] * 4, st
+        assert st["kids"] == ["e-tie-\u5c0f\u660e", "e-tie-\u5c0f\u7ea2"], st
+        assert st["an"] == [], f"新建档入树前写完状态，没有上一状态可补间：{st}"
+        ev("window.__jump('seg-6', 2)")
+        lfwd = _tuck_sweep(ev, "e-ties")
+        assert "err" not in lfwd, lfwd
+        ledge = [f["ins"][1] for f in lfwd["frames"]]   # 右端先没：动的是 inset 第二个值
+        assert abs(ledge[0] + 15) < 1e-6 and abs(ledge[3] - 115) < 1e-6 \
+            and ledge[0] < ledge[1] < ledge[2] < ledge[3], \
+            f"左收那条按原路撤（右端先没），同样是连续行程：{ledge}"
+        assert all(abs(f["ins"][i] + 15) < 1e-6 for f in lfwd["frames"]
+                   for i in (0, 2, 3)), f"只动右边：{[f['ins'] for f in lfwd['frames']]}"
+
+        # 连线沿路采样：中段被门禁卡片压住（实测 f=0.5 命中的是 .f-q），取两头
+        TIEHIT = r"""(function(){
+          var l = document.getElementById('e-tie-\u5c0f\u660e'), c = l.getScreenCTM();
+          var hit = 0, tot = 0;
+          [0.05, 0.2, 0.8, 0.95].forEach(function(f){
+            var p = l.getPointAtLength(l.getTotalLength() * f);
+            var e = document.elementFromPoint(c.a * p.x + c.c * p.y + c.e,
+                                              c.b * p.x + c.d * p.y + c.f);
+            tot++; if (e === l){ hit++; }
+          });
+          return JSON.stringify({hit:hit, tot:tot});
+        })()"""
+        ev("window.__jump('seg-6', 1)")
+        time.sleep(0.6)
+        assert json.loads(ev(TIEHIT)) == {"hit": 4, "tot": 4}, "展开档连线可命中"
+        ev("window.__jump('seg-6', 2)")
+        time.sleep(0.6)
+        assert json.loads(ev(TIEHIT))["hit"] == 0, \
+            "收拢后一次都点不到：要 Learner 点的图元不能挂 .tuck（边界 ④）"
+
+        # s3 起不再引用 → sweep 当场撤走（收拢只负责 s2 那一拍"演出去"）
+        ev("window.__jump('seg-6', 3)")
+        assert ev("document.getElementById('e-ties') === null"), "s3 该撤就得撤干净"
+        ev("window.__jump('seg-6', 1)")
+        st = _tuck_snap(ev, "e-ties")
+        assert st["ins"] == [-15.0] * 4 and st["an"] == [], \
+            f"回拖重进这一句是**新建档**，不是从 115% 补回来：{st}"
+
+        # ── ④ 导出那一刀：落终档、没有补间、几何照旧 ──
+        ev("document.head.insertAdjacentHTML('beforeend','<style id=\"cut\">"
+           "*,*::before,*::after{transition:none!important;animation:none!important}"
+           "</style>')")
+        ev("window.__jump('seg-1', 1)")
+        ev("window.__jump('seg-1', 2)")
+        cut = _tuck_snap(ev, "a-arcs")
+        assert cut["cp"] == "inset(-15% -15% -15% 115%)", \
+            f"逐帧冷启动必须直接落收拢终档：{cut}"
+        assert cut["an"] == [], f"成片帧里不存在'收拢中'那一格：{cut}"
+        assert cut["bbox"] == open_bbox, f"关掉了动效也不改几何：{cut}"
+    finally:
+        _kill(chrome)
+
+
+# 合成对比度的页内量法（probe13 / probe17 两轮同一组数）：把"带 mask 的字"写成
+# 独立 SVG（data-URL），canvas 光栅化后**取接近满覆盖的像素（p90）**按 WCAG 公式
+# 算对底色的对比度。为什么必须合成：mask 的灰阶地板是 alpha 不是颜色，§8 判的是
+# 合成后的墨色 vs 底色。为什么不能拿截图像素平均亮度：本轮第一版就是这么算出
+# "8.04:1" 并据此选了 .72——量法本身就错。
+# 注意 data-URL 里 `<percentage>` 要写成实体，否则整张 SVG 解析失败（实测 onerror）。
+_LIT_INK = r"""new Promise(function(res){
+  var FLOOR = @FLOOR@, RAMP = @RAMP@, BG = @BG@, FILL = @FILL@, K = 0.5;
+  var W = 640, H = 120;
+  var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H +
+    '" viewBox="0 0 ' + W + ' ' + H + '">' +
+    '<style>@property --lit{syntax:\'&lt;percentage&gt;\';inherits:false;initial-value:118%}' +
+    'text{font:17px system-ui;font-weight:600}' +
+    '.l{mask-image:linear-gradient(90deg,#000 0 calc(var(--lit) - ' + RAMP + '%),' +
+    'rgba(0,0,0,' + FLOOR + ') var(--lit) 100%)}</style>' +
+    '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>' +
+    '<text id="t" class="l" x="20" y="60" fill="' + FILL +
+    '" style="--lit:' + (118 * K) + '%">' +
+    '排序看的是字符，不是数值大小。位数不同才看得出差别。</text></svg>';
+  var img = new Image();
+  img.onload = function(){
+    var c = document.createElement('canvas'); c.width = W; c.height = H;
+    var x = c.getContext('2d', {willReadFrequently:true});
+    x.drawImage(img, 0, 0);
+    var d = x.getImageData(0, 0, W, H).data;
+    function px(i){ return [d[i], d[i + 1], d[i + 2]]; }
+    function stats(x0, x1){
+      var lum = [], bg = 1e9;
+      for (var y = 30; y < 80; y++){
+        for (var xx = x0; xx < x1; xx++){
+          var p = px((y * W + xx) * 4);
+          var L = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+          lum.push([L, p]);
+          if (L < bg) bg = L;
+        }
+      }
+      var ink = lum.filter(function(q){ return q[0] > bg + 25; });
+      if (!ink.length) return {n: 0};
+      ink.sort(function(a, b){ return a[0] - b[0]; });
+      var sum = 0; ink.forEach(function(q){ sum += q[0]; });
+      return {n: ink.length, mean: Math.round(sum / ink.length * 100) / 100,
+              p90: ink[Math.floor(ink.length * 0.90)][1]};
+    }
+    function ch(v){ v = v / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+    function cr(fg, bgp){
+      var a = 0.2126 * ch(fg[0]) + 0.7152 * ch(fg[1]) + 0.0722 * ch(fg[2]);
+      var b = 0.2126 * ch(bgp[0]) + 0.7152 * ch(bgp[1]) + 0.0722 * ch(bgp[2]);
+      var hi = Math.max(a, b), lo = Math.min(a, b);
+      return Math.round((hi + 0.05) / (lo + 0.05) * 100) / 100;
+    }
+    var bgp = px(((55 * W) + 600) * 4);
+    var lit = stats(20, Math.round(W * K));
+    var dim = stats(Math.round(W * K) + 30, W - 4);
+    res(JSON.stringify({fill:FILL, floor:FLOOR, bg:bgp,
+      lit_mean:lit.mean, dim_mean:dim.mean,
+      cr_lit:lit.p90 ? cr(lit.p90, bgp) : null,
+      cr_dim:dim.p90 ? cr(dim.p90, bgp) : null,
+      ratio:(lit.mean && dim.mean) ? Math.round(lit.mean / dim.mean * 1000) / 1000 : null}));
+  };
+  img.onerror = function(){ res(JSON.stringify({err:true})); };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+})"""
+
+
+def _ink(ev, floor, ramp, fill, bg):
+    js = (_LIT_INK.replace("@FLOOR@", str(floor)).replace("@RAMP@", str(ramp))
+          .replace("@FILL@", "'%s'" % fill).replace("@BG@", "'%s'" % bg))
+    got = json.loads(ev(js, True))
+    assert not got.get("err"), f"data-URL SVG 没被解出来（实体转义漏了？）：{got}"
+    return got
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_lit_floor_passes_composite_contrast(full_lesson):
+    """量**合成后**的对比度：范本那一档地板过线，两档被否决的替代品复现否决理由。
+
+    阈值不写死在自己机器上：判据是 §8 那两条线（正文 4.5:1、次要文字 7:1）加一条
+    "念过 vs 未念"的墨量均值比 ≥1.08。两轮实测（probe13 / probe17）逐值一致：
+      · floor=.85 对 panel `#1c212d`：非结论 10.48 / 7.97（均值比 1.097）、结论
+        7.94 / 6.08（1.096）；对 edge `#161a23` 更好（8.46 / 6.45）；
+      · floor=.72 墨量差更大（均值比 1.20）但结论字色对 panel 只剩 **4.76:1**——
+        贴 4.5:1 线零余量，所以否决；
+      · floor=.92 均值比掉到 **1.05**，肉眼分不出念没念过，等于没做。
+    断言只走"过线 / 不过线"的方向，不锁小数：字体渲染环境换了数值会漂。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    m = re.search(r"--dur-tuck:\.42s; --lit-floor:([\d.]+); --lit-ramp:(\d+)%;", html)
+    assert m, "令牌行缺 --lit-floor / --lit-ramp，本用例无从量起"
+    floor, ramp = float(m.group(1)), int(m.group(2))
+
+    chrome, ev, _send = _cdp(full_lesson, "litcontrast")
+    try:
+        # ① 范本这一档：两种字色 × 字幕带压着的两档底色，全部过正文线 + 均值比线
+        rows = {(bg, fill): _ink(ev, floor, ramp, fill, bg)
+                for bg in ("#1c212d", "#161a23")
+                for fill in ("#c9d1e0", "#f5a623")}
+        for (bg, fill), r in rows.items():
+            assert r["cr_dim"] >= 4.5, f"{fill} on {bg}：未念段合成后 {r['cr_dim']}:1 不过正文线"
+            assert r["cr_lit"] >= 4.5 and r["cr_lit"] > r["cr_dim"], r
+            assert r["ratio"] >= 1.08, f"{fill} on {bg}：念过 vs 未念均值比只有 {r['ratio']}"
+        for bg in ("#1c212d", "#161a23"):
+            r = rows[(bg, "#c9d1e0")]
+            assert r["cr_dim"] >= 7.0, \
+                f"非结论字色在 {bg} 上未念段 {r['cr_dim']}:1，掉出次要文字的 7:1"
+
+        # ② 被否决的 .72：结论字色贴线（实测 4.76:1），余量不足半个点
+        low = _ink(ev, 0.72, ramp, "#f5a623", "#1c212d")
+        assert low["cr_dim"] < 5.0, \
+            f".72 那一档若还过 5:1，本轮的否决理由就不成立了：{low}"
+        assert low["ratio"] > rows[("#1c212d", "#f5a623")]["ratio"], \
+            f".72 的墨量差确实更大（这才是当初想选它的理由），但对比度不够：{low}"
+
+        # ③ 被否决的 .92：差小到分不出来
+        high = _ink(ev, 0.92, ramp, "#c9d1e0", "#1c212d")
+        assert high["ratio"] < 1.07, \
+            f".92 那一档均值比 {high['ratio']}，与不压暗（1.00）已经分不出两件事：{high}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_reading_and_tuck_reduced_motion_fallback(full_lesson):
+    """关掉动效：收拢**不演**但档位照落（0ms 就在那一格），而点亮仍跟着钟走。
+
+    两件事分别对应两条纪律：
+      · 退场是动效 → 关掉后直接落终档。实测计算值 `transition-property` 就是 `none`、
+        换档后**立即**读到 115%、回读 −15%，`getAnimations()` 恒空——`.tuckR,.tuckL`
+        那条兜底行与基础规则同为 (0,1,0) 且源序在后，**不需要**抬特异度（对比 0.18.0
+        的门禁那一族：那条必须带 `#gate`，因为基础规则排在媒体块之后）。
+      · 点亮是时钟读数 → 关掉动效它得继续跟上嘴：0.2 / 0.8 两点仍读到 118×k
+        （23.6% / 94.4%），mask 仍是一条 linear-gradient。把 `--lit` 放进兜底清单才是
+        bug：那等于让字幕在关掉动效的用户那里停止跟随。
+    断言按 0.16.1 那条教训写：比数值 + 容差，不比归一化后的字符串。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm19")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+
+        ev("window.__jump('seg-1', 1)")
+        st = _tuck_snap(ev, "a-arcs")
+        assert st["cp"] == "inset(-15%)" and st["ins"] == [-15.0] * 4, st
+        assert st["tp"] == "none", f"收拢的 transition 要真的关掉（计算值）：{st}"
+        open_bbox = st["bbox"]
+        ev("window.__jump('seg-1', 2)")
+        st = _tuck_snap(ev, "a-arcs")          # 不 sleep：这一档本来就不该有补间
+        assert st["cp"] == "inset(-15% -15% -15% 115%)" and st["an"] == [], \
+            f"减动效下 s2 直接就是收拢终态，内容不依赖动效：{st}"
+        assert st["bbox"] == open_bbox, f"落档不改几何：{st} vs 展开档 {open_bbox}"
+        ev("window.__jump('seg-1', 1)")
+        st = _tuck_snap(ev, "a-arcs")
+        assert st["ins"] == [-15.0] * 4 and st["an"] == [], f"回拖照旧落回展开档：{st}"
+
+        ev("window.__jump('seg-6', 1)")
+        st = _tuck_snap(ev, "e-ties")
+        assert st["ins"] == [-15.0] * 4 and st["tp"] == "none", st
+        ev("window.__jump('seg-6', 2)")
+        st = _tuck_snap(ev, "e-ties")
+        assert st["cp"] == "inset(-15% 115% -15% -15%)" and st["an"] == [], st
+
+        # 点亮不在兜底清单里：仍逐拍跟着 currentTime 走
+        tl = json.loads(ev("JSON.stringify(window.__tl)"))
+        n0 = [s for s in tl["scenes"] if s["step_id"] == "seg-2"][0]["runtime"]["narration"][0]
+        for frac in (0.2, 0.8):
+            ev("(function(){window.__t=%r;document.getElementById('main-audio')"
+               ".dispatchEvent(new Event('timeupdate'));return 1;})()"
+               % (n0["start"] + n0["duration"] * frac))
+            lit = json.loads(ev("""(function(){var t=document.getElementById('cap-text'),
+              cs=getComputedStyle(t);
+              return JSON.stringify({lit:parseFloat(cs.getPropertyValue('--lit')),
+                mask:cs.maskImage});})()"""))
+            assert abs(lit["lit"] - 118 * frac) <= 0.1, \
+                f"减动效下亮度读数仍跟嘴（{frac} 应 ≈{118 * frac:.1f}%）：{lit}"
+            assert lit["mask"].startswith("linear-gradient("), \
+                f"遮罩本身不被 reduced-motion 摘掉（它是状态不是动效）：{lit['mask'][:60]}"
     finally:
         _kill(chrome)

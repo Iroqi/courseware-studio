@@ -241,6 +241,17 @@ CSS 长：四件套（`interpolate-size` + `display` 进清单 + `allow-discrete
 取 **entry 段内**（`entry 0% entry 60%`）才是"滚进来的时候演，没得滚就在那儿"。
 reduced-motion 兜底要写成 `ul.notes>li.note`：基础规则源序在后，朴素选择器盖不过它。
 
+**行首那半格标点要收掉**（0.19.0，`text-spacing-trim:trim-start`）。中文正文里全角标点
+即使出现在行首也照样占满一个字盒，于是以「、（、，起头的那一行比后面那些字往右缩半格，
+两条栏读起来是锯齿。实测（Chrome 152，用 `Range` 量**墨迹**宽）13px 档整行 −6.5px、
+16px 档 −8.0px，两档都恰好 0.5em；行首是汉字则逐值不动——它只动该动的那半格。16px
+那一档还会把断点往前挪一个字（行0 +8 / 行1 −16），省下的本来就是空白，字排得更实。
+范本只挂在**会换行的 HTML 正文**上（`.n-txt` / `.gate .q` / `.interaction-feedback` /
+`.chapter .tagline`），整块包 `@supports`。**字幕带不挂**：它单行不换行、看不见收益，
+却要动 `#cap-hl` / `#cap-prog` / `--lit` 三个派生视图共用的 bbox 读数；等宽 `code` 与
+对照行 `.kv` 同理。两条测量坑记在这儿：块盒 `getBoundingClientRect().width` 量不到任何
+变化（会得到"这属性没用"的假结论），SVG `<text>` 上它确实生效但按 `text-anchor` 分摊偏移。
+
 ## 7. 层叠
 
 ```text
