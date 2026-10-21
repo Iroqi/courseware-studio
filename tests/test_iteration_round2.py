@@ -2824,6 +2824,33 @@ def test_edge_texture_reduced_motion_fallback(full_lesson):
         _kill(chrome)
 
 
+def _keyframe_bodies(html):
+    """把每条 `@keyframes` 的**整个规则体**取出来（按花括号配平，不靠正则截断）。
+
+    正则 `(.*?)}` 在这种嵌套写法上只会吃到第一个 `}`，也就是只拿到 `from{…` 那一帧，
+    剩下的 `to{…}` 全漏网——用它判"关键帧里不许出现某属性"等于没判（本轮实测踩过）。
+    注释里也会提到 `@keyframes`（`.flow` 那段就这么写），所以先剥掉注释再扫。
+    """
+    html = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    out, i = [], 0
+    while True:
+        i = html.find("@keyframes", i)
+        if i < 0:
+            return out
+        j = html.find("{", i)
+        depth, k = 0, j
+        while k < len(html):
+            if html[k] == "{":
+                depth += 1
+            elif html[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        out.append(html[j + 1:k])
+        i = k
+
+
 # ── 12. 连线与标注：沿线流光 / 恒定线宽 / 自动错峰 / 描边光环（0.18.0）──
 
 def test_line_and_label_primitives_present():
@@ -2934,11 +2961,22 @@ def test_line_and_label_primitives_present():
     assert "vector-effect" not in rm_rules and ".stag>" not in rm_rules \
         and ".halo{" not in rm_rules, "线宽口径 / 错峰排程 / 描边顺序都不是动效，不进兜底清单"
 
-    # ⑩ 本轮实测否决的四条，别被下一轮再请回来
+    # ⑩ 本轮实测否决的四条，别被下一轮再请回来。
+    #     **其中 offset-path 在 0.20.0 被有条件翻案**（`.ride`），这里把重新画过的
+    #     边界锁住：当年否决它的理由是"用 animation 驱动沿线位移，导出切掉动画后
+    #     圆点落在路径起点，成片里多出一个谁也没请的小点"——**那条理由仍然成立**，
+    #     成立的正是 animation 这个驱动方式（下面锁 keyframes 里不许出现 offset-*）。
+    #     0.20.0 换成 transition + 呈现属性档位（data-go），实测切掉动效后
+    #     offset-distance 落 100%、屏幕坐标停在路线终点 (646,472)，小点不是意外
+    #     而是被请来的主角。另一半理由（移动的子节点不进 getBBox()）**原样有效**，
+    #     所以 .ride 的消费者只把它当视觉指引：不当热区、不参与 §5 的连线几何判定。
     assert "<animate" not in html and "animateMotion" not in html, \
         "SMIL 不吃 animation:none，getAnimations() 也冻不住——可及性与导出两侧都管不了它"
-    assert "offset-path" not in html and "offset-distance" not in html, \
-        "offset-path 的移动体不进 getBBox()，且有实体：切掉动画后落在起点多出一个小点"
+    for body in _keyframe_bodies(html):
+        assert "offset-" not in body, \
+            "offset-* 一旦交给 keyframes，导出切掉 animation 就落回起点（0.18.0 否决的是这个写法）"
+    assert '.ride[data-go="1"]{offset-distance:100%}' in html, \
+        "0.20.0 翻案的条件：行程终态必须活在呈现属性上，否则定格就落在起点"
 
 
 @pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
@@ -3971,5 +4009,557 @@ def test_reading_and_tuck_reduced_motion_fallback(full_lesson):
                 f"减动效下亮度读数仍跟嘴（{frac} 应 ≈{118 * frac:.1f}%）：{lit}"
             assert lit["mask"].startswith("linear-gradient("), \
                 f"遮罩本身不被 reduced-motion 摘掉（它是状态不是动效）：{lit['mask'][:60]}"
+    finally:
+        _kill(chrome)
+
+
+# ── 0.20.0：当面与抵达（翻面 / 沿线抵达 / 圆形绽开）──────────────────────
+
+def test_flip_ride_bloom_primitives_present():
+    """模板结构契约：0.20.0 三条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮在 Chrome 152 里量出来"为什么只能这么写"的边界：
+      · 翻面必须走**对称曲线** `--ease-in-out`：交接在行程的一半（visibility 借
+        delay，时长 0），而"半程 = 侧立"只有对称曲线成立。实测 --ease-in-out 在
+        t=300.5ms 采到 θ=90.0°（两面正好换班），仓库默认的 --ease-out 在 60.5ms
+        就已过 78.9°——同一套 delay 写法下背面要**倒着走 235ms**，那是穿帮；
+      · 翻面**不许用 `backface-visibility`**：SVG 里它是死的（CTM.a 已经 -1，
+        镜像的字照描），所以两面各挂一条按时间交接的 visibility；
+      · 翻面挂纯包装 g：`.flip` 与 `.nt` 都是 transition 简写、同节点时源序后者胜
+        （实测计算值只剩 `transform`），包装层因此只写 `data-over`，两面各写自己的颜色
+        ——旧那句 `fill: won ? … : …` 不许回来（颜色跟着面走，中途才没有不灰不绿的中间色）；
+      · `.ride` 的行程终态必须在**呈现属性**上（`data-go`），且**不许**交给 keyframes：
+        0.18.0 否决 offset-path 的理由就是"切掉 animation 后圆点落在起点"，那条理由
+        今天仍然成立，成立的是 animation 这个驱动方式（上面已把边界重画成
+        "禁 keyframes 驱动 offset-*"）；缓动写 linear，easeOut 会读作"到站撞墙上"；
+      · 标记**不挂在 .tuck* 那一层里面**：s2 起那层挂 `gone`，clip-path 会把走在
+        半途的标记一起裁掉；
+      · `.bloom` 终态取 75% 不取 100%：`circle()` 的百分比按 `sqrt(w²+h²)/√2` 归一，
+        盖住四角需要 ≥ 半对角线，**下限恒等于 √2/2 ≈ 70.7%（与长宽比无关）**，
+        实测那张 42×52 的空缺格 50% 咬边（墨量 142 对 286）、75% 与不裁逐像素相同；
+      · 空缺格内层不再挂 `.pop`：绽开就是它的入场，别叠两层；
+      · reduced-motion 三条**都不需要抬特异度**（基础规则源序在本块之前，与 .tuck
+        同、与掠光/侧栏相反），且兜底落的正是终态：翻面落背面、标记落终点、圆落全开。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+
+    # ① 令牌：三个时长各一档，且都写在同一条 :root 行里
+    assert "--dur-flip:.6s; --dur-ride:.8s; --dur-bloom:.5s;" in html
+    assert "--dur-flip:.4s" not in html and "--dur-ride:1.2s" not in html
+
+    # ② 翻面：对称曲线 + 半程交接 + 终态在属性上
+    assert ("transition:transform var(--dur-flip) var(--ease-in-out)}") in html, \
+        "翻面必须用对称的 --ease-in-out：交接在半程，曲线不对称就对不上侧立那一刻"
+    assert ".flip[data-over=\"1\"]{transform:perspective(600px) rotateY(180deg)}" in html
+    assert "perspective(600px) rotateY" in html, \
+        "3D 要写在 transform 函数列表里才生效（单写 rotateY 是平面镜像、没有远近）"
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)   # 注释里也写这条写法，按规则数
+    assert css.count("transition:visibility 0s linear calc(var(--dur-flip) / 2)") == 2, \
+        "两面各一条：时长 0、只借 delay，交接从 --dur-flip 除出来，改时长不用回头改第二处"
+    assert "visibility 0s linear .3s" not in html, "半程不许写死魔法数"
+    assert "backface-visibility" not in css, \
+        "SVG 里 backface-visibility 是死的（实测 CTM.a=-1 而镜像的字照描），HTML 那套两面写法不许回流"
+
+    # ③ 翻面的消费者：包装只写 data-over，两面各带各的颜色
+    assert "{class:'flip', 'data-over': won ? '1' : '0'}" in html
+    assert "{class:'face faceB'," in html
+    assert "fill: won ? '#2ecc71' : '#5d6577'" not in html, \
+        "旧那行把颜色当补间对象：翻到中途会出现不灰不绿的中间色，且换的是说法不是颜色"
+    assert "txt(g, 'b-' + ri + '-vs'," not in html, "两面必须住在包装层里，不在行根上"
+
+    # ④ 沿线抵达：属性档位 + 令牌路线 + linear
+    assert ".ride{offset-path:var(--route);offset-rotate:auto;offset-distance:0%;" in html
+    assert "transition:offset-distance var(--dur-ride) linear}" in html, \
+        "匀速走一段路：套 easeOut 读作起步猛冲、到站撞墙上"
+    assert '.ride[data-go="1"]{offset-distance:100%}' in html
+    assert "--route:path('M 354 " in html, "路线写在呈现属性 style 上，与那条 line 同一组坐标"
+    assert "@property --route" not in html, \
+        "--route 只是令牌替换，补间的是 offset-distance（它自己就可动画）"
+    assert "put('e-body', 'g', 'e-ride-' + p[0]" in html
+    assert "put(ties, 'g', 'e-ride-' + p[0]" not in html, \
+        "标记不许挂在收拢层里：那一层 s2 起 clip-path 收走，会把走在半途的标记一起裁掉"
+
+    # ⑤ 圆形绽开：两端同型可插值、静止态 = 全开、75% 是量出来的下限加余量
+    assert "@keyframes bloomIn{from{clip-path:circle(0% at 50% 50%)}" in html
+    assert "to{clip-path:circle(75% at 50% 50%)}}" in html
+    assert ".bloom{clip-path:circle(75% at 50% 50%);" in html
+    assert "animation:bloomIn var(--dur-bloom) var(--ease-out) backwards}" in html, \
+        "不写 forwards：跑完落回元素自身的 75%，导出切掉 animation 落的也是那一格"
+    assert "circle(100% at 50% 50%)" not in html, "100% 是白给的（覆盖整盒的下限 ≈70.7%）"
+    assert "put(g, 'g', 'b-' + ri + cx + '-x', {class:'bloom'," in html
+    assert "put(gap, 'rect', 'b-x' + ri + cx + '-r', {class:null," in html, \
+        "绽开就是这一格的入场，内层不再叠 .pop"
+    assert "txt(gap, 'b-x' + ri + cx + '-t', {class:null," in html
+
+    # ⑥ reduced-motion：三条兜底都在，且都不必抬特异度（基础规则源序在本块之前）
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    assert ".flip,.flip .face,.flip .faceB{transition:none}" in rm
+    assert ".ride{transition:none}" in rm
+    assert ".bloom{animation:none}" in rm
+    rm_rules = re.sub(r"/\*.*?\*/", "", rm, flags=re.S)
+    assert "offset-path" not in rm_rules and "--route" not in rm_rules \
+        and "circle(" not in rm_rules, \
+        f"路线与圆形裁剪的口径不是动效，不进兜底清单：{rm_rules}"
+
+    # ⑦ 本轮实测否决的五条里，能由静态锁钉住的三条（pretty / View Transitions
+    #    沿用 0.17.0 已有的那两把锁），别被下一轮再请回来
+    assert "corner-shape" not in html, \
+        "corner-shape:squircle 打在 SVG rect 上零差值（rx=9 那档实测逐像素相同），没有收益不写"
+    assert "counter(" not in html and "@property --num" not in html, \
+        "里程表数字在不支持 @property 时渲染空字符串（纪律③直接不合格），且这里的数字都是时钟读数"
+
+
+_FLIP_PROBE = r"""(function(){
+  var w = document.getElementById('FLIP'), f = document.getElementById('FRONT'),
+      b = document.getElementById('BACK');
+  function theta(el){                      // rotateY 的 cos 就是 matrix3d 的 m11
+    var t = getComputedStyle(el).transform, m = t.match(/matrix3d\(([^)]+)\)/);
+    if (!m) return null;
+    var a = parseFloat(m[1].split(',')[0]);
+    return Math.round(Math.acos(Math.max(-1, Math.min(1, a))) * 180 / Math.PI * 10) / 10;
+  }
+  var cs = getComputedStyle(w);
+  var hit = document.elementFromPoint(f.getBoundingClientRect().left
+    + f.getBoundingClientRect().width / 2,
+    f.getBoundingClientRect().top + f.getBoundingClientRect().height / 2);
+  return JSON.stringify({over:w.dataset.over, cls:w.getAttribute('class'),
+    theta:theta(w), tf:cs.transform, tp:cs.transitionProperty,
+    tdur:cs.transitionDuration,
+    bbox:[+f.getBBox().x.toFixed(2), +f.getBBox().y.toFixed(2),
+          +f.getBBox().width.toFixed(2), +f.getBBox().height.toFixed(2)],
+    fvis:getComputedStyle(f).visibility, bvis:getComputedStyle(b).visibility,
+    ftp:getComputedStyle(f).transitionProperty, ftdur:getComputedStyle(f).transitionDuration,
+    ftdelay:getComputedStyle(f).transitionDelay,
+    hit:hit ? (hit.id || hit.tagName) : null,
+    anims:(w.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;})});
+})()"""
+
+# 交接与角度必须**一起**冻结在同一个时间轴上：父层的 transform 与两面的 visibility
+# 是三个独立的补间，只暂停父层的话两面会照自己的钟走，量出来的就是错的那一半。
+_FLIP_SWEEP = r"""(function(){
+  var ws = [document.getElementById('FLIP'), document.getElementById('FRONT'),
+            document.getElementById('BACK')];
+  var list = [];
+  ws.forEach(function(n){ (n.getAnimations()||[]).forEach(function(a){ list.push(a); }); });
+  if (list.length !== 3) {
+    return JSON.stringify({err:'该有三个补间在场（父层 transform + 两面 visibility）',
+      got:list.map(function(a){ return a.transitionProperty; })});
+  }
+  var out = {dur:list[0].effect.getComputedTiming().duration, frames:[]};
+  list.forEach(function(a){ a.pause(); });
+  [0, 150, 300, 450, 599].forEach(function(ms){
+    list.forEach(function(a){ a.currentTime = ms; });
+    var t = getComputedStyle(ws[0]).transform.match(/matrix3d\(([^)]+)\)/);
+    var a1 = t ? parseFloat(t[1].split(',')[0]) : null;
+    out.frames.push({ms:ms,
+      theta: a1 === null ? null : Math.round(Math.acos(Math.max(-1, Math.min(1, a1))) * 180 / Math.PI * 10) / 10,
+      f:getComputedStyle(ws[1]).visibility[0], b:getComputedStyle(ws[2]).visibility[0]});
+  });
+  list.forEach(function(a){ a.cancel(); });
+  return JSON.stringify(out);
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_flip_turns_the_verdict_in_front_of_the_learner(full_lesson):
+    """真实浏览器：判决换面是**一次翻页**，不是换个颜色（0.20.0）。
+
+    量四件事：① 行程连续（θ 一路从 0° 走到 180°，中间有 90° 那格，不是两档闪烁）；
+    ② **交接落在侧立那一刻**——三个补间一起冻结在同一毫秒上取样，t=300ms 时
+    θ=90.0° 而两面正好从 v/h 换成 h/v；t=150ms 与 t=450ms 都只有一面在场，
+    全程没有一帧两面同显（那才是穿帮）；③ 终态在属性上：落定后 `data-over=1`、
+    正面 hidden、背面 visible，`elementFromPoint` 命中的是**在场那一面**——
+    没有"看不见却点得着"的幽灵面；④ CSS transform 不改 `getBBox()`，翻页前后的
+    盒一格不动（相机取景与 QA 几何判定看不见这一层）。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "flip")
+    try:
+        ev(_SEEK)
+        # idle 态 #veilplay 铺满舞台会接走 elementFromPoint（0.19.0 那条同一坑），
+        # 命中那一档先把舞台打到 playing。
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        ev("window.__jump('seg-2', 2)")           # 第二句：还在逐位比，正面 vs
+        time.sleep(0.6)
+        probe = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-0-vs-w")
+                                .replace("FRONT", "b-0-vs").replace("BACK", "b-0-vs-b")))
+        assert probe["over"] == "0" and probe["fvis"] == "visible" \
+            and probe["bvis"] == "hidden", f"起手必须是正面在场：{probe}"
+        assert abs(probe["theta"] - 0.0) <= 0.5, f"未翻时 θ≈0：{probe}"
+        assert probe["tp"] == "transform", \
+            f"包装层只留 transform 这一条补间（.flip 顶掉 .nt 的简写）：{probe}"
+        assert probe["tdur"] == "0.6s", f"时长走 --dur-flip：{probe}"
+        assert probe["ftp"] == "visibility" and probe["ftdur"] == "0s" \
+            and probe["ftdelay"] == "0.3s", f"两面走 0s + 半程 delay：{probe}"
+        assert probe["hit"] == "b-0-vs", f"正面在场时命中的就是正面：{probe}"
+        box_open = probe["bbox"]
+
+        ev("window.__jump('seg-2', 3)")           # 第三句：判决给出先后 → 翻页
+        sweep = json.loads(ev(_FLIP_SWEEP.replace("FLIP", "b-0-vs-w")
+                               .replace("FRONT", "b-0-vs").replace("BACK", "b-0-vs-b")))
+        assert "err" not in sweep, str(sweep)
+        assert sweep["dur"] == 600, f"补间时长 600ms（--dur-flip）：{sweep}"
+        th = [f["theta"] for f in sweep["frames"]]
+        assert all(x is not None for x in th), str(sweep)
+        assert th[0] < th[1] < th[2] < th[3] < th[4], f"角度一路走到底，不是两档：{th}"
+        assert abs(th[0] - 0.0) <= 1 and abs(th[4] - 180.0) <= 1, f"两端落在 0°/180°：{th}"
+        assert abs(th[2] - 90.0) <= 1.5, \
+            f"半程必须侧立（对称曲线才对得上交接）：{sweep['frames'][2]}"
+        # 交接：侧立那一刻两面正好换班，且全程只有一面在场
+        assert [(f["f"], f["b"]) for f in sweep["frames"][:2]] == [("v", "h"), ("v", "h")], \
+            f"前半程只有正面：{sweep['frames']}"
+        assert [(f["f"], f["b"]) for f in sweep["frames"][2:]] == [("h", "v"), ("h", "v"),
+                                                                  ("h", "v")], \
+            f"半程起只有背面：{sweep['frames']}"
+
+        probe = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-0-vs-w")
+                               .replace("FRONT", "b-0-vs").replace("BACK", "b-0-vs-b")))
+        assert probe["over"] == "1" and abs(probe["theta"] - 180.0) <= 0.5, probe
+        assert probe["fvis"] == "hidden" and probe["bvis"] == "visible", \
+            f"落定 = 背面在场：{probe}"
+        assert probe["hit"] == "b-0-vs-b", \
+            f"命中的是在场那一面，不留幽灵面：{probe}"
+        assert probe["bbox"] == box_open, f"翻页不改包围盒：{probe['bbox']} vs {box_open}"
+
+        # 第二行按自己的节拍翻：s3 时它还是正面，s4 才翻
+        probe1 = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-1-vs-w")
+                                .replace("FRONT", "b-1-vs").replace("BACK", "b-1-vs-b")))
+        assert probe1["over"] == "0", f"第二行不该跟着第一行一起翻：{probe1}"
+        ev("window.__jump('seg-2', 4)")
+        time.sleep(0.7)
+        probe1 = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-1-vs-w")
+                                .replace("FRONT", "b-1-vs").replace("BACK", "b-1-vs-b")))
+        assert probe1["over"] == "1" and probe1["bvis"] == "visible", \
+            f"s4 轮到第二行翻面：{probe1}"
+    finally:
+        _kill(chrome)
+
+
+_RIDE_PROBE = r"""(function(){
+  var n = document.getElementById('RIDE'), cs = getComputedStyle(n);
+  var m = n.getScreenCTM();
+  var bb = n.getBoundingClientRect();
+  var line = document.getElementById('TIE');
+  return JSON.stringify({go:n.dataset.go, cls:n.getAttribute('class'),
+    route:cs.offsetPath.slice(0, 40), dist:cs.offsetDistance, rot:cs.offsetRotate,
+    tp:cs.transitionProperty, tdur:cs.transitionDuration,
+    ax:+m.e.toFixed(1), ay:+m.f.toFixed(1),
+    cx:Math.round((bb.left + bb.width / 2) * 10) / 10,
+    cy:Math.round((bb.top + bb.height / 2) * 10) / 10,
+    ctm:[+m.a.toFixed(4), +m.b.toFixed(4)],
+    bbox:[+n.getBBox().x.toFixed(2), +n.getBBox().y.toFixed(2),
+          +n.getBBox().width.toFixed(2), +n.getBBox().height.toFixed(2)],
+    parent:n.parentNode.id,
+    kids:[].slice.call(n.children).map(function(k){ return k.id; }),
+    tieEnd:(function(){                     // 那条 .draw 连线的右端点，屏幕坐标
+      if (!line) return null;               // s0 那一步线还没画出来
+      var c = line.getScreenCTM();
+      var p = new DOMPoint(+line.getAttribute('x2'), +line.getAttribute('y2'))
+        .matrixTransform(c);
+      return {x:+p.x.toFixed(1), y:+p.y.toFixed(1)};})(),
+    anims:(n.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;})});
+})()"""
+
+_RIDE_SWEEP = r"""(function(){
+  var n = document.getElementById('RIDE');
+  var list = (n.getAnimations()||[]).filter(function(a){
+    return a.transitionProperty === 'offset-distance';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'offset-distance 补间不在场', an:(n.getAnimations()||[]).map(
+      function(a){ return a.transitionProperty || a.animationName; })});
+  }
+  var out = {dur:list[0].effect.getComputedTiming().duration,
+             ease:list[0].effect.getTiming().easing, frames:[]};
+  [0, 200, 400, 600, 799].forEach(function(ms){
+    list[0].pause(); list[0].currentTime = ms;
+    var cs = getComputedStyle(n), bb = n.getBoundingClientRect();
+    out.frames.push({ms:ms, dist:parseFloat(cs.offsetDistance),
+      cx:+(bb.left + bb.width / 2).toFixed(1), cy:+(bb.top + bb.height / 2).toFixed(1),
+      bbox:+n.getBBox().width.toFixed(2)});
+  });
+  list[0].cancel();
+  return JSON.stringify(out);
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_rider_arrives_and_stays_at_the_destination(full_lesson):
+    """真实浏览器：标记沿连线走到右列并**留在终点**（0.20.0）。
+
+    与 0.18.0 那条被否决的写法差在**驱动方式**上，这里就把差别量成断言：
+      ① s0 建档时停在路头（dist=0%，屏幕坐标落在左列卡片边上），s1 换档才走；
+      ② 行程连续且**匀速**：0/200/400/600/799ms 采到 0 → ~25 → ~50 → ~75 → 100%，
+         easing 读到 linear（套 easeOut 会读作起步猛冲、到站撞墙上）；
+      ③ 落在终点：落定后中心与那条 .draw 连线的**右端点**重合（±2px）——
+         这是"抵达"的全部意义，走错一格就变成另一个人在另一个位置；
+      ④ `getBBox()` 全程不变（[-7,-7,18,14]）而屏幕盒一路在走：**QA 看包围盒、
+         观众看屏幕盒**，这正是 0.18.0 拒绝它当"检查器看得见的流光"的原因，
+         也是本轮把它限成"视觉指引、不当热区、不参与连线几何判定"的理由；
+      ⑤ 父节点是 e-body 而不是 e-ties：那一层 s2 起收拢，会把走在半途的标记一起裁掉。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "ride")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-6', 0)")           # 引入句：右列还是 ?，人在路头
+        time.sleep(0.4)
+        st = json.loads(ev(_RIDE_PROBE.replace("RIDE", "e-ride-\u5c0f\u660e")
+                              .replace("TIE", "e-tie-\u5c0f\u660e")))
+        assert st["go"] == "0" and st["dist"] == "0%", f"s0 停在路头：{st}"
+        assert st["parent"] == "e-body", f"不挂在收拢层里：{st}"
+        assert st["route"].startswith("path("), f"路线从 --route 替换进来：{st}"
+        assert st["tp"] == "offset-distance" and st["tdur"] == "0.8s", \
+            f"包装层只补间 offset-distance（--dur-ride）：{st}"
+        assert st["rot"] == "auto 0deg", f"offset-rotate:auto：{st}"
+        assert st["kids"] == ["e-ride-\u5c0f\u660e-c", "e-ride-\u5c0f\u660e-a"], st
+        head_x = st["ax"]
+        box = st["bbox"]
+
+        ev("window.__jump('seg-6', 1)")           # 相等元素保序 → 上路
+        sw = json.loads(ev(_RIDE_SWEEP.replace("RIDE", "e-ride-\u5c0f\u660e")))
+        assert "err" not in sw, str(sw)
+        assert sw["dur"] == 800, f"行程 800ms：{sw}"
+        assert sw["ease"] == "linear", f"匀速走一段路：{sw['ease']}"
+        d = [f["dist"] for f in sw["frames"]]
+        assert all(d[i] < d[i + 1] for i in range(4)), f"距离逐帧在走，不是两档：{d}"
+        assert abs(d[0]) <= 0.5 and abs(d[4] - 100) <= 0.5, f"两端 0%/100%：{d}"
+        assert abs(d[1] - 25) <= 2 and abs(d[2] - 50) <= 2 and abs(d[3] - 75) <= 2, \
+            f"linear 就该等距：{d}"
+        assert len(set(f["bbox"] for f in sw["frames"])) == 1, \
+            f"包围盒全程不变（QA 看不见这层位移）：{sw['frames']}"
+        cx = [f["cx"] for f in sw["frames"]]
+        assert all(cx[i] < cx[i + 1] for i in range(4)), f"屏幕盒一路往右走：{cx}"
+
+        time.sleep(1.0)
+        st = json.loads(ev(_RIDE_PROBE.replace("RIDE", "e-ride-\u5c0f\u660e")
+                              .replace("TIE", "e-tie-\u5c0f\u660e")))
+        assert st["go"] == "1" and st["dist"] == "100%", f"落定在终点：{st}"
+        assert abs(st["ax"] - st["tieEnd"]["x"]) <= 2.5 \
+            and abs(st["ay"] - st["tieEnd"]["y"]) <= 2.5, \
+            f"抵达 = 落在那条连线的右端点：{st}"
+        assert st["ax"] > head_x + 200, f"确实走了整段路：{head_x} → {st['ax']}"
+        assert st["bbox"] == box, f"抵达不改包围盒：{st['bbox']} vs {box}"
+        assert st["anims"] == [], f"落定后没有补间挂在节点上：{st['anims']}"
+
+        # s2 连线收拢退场，标记**留在终点**（它承担的是位置信息，不是事件）
+        ev("window.__jump('seg-6', 2)")
+        time.sleep(0.6)
+        st = json.loads(ev(_RIDE_PROBE.replace("RIDE", "e-ride-\u5c0f\u660e")
+                              .replace("TIE", "e-tie-\u5c0f\u660e")))
+        assert st["go"] == "1" and st["dist"] == "100%", f"线收走、人留下：{st}"
+        assert ev("document.getElementById('e-ties').classList.contains('gone')")
+        assert st["cls"] == "nt ride", f"档位换了 class 不动：{st}"
+
+        # s3 仍在那儿；换幕才撤走（这一层参与常驻，不是掠过就没的事件）
+        ev("window.__jump('seg-6', 3)")
+        time.sleep(0.2)
+        assert ev("document.getElementById('e-ride-\u5c0f\u660e') !== null"), \
+            "s3 那句『90 分两行 · 小明在小红前』正指着这两枚标记"
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.4)
+        # 换幕只是把这一幕藏起来（only() 的口径）：节点留在台上，下次进幕复用同一名
+        assert ev("document.getElementById('e-ride-\u5c0f\u660e') !== null") \
+            and not ev("document.getElementById('stE').classList.contains('on')"), \
+            "离幕时靠隐藏退场，不是靠删节点——回来还是同一个标记接着站在那儿"
+    finally:
+        _kill(chrome)
+
+
+# 命中点取**上边描边的中线**（局部 (0,−26) 经 getScreenCTM 换算）：它是这条路上
+# 唯一"一定有墨、又正好卡在 75% 那档的门边"的位置——∅ 的中心是个洞，点那儿
+# 什么都命中不了，量不出裁剪有没有生效。
+_BLOOM_PROBE = r"""(function(){
+  var n = document.getElementById('GAP'), cs = getComputedStyle(n);
+  var r = document.getElementById('CELL');
+  function topHit(){
+    var p = new DOMPoint(0, -26).matrixTransform(r.getScreenCTM());
+    var h = document.elementFromPoint(p.x, p.y);
+    return h ? (h.id || h.tagName) : null;
+  }
+  var tr = r.getBoundingClientRect();
+  return JSON.stringify({cls:n.getAttribute('class'), cp:cs.clipPath,
+    an:cs.animationName, adur:cs.animationDuration, afill:cs.animationFillMode,
+    tp:cs.transitionProperty,
+    w:+tr.width.toFixed(2), h:+tr.height.toFixed(2),
+    bbox:[+n.getBBox().x.toFixed(1), +n.getBBox().y.toFixed(1),
+          +n.getBBox().width.toFixed(1), +n.getBBox().height.toFixed(1)],
+    top:topHit(),
+    kids:[].slice.call(n.children).map(function(k){ return k.id + '/' + k.getAttribute('class'); }),
+    anims:(n.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;})});
+})()"""
+
+_BLOOM_SWEEP = r"""(function(){
+  var n = document.getElementById('GAP');
+  var list = (n.getAnimations()||[]).filter(function(a){
+    return a.animationName === 'bloomIn';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'bloomIn 不在场', an:(n.getAnimations()||[]).map(
+      function(a){ return a.transitionProperty || a.animationName; })});
+  }
+  var out = {dur:list[0].effect.getComputedTiming().duration, frames:[]};
+  list[0].pause();
+  [0, 60, 150, 300, 499].forEach(function(ms){
+    list[0].currentTime = ms;
+    var cs = getComputedStyle(n);
+    var m = cs.clipPath.match(/circle\(([\d.]+)%/);
+    var rr = document.getElementById('CELL').getBoundingClientRect();
+    var p = new DOMPoint(0, -26).matrixTransform(
+      document.getElementById('CELL').getScreenCTM());
+    var h = document.elementFromPoint(p.x, p.y);
+    out.frames.push({ms:ms, r:m ? parseFloat(m[1]) : null, cp:cs.clipPath,
+      w:+rr.width.toFixed(2), hit:h ? (h.id || h.tagName) : null});
+  });
+  list[0].cancel();
+  out.after = getComputedStyle(n).clipPath;
+  return JSON.stringify(out);
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_bloom_opens_the_empty_cell(full_lesson):
+    """真实浏览器：空缺格从中心推开一个圆，落定 = 完整一张空位（0.20.0）。
+
+    ① 建档即演（s2 才有这一格），关键帧两头都是 `circle()` 所以可插值——实测
+    0/60/150/300/499ms 采到半径 0 → ~21 → ~40 → ~67 → 75 一路连续（0.15.0 那条
+    `inset()`↔`none` 的 discrete 教训在这里就是反面教材）；
+    ② 静止态 = 全开：cancel() 之后计算值仍是 `circle(75% at 50% 50%)`，导出切掉
+    animation 落的正是这一格；
+    ③ 75% 是量出来的档位而不是保险系数：整盒宽高在绽开前后**逐值相同**
+    （getBoundingClientRect 42×52 不动），说明这档没啃掉描边与 ∅ 的边角；
+    ④ `.bloom` 只声明 animation，**不抢 .nt 的 transition 简写**（实测包装节点
+    `transition-property` 仍完整留着 .nt 那串、内层 rect 也一样）——三件套里只有
+    它这样，翻面与沿线抵达都会抢走，所以那两条要求纯包装层只写一个状态。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "bloom")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")  # 同上：让开命中
+        ev("window.__jump('seg-2', 1)")
+        assert ev("document.getElementById('b-00-x') === null"), \
+            "s1 还没到『没有第二位』那句，早建档就把入场演给没人看"
+        ev("window.__jump('seg-2', 2)")
+        sw = json.loads(ev(_BLOOM_SWEEP.replace("GAP", "b-00-x").replace("CELL", "b-x00-r")))
+        assert "err" not in sw, str(sw)
+        assert sw["dur"] == 500, f"绽开 500ms（--dur-bloom 与 --dur-reveal 同档）：{sw}"
+        rr = [f["r"] for f in sw["frames"]]
+        assert abs(rr[0] - 0) <= 0.5, f"起点是全遮：{sw['frames'][0]}"
+        assert all(rr[i] < rr[i + 1] for i in range(4)), f"半径逐帧在长，不是两档：{rr}"
+        assert abs(rr[4] - 75) <= 0.5, f"终值就是静止态 75%：{rr}"
+        assert sw["after"] == "circle(75% at 50% 50%)", \
+            f"cancel 之后落回元素自身值（导出与冷启动都吃这一格）：{sw['after']}"
+        # 命中跟着裁（0.15.0 那条口径），而 75% 这档不啃描边
+        assert sw["frames"][0]["hit"] != "b-x00-r", \
+            f"半径 0% 时上边描边点不着才说明裁剪真的生效：{sw['frames'][0]}"
+        assert sw["frames"][4]["hit"] == "b-x00-r", \
+            f"落定的 75% 必须把描边整条留在命中区里：{sw['frames'][4]}"
+
+        st = json.loads(ev(_BLOOM_PROBE.replace("GAP", "b-00-x").replace("CELL", "b-x00-r")))
+        assert st["cls"] == "nt bloom", f"只挂包装层：{st}"
+        assert st["kids"] == ["b-x00-r/nt", "b-x00-t/nt"], \
+            f"内层不再叠 .pop（绽开就是这一格的入场）：{st['kids']}"
+        assert st["cp"] == "circle(75% at 50% 50%)" and st["an"] == "bloomIn", st
+        assert st["afill"] == "backwards", f"不写 forwards：{st['afill']}"
+        assert st["bbox"] == [-21.0, -26.0, 42.0, 52.0], \
+            f"clip 不改 getBBox（42×52 一格不少）：{st['bbox']}"
+        assert "transform" in st["tp"] and "opacity" in st["tp"], \
+            f".bloom 不抢 .nt 的 transition 清单（三件套里只有它这样）：{st['tp']}"
+        assert st["top"] == "b-x00-r", f"绽开结束后上边描边照旧命中（75% 没啃掉它）：{st}"
+
+        # 过了 s3 这一格就不再被引用：sweep 撤干净，不留一张空位在场外
+        ev("window.__jump('seg-2', 4)")
+        time.sleep(0.5)
+        assert ev("document.getElementById('b-00-x') === null"), \
+            "s4 起第一行的空缺格不再被引用，该撤干净"
+        assert ev("document.querySelectorAll('.bloom').length === 0"), \
+            "这一幕不该再有任何绽开层留在台上"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_flip_ride_bloom_reduced_motion_and_shot_terminals(full_lesson):
+    """减动效与导出截图页两条退路：三件套关掉之后落的**正是终态**。
+
+    这轮的特殊之处：三条里两条走 transition、一条走 animation，但**档位都在呈现
+    属性上**（`data-over` / `data-go` / 元素自身的 `clip-path`），所以两把刀切下去
+    都不会留下"翻到一半侧立""走在半途""开了四分之三"这种中间格。实测：
+      · 减动效：`transition-property` 落 none，换档后**立即**读到 θ=180°、
+        正面 hidden / 背面 visible；标记立即 100%；`getAnimations()` 恒空。
+        三条兜底都**不需要抬特异度**（基础规则源序在本块之前，与掠光/侧栏相反）——
+        这一点在这里被计算值证实，不是推测。
+      · 导出：一刀切掉 transition/animation 后，翻面落背面、标记落终点、空缺格落
+        完整的一张——与不减动效的落定档逐值相同。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm20")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")  # 让开命中测试
+
+        # 翻面：不演，但背面照旧在场
+        ev("window.__jump('seg-2', 2)")
+        st = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-0-vs-w")
+                              .replace("FRONT", "b-0-vs").replace("BACK", "b-0-vs-b")))
+        assert st["over"] == "0" and st["theta"] == 0.0 and st["tp"] == "none", \
+            f"减动效下正面在场且不补间：{st}"
+        assert st["ftp"] == "none" and st["ftdelay"] == "0s", \
+            f"两面的 visibility 也得关掉（抬过 .nt 才落得上）：{st}"
+        ev("window.__jump('seg-2', 3)")
+        st = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-0-vs-w")
+                              .replace("FRONT", "b-0-vs").replace("BACK", "b-0-vs-b")))
+        assert st["theta"] == 180.0 and st["fvis"] == "hidden" \
+            and st["bvis"] == "visible" and st["anims"] == [], \
+            f"不 sleep 就落终态：{st}"
+        assert st["hit"] == "b-0-vs-b", f"减动效下命中的也是背面：{st}"
+
+        # 沿线抵达：关掉补间不等于关掉位置
+        ev("window.__jump('seg-6', 1)")
+        st = json.loads(ev(_RIDE_PROBE.replace("RIDE", "e-ride-\u5c0f\u660e")
+                              .replace("TIE", "e-tie-\u5c0f\u660e")))
+        assert st["dist"] == "100%" and st["tp"] == "none" and st["anims"] == [], \
+            f"标记直接落在终点：{st}"
+        assert abs(st["ax"] - st["tieEnd"]["x"]) <= 2.5, f"位置就是那条线的右端：{st}"
+
+        # 圆形绽开：关的是 animation，静止态本来就全开
+        ev("window.__jump('seg-2', 2)")
+        st = json.loads(ev(_BLOOM_PROBE.replace("GAP", "b-00-x").replace("CELL", "b-x00-r")))
+        assert st["an"] == "none" and st["cp"] == "circle(75% at 50% 50%)", \
+            f"关掉之后整格完整可见：{st}"
+        assert st["bbox"] == [-21.0, -26.0, 42.0, 52.0] and st["top"] == "b-x00-r", st
+
+        # 导出截图页口径：一刀切掉，三处定格与上面逐值相同
+        ev("var s=document.createElement('style');"
+           "s.textContent='*,*::before,*::after{transition:none!important;"
+           "animation:none!important}';document.head.appendChild(s);")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-6', 0)")
+        st = json.loads(ev(_RIDE_PROBE.replace("RIDE", "e-ride-\u5c0f\u660e")
+                              .replace("TIE", "e-tie-\u5c0f\u660e")))
+        assert st["dist"] == "0%", f"s0 那一帧定格在路头（那是作者写的档位）：{st}"
+        ev("window.__jump('seg-6', 1)")
+        st = json.loads(ev(_RIDE_PROBE.replace("RIDE", "e-ride-\u5c0f\u660e")
+                              .replace("TIE", "e-tie-\u5c0f\u660e")))
+        assert st["dist"] == "100%" and abs(st["ax"] - st["tieEnd"]["x"]) <= 2.5, \
+            f"导出帧必须是抵达之后那一格，不许落回起点：{st}"
+        ev("window.__jump('seg-2', 3)")
+        st = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-0-vs-w")
+                              .replace("FRONT", "b-0-vs").replace("BACK", "b-0-vs-b")))
+        assert st["theta"] == 180.0 and st["bvis"] == "visible", \
+            f"导出定格：判决已经翻过去：{st}"
+        st = json.loads(ev(_BLOOM_PROBE.replace("GAP", "b-00-x").replace("CELL", "b-x00-r")))
+        assert st["cp"] == "circle(75% at 50% 50%)" \
+            and st["bbox"] == [-21.0, -26.0, 42.0, 52.0] and st["top"] == "b-x00-r", \
+            f"导出定格：空缺格完整一张：{st}"
     finally:
         _kill(chrome)

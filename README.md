@@ -55,7 +55,10 @@
   连线也能"从这头跑到那头"——一条流光掠过底线、掠完隐形，不改变这条线说了什么；
   标注字直接压在弧线图形上还读得清（描边光环），一组卡片进场自动错峰。
   讲完的那一行不再"啪"地消失，而是沿自己来时的方向收出去（收拢退场）；
-  中文正文行首那个全角标点的半格留白也收掉了。
+  中文正文行首那个全角标点的半格留白也收掉了。比大小的那一格判决不是换个颜色，
+  而是当着观众翻过来（`vs` 翻成 `<`，真 3D 翻面）；一个人对上一列，可以让一枚标记
+  顺着那条连线走过去停在右端（沿线抵达）；本来该有东西却空着的那一格，从中心推开
+  一个圆亮出来（圆形绽开）。
   关掉系统动效偏好后这些一律落回完整定格，一格信息都不少——只有细线与跟读点亮
   照常跟着嘴，它们是时钟的读数不是动效；
 - **0.75× 到 2× 倍速、全屏**：画面字幕门禁全是时钟的纯函数，变速只是时钟走快些；
@@ -431,6 +434,29 @@ python -m pytest tests/ -q
   两档各自的否决理由）；减少动效下收拢**0ms 就落档**而 `--lit` 仍在跟钟。踩到两条
   测量坑并写进范本：截图像素平均亮度**不是**对比度量法（第一版据此选错地板）、
   块盒宽度量不到 `text-spacing-trim` 的变化；本机全量 **394 passed / 2 skipped**；
+- 0.20.0 的回归：`test_iteration_round2.py::test_flip_ride_bloom_primitives_present`
+  锁三条原语的静态口径（`--dur-flip`/`--dur-ride`/`--dur-bloom` 一行令牌、`.flip` 的
+  transform 必须引 `--ease-in-out` 而不是 `--ease-out`（半程 = 侧立这条只有对称曲线成立）、
+  全 css 恰好两条 `visibility 0s linear calc(var(--dur-flip) / 2)` 交接规则、写死的
+  `visibility 0s linear .3s` 不许回流、`backface-visibility` 不得出现在 css 里（SVG
+  宿主上它是死的）、旧的 `fill: won ? …` 换色写法不得回流、`.ride` 终态必须由
+  `data-go` 驱动且 `offset-*` 不得
+  出现在任何 `@keyframes` 体内（这是 0.18.0 那条否决**收窄后**留下的那一半，函数用花括号
+  配对切 keyframe 体，注释里不参与判定）、不注册 `@property --route`、标记不挂进会提前
+  收拢的 `e-ties` 层、`.bloom` 终态半径不得写 `circle(100% …)`（75% 是量出来的下限
+  √2/2 ≈ 70.7% 加余量）、内层图元 `class:null` 不抢包装的动画、reduced-motion 三行齐全
+  而 `offset-path` / `--route` / `circle(` 不进那一栏；本轮否决的五条中，两面
+  `backface-visibility:hidden`、`corner-shape`、`--num` 里程表由这一枚锁钉住，
+  `text-wrap:pretty` 与 View Transitions 沿用 0.17.0 已有的那两把锁）。四条 CDP 用例：翻面把三个补间一起冻在同一毫秒采样，θ 严格单调过
+  90.0° 且两面正好在那一采换班（无一帧两面对显）、`elementFromPoint` 从正面换到背面、
+  `getBBox()` 全程一格不动、第二行按自己的句子晚一拍翻；标记 s0 停在路头、0/200/400/600/
+  799ms 采到 0→25→50→75→~100%（`linear` 等距）、落点与那条 `.draw` 右端点重合 ±2px、
+  连线收拢退场后人还在终点（父层是 `e-body`）；绽开半径 0→…→75 连续、75% 不啃描边、
+  clip 确实裁命中（60ms 点不着 / 150ms 起命中）、撤掉动画后定格仍是全开；三件套在
+  `prefers-reduced-motion` 与导出式一刀两种口径下**立即**落终态且 `getAnimations()` 恒空。
+  本轮踩到并写进范本的测量坑：`.ride` 的位移不进 `getBBox()`，用它断言"抵达"会得到假阴性
+  （要读 `getScreenCTM()` 平移分量）；idle 幕布会把 `elementFromPoint` 全接走，命中类断言
+  得先把舞台打到 `playing`（0.19.0 同一坑）；本机全量 **399 passed / 2 skipped**；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

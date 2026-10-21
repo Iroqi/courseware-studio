@@ -314,6 +314,19 @@ after-change style，也就是那一秒的**真实档位**——实测注入后 
 transition/animation 不影响它——它不靠补间，靠 `tick()` 里那一次写；`capLitWrite()`
 排在 `capProgWrite()` 之后同一条理由（换句分支里 `capShow` 才写 `capSent`）。
 `text-spacing-trim` 不改盒宽、只改墨迹位置，导出与 QA 读到的 bbox / client rects 逐值不变。
+0.20.0 三条**都不需要见旗分支**，但落法分两组。`.flip` / `.ride` 走 transition：注入的
+`transition:none!important` 让计算值直接落到 after-change style，也就是那一秒的真实档位——
+实测一刀切后 θ 立即 180° 且背面墨量与"同一行不翻面的参照字"逐像素相同（69 = 69）、正面落
+`visibility:hidden`；`offset-distance` 立即 100%、锚点停在**路线终点**那一格（这正是它与
+0.18.0 那条被否决写法的分界：由 animation 驱动时切掉动画落回**路径起点**，导出帧上会多出
+一个谁也没请的小点）。`.bloom` 走 animation 但**不写 forwards**、静止态自己就是全开，切掉
+animation 后计算值仍是 `circle(75% at 50% 50%)`（实测取消动画逐值相同）。三条在
+`getAnimations()` 里都恒空，与 `prefers-reduced-motion` 同口径。
+**QA 取样口径**这一轮要多记两条：`.ride` 的位移不进 `getBBox()`（实测用户坐标下
+[-6,-6,16,12] 起步/中途/落定三采同值），要判"抵达"只能读 `getScreenCTM()` 的平移分量或
+屏幕盒中心，拿 bbox 断言会得到"根本没动"的假阴性；`.bloom` 绽开途中命中被 clip 裁掉是
+**正确行为**（实测 60ms 那一格点不着、150ms 起命中），别把它当图层丢失。逐帧冷启动的成片
+里这三条都只有"完成那一格"，行程只服务直播播放（stage.md §3.4）。
 截图脚本的版面压平与隐藏 CSS 按模板结构类名写死——
 `.shell`（两栏压平）、`.stage`（截图留边）、`.rack` / `.col-side` / `.chapter`（截图模式要藏起来的播放器行/侧栏/章节头）。上表的 id 钩子保证时间轴跑得动，但**成片入镜什么由这些类名决定**。类名缺失时导出只打 `[warn]`（分不清"页面真的没有这块"与"换了名"）；改过结构的页面必须人工核对一帧成片。
 

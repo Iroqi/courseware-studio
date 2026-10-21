@@ -93,6 +93,19 @@
        --lit-ramp 是渐变带宽度：18% 的软过渡既看得清"念到哪个字"，又不像硬边那样
        在字中间劈一道刀口（与 --feather 那条 34% 同源，但读数要更准，所以更窄）。 */
     --dur-tuck:.42s; --lit-floor:.85; --lit-ramp:18%;
+    /* 当面与抵达（0.20.0）：三个新原语各按时长一档，档位是跟已有词汇**对齐或错开**
+       选的，不是各拍一个数：
+         · --dur-flip .6s：翻面演的是"当面对质"——判决换了个说法摊在你眼前，比揭示
+           （--dur-reveal .5s）长一档才读得清换了什么，并与运镜（--dur-cam .6s）同档，
+           所以镜头推进与符号换面落在同一秒里。**可见性交接的半程是从这个数除出来的**
+           （`calc(var(--dur-flip) / 2)`，见 CSS「翻面」③），改时长不用回头改第二处；
+         · --dur-ride .8s：沿线抵达走的是**真实距离**，时长该按行程给，不当入场压短。
+           它与 --dur-flow .9s 差一档（掠光是"关系刚被走通"，人是"抵达并留下"），
+           比画线那条 --dur-draw .55s 长一档——线先画完、人后到，读起来才是
+           "沿着刚画好的路走过去"（实测 .8s 线性半程采到 50.005%）；
+         · --dur-bloom .5s：与 --dur-reveal 同档——同属"揭示"家族，只是形状从直边
+           扫描换成圆形绽开，时长没必要另立一档。 */
+    --dur-flip:.6s; --dur-ride:.8s; --dur-bloom:.5s;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -494,6 +507,107 @@
   @supports (paint-order:stroke){
     .halo{stroke:var(--halo-bg);stroke-width:.22em;stroke-linejoin:round;paint-order:stroke}
   }
+  /* 翻面（0.20.0「当面与抵达」之一，前沿做法：CSS 3D transform 进 SVG）：
+     判决换了个说法，不该只换个颜色就算完——在同一块地方把牌子**翻过去**，正面 `vs`、
+     背面 `<`，观众亲眼看着它转身。五条边界，第三条是本轮最贵的一条：
+       ① **SVG 里 `backface-visibility` 是死的**：HTML 卡片翻面的标准写法（两面各
+          `backface-visibility:hidden`）在这里不成立——实测正面翻到 180° 之后
+          `getScreenCTM().a` 已经变成 -1（矩阵翻了个面），像素层上那面镜像的字
+          **照描不误**。所以交接只能自己管：按时间交接的 `visibility`（见 ③）；
+       ② 3D 要在 transform **函数列表**里写全：`perspective(600px) rotateY(θ)` 才有
+          透视（计算值落进 matrix3d，实测 θ=0 那一格 m11=1、z 分量 -0.0016667 就是
+          perspective 留下的，行程中高度不变、只有宽随角度收），单写 `rotateY` 是
+          平面镜像、没有远近。
+          相机层里照旧合成（实测 `#cam` scale(1.8) 下 CTM.a 从 +1.8 连续走到 -1.8，
+          中途 173.0° 那格不跳档、不裁切）——这一层可以住在镜头下面；
+       ③ **交接必须落在侧立那一刻，所以缓动曲线必须两头对称**：两面用
+          `transition:visibility 0s linear calc(var(--dur-flip) / 2)`——时长 0、
+          只借 delay，把交接钉在行程的一半。而"半程 = 90°"只有对称曲线成立：
+          实测 `--ease-in-out`(.65,0,.35,1) 逐 60ms 采样，t=300.5ms 采到 θ=90.0°，
+          且同一样点上两面刚从 `visible/hidden` 换成 `hidden/visible`，交接正落在
+          刀口上（全程没有一帧两面同显）。换成仓库默认的 `--ease-out`(.22,1,.36,1)
+          再测一遍：θ 在 60.5ms 就已过 78.9°、约 65ms 侧立，交接却仍按半程等到 300ms
+          ——**背面要在观众眼前倒着走 235ms**，那是穿帮不是翻页。所以这里破例不用
+          --ease-out：翻面是这一族里唯一要求"角度对时间居中"的原语。模板里那枚 vs
+          标签实测三个补间一起冻在 t=0/150/300/450/599ms：θ = 0 / 12.7 / 90.0 /
+          167.3 / 180°，两面在场情况 v,h → v,h → h,v → h,v → h,v——交接就钉在
+          侧立那一采上；
+       ④ 挂**纯包装 `<g>`**，两面各是一个 `<text>`：`put()` 把包装拼成 `nt flip`，
+          实测该节点计算值 `transition-property` 只剩 `transform` 一项（`.flip` 源序
+          在 `.nt` 之后，简写整串顶掉它——与 `.tuck*` 边界 ⑤ 同一课），所以包装层
+          除 `data-over` 一律不写别的状态，位移与透明度留给内层。两面拼成 `nt face` /
+          `nt face faceB`，特异度 (0,2,0) 压过 `.nt` 的 (0,1,0)，实测
+          `transition-property:visibility`、`transition-delay:.3s` 落得上；
+       ⑤ 终态在呈现属性上（`data-over`）：导出截图页一刀切掉 transition 后，实测
+          背面墨量与"同一行不翻面的字"逐像素相同（69 = 69），正面落 `visibility:hidden`；
+          `elementFromPoint` 打在中心命中的是**在场那一面**，没有"看不见却点得着"的
+          幽灵面——`visibility:hidden` 天然退出命中树（与 clip-path 裁命中同一族，
+          但这里是白赚的：不必自己写 `pointer-events:none`）。
+     与 .reveal / .tuck / .ride 同口径：CSS transform 不改 `getBBox()`（实测正面那一格
+     翻页前后 bbox 同值 [461.3, 147.35, 37.41, 34.72]，一格不动），相机取景与 QA
+     几何判定看不见这一层。 */
+  .flip{transform-box:fill-box;transform-origin:50% 50%;
+        transform:perspective(600px) rotateY(0deg);
+        transition:transform var(--dur-flip) var(--ease-in-out)}
+  .flip[data-over="1"]{transform:perspective(600px) rotateY(180deg)}
+  /* 背面自带 rotateY(180deg)：父层翻到 180° 时两面合成整 360°，读起来是正的字
+     而不是镜像（实测落定 CTM.a = -1 × -1，终态墨量与不翻面的参照逐像素相同）。 */
+  .flip .face{visibility:visible;
+        transition:visibility 0s linear calc(var(--dur-flip) / 2)}
+  .flip .faceB{visibility:hidden;transform-box:fill-box;transform-origin:50% 50%;
+        transform:rotateY(180deg);
+        transition:visibility 0s linear calc(var(--dur-flip) / 2)}
+  .flip[data-over="1"] .face{visibility:hidden}
+  .flip[data-over="1"] .faceB{visibility:visible}
+  /* 沿线抵达（0.20.0 之二，前沿做法：offset-path / motion path）：.flow 演的是
+     "这条关系刚被走通"——一道光掠过去就没了；这一条演的是**有东西走到了终点并且
+     留在那儿**。位移沿真实路径发生，不是从 A 淡入到 B。四条边界：
+       ① 路线走 `--route`（`path()` 写在呈现属性 style 上）：路径是**数据**不是
+          动效，`offset-path:var(--route)` 在计算值阶段做令牌替换（实测计算值
+          `path("M 354 150 L 646 222")`）。**不注册 @property**——补间的是
+          offset-distance（它自己就是可动画属性），--route 不需要被逐帧插值；
+       ② 状态写在属性上：`data-go="1"` 才是 100%，0% 是元素自身值。于是三条退路
+          落的都是"抵达之后的那一格"（实测切掉 transition 后 dist 落 100%、锚点停在
+          路线终点那一格），冷启动同口径，纪律 1 不受影响；
+       ③ `offset-rotate:auto` 让标记自己对准路线方向：实测那条 292×72 的斜线上
+          CTM = [0.8243, 0.2033]（含场景 E 相机缩放 0.849），反解 13.86°，与
+          atan2(72,292) 逐值相符——箭头/楔形不用 JS 再算一遍角度；
+       ④ **用户坐标下的包围盒不变**（bbox 起步/中途/落定三采同值 [-6,-6,16,12]），
+          屏幕盒跟着走（实测 r=6 那枚标记中心 x 336.5 → 462.7 → 588.5，
+          t=0/400/799ms）——与 clip-path / mask 那两条同一课：**QA 与相机看的是
+          包围盒，观众看的是屏幕盒**。标记走到哪儿都不会让取景框为它重算一遍，
+          也不会把几何判定带偏；反面就是别拿它当热区、也别让它参与连线几何判定。
+     行程逐帧连续且等距：实测 0 → 25 → 50 → 75 → 99.875%（t=0/200/400/600/799ms）。
+     缓动写 **linear**：位移是匀速走一段路，套 easeOut 那条家族曲线会读作
+     "起步猛冲、到站撞墙上"。落定后锚点与那条 `.draw` 连线右端点重合（±2px）。 */
+  .ride{offset-path:var(--route);offset-rotate:auto;offset-distance:0%;
+        transition:offset-distance var(--dur-ride) linear}
+  .ride[data-go="1"]{offset-distance:100%}
+  /* 圆形绽开（0.20.0 之三，前沿做法：`clip-path: circle()` 关键帧）：.reveal 是直边
+     扫描、.featherR 是软边掠出，这一条是**从中心推开一个圆**。用在"这个位置本来该有
+     个东西、它空着"的场合（模板拿它开比较式里的空缺格 ∅）：圆从中心长出来读作
+     "这块是腾出来的"，而直边扫描读作"往后推演"——那句话在这里是错的。三条边界：
+       ① **半径百分比怎么归一**：`circle()` 的百分比按 `sqrt(w²+h²)/√2` 折算，而要盖住
+          矩形四角半径得 ≥ 半对角线 `sqrt(w²+h²)/2`——两者一比，**覆盖整盒的下限恒等于
+          √2/2 ≈ 70.7%，与长宽比无关**。所以终态取 75% 而不是 100%：实测那张 42×52 的
+          空缺格上 50% 咬掉上下边（墨量 142 对 286）、75% 与完全不裁逐像素相同
+          （286 = 286）、100% 纯属白给；
+       ② 静止态 = 全开（`clip-path:circle(75% at 50% 50%)` 写在元素自己身上），
+          关键帧两头都是 `circle()`（同型才可插值——0.15.0 那条 `inset()` ↔ `none`
+          的 discrete 教训，实测重放后 0 → 34.97 → 62.41 → 73.78 → 75%
+          （t=0/60/150/300/499ms）一路连续，没有硬跳）；不写 forwards，跑完落回
+          元素自身值，导出切掉 animation 后同样是全显那一格（实测取消动画后计算值
+          仍是 `circle(75% at 50% 50%)`）；
+       ③ 挂**纯包装 `<g>`**，且这条是本轮三件套里**唯一不抢 `.nt` 简写的**：
+          `put()` 拼成 `nt bloom`，实测该节点 `transition-property` 仍然完整留着
+          .nt 那九项（.bloom 只声明 animation）——内层图元照旧享受属性补间。
+          clip-path 会裁命中（0.15.0 那条）：实测绽开头 60ms 那一格点不着
+          （elementFromPoint 落到身后的 rect），150ms 圆推到 62% 才命中 `b-x00-r`——
+          它本来不是热区所以无害，但**要 Learner 点的图元不要开 .bloom**。 */
+  @keyframes bloomIn{from{clip-path:circle(0% at 50% 50%)}
+                     to{clip-path:circle(75% at 50% 50%)}}
+  .bloom{clip-path:circle(75% at 50% 50%);
+         animation:bloomIn var(--dur-bloom) var(--ease-out) backwards}
   /* 擦除揭示（0.15.0，前沿做法：wipe reveal）：不是"淡进来"，而是**从一侧扫出来**——
      像擦掉一块遮布。用在"这一行/这条线是刚刚长出来的"那种场合，方向本身带信息
      （左→右读作"往后推演"，右→左读作"回溯"），比同质的淡入多一层语义。
@@ -784,6 +898,23 @@
        入场不该把"内容看不看得见"押在没测过的边界上。
        句内进度细线**不在这一栏里**——它不是动效，是时钟的逐拍读数（见 #cap-prog）。 */
     ul.notes>li.note{animation:none}
+    /* 当面与抵达（0.20.0）三条同口径，兜底落的都正是终态，所以关掉之后画面仍是
+       同一张定格：
+         · 翻面关 **transition**（父层 transform 与两面的 visibility 都要关）：
+           `data-over` 本就在呈现属性上，一刀下去直接落"背面在场"那一格，正面
+           visibility 立刻 hidden——没有"翻到一半侧立"留在定格上。三条基础规则
+           都写在本块**之前**（§③ 动效原语区），特异度各自持平或更低，源序后者胜，
+           **这一族不需要抬特异度**（与 .tuck 同、与掠光/侧栏相反：要不要抬只看
+           基础规则写在哪）；
+         · 沿线抵达关 **transition**：`data-go` 在属性上，关掉即落 100%，标记停在
+           路线终点——它承担的是"这个人已经到了这一行"的位置信息，不能连位置一起关，
+           与划重点那条 #cap-hl 同一判断（关的是补间不是终态）；
+         · 圆形绽开关 **animation**：静止态 `clip-path:circle(75%)` 已在元素自己身上
+           （实测与完全不裁逐像素相同），关掉即整格全显，与 .reveal / .featherR
+           "关掉落在完整揭示"同一条纪律③。 */
+    .flip,.flip .face,.flip .faceB{transition:none}
+    .ride{transition:none}
+    .bloom{animation:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -1972,11 +2103,17 @@
         });
         // 「没有第二位」的空位：短串在这个位置是空的，所以它更小
         if (ri === cur && step >= 2 && step <= 3 && s.length === 1){
-          var gap = put(g, 'g', 'b-' + ri + cx + '-x',
-            {transform:'translate(' + (ox + 46) + ',' + baseY + ')'});
-          put(gap, 'rect', 'b-x' + ri + cx + '-r', {class:'pop', x:-21, y:-26, width:42, height:52,
+          /* 圆形绽开（0.20.0）：这一格说的是"这里空着"——**把一个圆从中心推开**
+             正好是"这块地方被腾出来"的那个动作，而旧写法在框与字上各挂一次 `.pop`
+             （缩放弹入）读起来是"跳出来一个东西"，说的反了。`.bloom` 只挂在包装层，
+             内层两个图元改回 `class:null`（一次入场就够，别叠两层，与 .reveal/.featherR
+             那两个消费者同写法）。终态在元素自己身上（circle(75%) = 全开，CSS 边界 ②），
+             所以导出切掉 animation 之后这一格仍是完整的一张空位。 */
+          var gap = put(g, 'g', 'b-' + ri + cx + '-x', {class:'bloom',
+            transform:'translate(' + (ox + 46) + ',' + baseY + ')'});
+          put(gap, 'rect', 'b-x' + ri + cx + '-r', {class:null, x:-21, y:-26, width:42, height:52,
             rx:9, fill:'none', stroke:'#f5a623', 'stroke-width':2, 'stroke-dasharray':'5 5'});
-          txt(gap, 'b-x' + ri + cx + '-t', {class:'pop', x:0, y:6, 'text-anchor':'middle',
+          txt(gap, 'b-x' + ri + cx + '-t', {class:null, x:0, y:6, 'text-anchor':'middle',
             'font-size':17, fill:'#f5a623'}, '∅');
         }
         txt(g, 'b-' + ri + cx + '-lab', {x:ox, y:baseY + 56, 'text-anchor':'middle',
@@ -1984,9 +2121,19 @@
       });
       // 判决落地：'vs' 变成 '<'。s3 与 s2 的区别就在这里——上一句还在逐位比字符，
       // 这一句给出先后。两句停在同一帧 = 这一句白说。
+      /* 翻面（0.20.0）：这里换的是**说法**而不是颜色——同一个位置上一个符号被另一个
+         符号顶掉，正该"当面对质"地翻过去。外层 `b-<ri>-vs-w` 是纯包装：只写
+         `data-over` 这一个状态，不写位移/透明度（CSS「翻面」边界 ④，同节点的 .nt
+         简写会被 .flip 整串顶掉）。两面各带各的颜色，所以旧写法那句
+         `fill: won ? … : …` 没有了——**颜色不再是补间的对象**，它跟着面走，翻页
+         中途不会看到一个既不是灰也不是绿的中间色（这是翻面白赚的另一半）。
+         两行各按自己的节拍翻：第一行 s3 翻、第二行 s4 翻。 */
       var won = (ri === 0 && step >= 3) || (ri === 1 && step >= 4);
-      txt(g, 'b-' + ri + '-vs', {x:480, y:baseY + 10, 'text-anchor':'middle', 'font-size':30,
-        'font-weight':'700', fill: won ? '#2ecc71' : '#5d6577'}, won ? '<' : 'vs');
+      var fv = put(g, 'g', 'b-' + ri + '-vs-w', {class:'flip', 'data-over': won ? '1' : '0'});
+      txt(fv, 'b-' + ri + '-vs', {class:'face', x:480, y:baseY + 10, 'text-anchor':'middle',
+        'font-size':30, 'font-weight':'700', fill:'#5d6577'}, 'vs');
+      txt(fv, 'b-' + ri + '-vs-b', {class:'face faceB', x:480, y:baseY + 10,
+        'text-anchor':'middle', 'font-size':30, 'font-weight':'700', fill:'#2ecc71'}, '<');
     });
     // s5「串起来」：把两行的结论并成一行记法（记号不是句子，纪律 3）。
     // 擦除揭示挂在**包装 g** 上（0.15.0）：这一行是从两行比较里"串"出来的，
@@ -2177,6 +2324,30 @@
           x1:354, y1:p[1], x2:646, y2:p[2], stroke:'#2ecc71', 'stroke-width':1.5, opacity:.55});
       });
     }
+    /* 沿线抵达（0.20.0）：同分的两个人各自沿自己那条连线**走到右列去**。
+       .draw 说的是"这两个位置之间有一条路"，这一层说的是"人真的沿这条路过去了、
+       并且留在了终点"——两句合起来才说完 s1 那句"相等元素保序"。四个口径：
+         · **s0 就建档、停在路头**（data-go=0），s1 起换档：补间发生在步与步之间，
+           renderer 只写档位不排程（纪律 1）。s0 那一步右列还是一个 `?`，标记站在
+           左列卡片边上不泄露结果，读作"还在原地"；
+         · 路线写在呈现属性 `style` 上，坐标与那条 line 的 x1/y1→x2/y2 **同一个数组
+           里出来**：两处各抄一遍数字，改了列宽就会跑偏；
+         · **不挂在 e-ties 那一层里面**：那一层 s2 起挂 `.tuckL gone`，clip-path 会把
+           走在半途的标记一起裁掉（`.tuck*` 边界 ④/⑤ 那条"要全程在场的东西不放收拢
+           层里"）。标记要留在台上，就得是自己的节点；
+         · 到了 s2、s3 标记留在终点不再动——它承担的是"这个人落在哪一行"的位置信息，
+           s3 那句"90 分两行 · 小明在小红前"正是指着这两枚说的（关掉动效也一样在场，
+           见减少动效兜底那三条）。
+       箭头（`M 4 -5 L 10 0 L 4 5`）朝 +x：`offset-rotate:auto` 会把它对准路线方向，
+       不用 JS 反解角度（实测那条 292×72 的斜线上自动转了 13.86°）。 */
+    [['小明',150,222], ['小红',222,294]].forEach(function(p){
+      var rd = put('e-body', 'g', 'e-ride-' + p[0],
+        {class:'ride', 'data-go': step >= 1 ? '1' : '0',
+         style: "--route:path('M 354 " + p[1] + " L 646 " + p[2] + "')"});
+      put(rd, 'circle', 'e-ride-' + p[0] + '-c', {r:6, fill:'#2ecc71'});
+      put(rd, 'path', 'e-ride-' + p[0] + '-a', {d:'M 4 -5 L 10 0 L 4 5', fill:'none',
+        stroke:'#2ecc71', 'stroke-width':2});
+    });
     // s2「多级排序时特别有用」：标出「两级」这个动作，与 s1 区分。
     // 挂在两列中间的空白处——右列抬头行(100)和卡片(150 起)都在这条线上方/下方，
     // 贴在列头上就会撞字（实测过）。

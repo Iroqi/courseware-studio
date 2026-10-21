@@ -3,6 +3,106 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.20.0] - 2026-10-21
+
+### 新增（当面与抵达——当面翻面 / 沿线抵达 / 圆形绽开）
+
+这一轮补的是两个一直没词的动作：一个记号**当着观众被下一个取代**，和一个东西**从甲处
+走到乙处并留在那儿**。此前的词汇改颜色（`.nt` 属性补间）、改形状（`.reveal` / `.tuck`）、
+改亮度（`--lit`），偏偏"vs 变成 <""这个人的分数落进那一列""这一格是空出来的"只能靠换色
+或硬切。三条都在 Chrome 152 里以 CDP 冻结补间逐毫秒采样量过。
+
+**当面翻面（`.flip`）**。`<g class="flip" data-over="0|1">` 里两面 `<text class="face">` /
+`class="face faceB">`，父层 `transform:perspective(600px) rotateY(0deg → 180deg)`、
+`--dur-flip:.6s`。三条硬边界：**SVG 里 `backface-visibility` 是死的**——翻到 180° 后
+`getScreenCTM().a` 已经是 −1（矩阵确实翻了面），像素层上那面镜像的字照描不误，交接只能
+自己管；**3D 要写在 transform 的函数列表里**——`perspective(600px) rotateY(θ)` 计算值才落进
+`matrix3d`（实测 θ=0 那一格 m11=1、z 分量 −0.0016667），单写 `rotateY` 是平面镜像没有远近，
+相机层里照旧合成（`#cam` scale(1.8) 下 CTM.a 从 +1.8 连续走到 −1.8）；**交接必须落在侧立
+那一刻，所以曲线必须两头对称**——两面各写 `transition:visibility 0s linear
+calc(var(--dur-flip) / 2)`（时长 0、只借 delay），而"半程 = 90°"只有对称曲线成立：实测
+`--ease-in-out` 三个补间一起冻在 t=0/150/300/450/599ms 得 θ = 0 / 12.7 / 90.0 / 167.3 /
+180°，两面在场 v,h → v,h → h,v → h,v → h,v，全程无一帧两面对显；换成仓库默认的
+`--ease-out`，θ 在 60.5ms 已过 78.9°、约 65ms 侧立，交接却仍按半程等到 300ms——背面要在
+观众眼前倒着走 235ms。**所以 `.flip` 是全仓库唯一不走 `--ease-out` 的原语**，也是唯一要求
+"角度对时间居中"的那一个。另两条口径与同族一致：只挂纯包装 `<g>`（`.flip` 源序在 `.nt`
+之后、简写整串顶掉它，实测计算值只剩 `transform`；两面走 `.nt face` (0,2,0) 压过 `.nt`
+(0,1,0)），终态在 `data-over` 上（导出那一刀切掉 transition 后背面墨量与不翻面的参照字
+逐像素相同 69 = 69，`elementFromPoint` 命中的是在场那一面——`visibility:hidden` 天然退出
+命中树，白赚）。CSS transform 不改 `getBBox()`：实测正面那一格翻页前后 bbox 同值
+[461.3, 147.35, 37.41, 34.72]。消费者：场景 B 比较式那枚 `vs` 在该行出结果的一句翻成 `<`，
+两行按各自的句子错开一拍（实测第二行 s4 才翻）。
+
+**沿线抵达（`.ride`）**。`offset-path:var(--route)` + `offset-rotate:auto`，只补间
+`offset-distance`（0% → `data-go="1"` 那一档 100%，`--dur-ride:.8s`、**linear**）；路线走
+呈现属性 `style` 上的 `path('M … L …')`，在计算值阶段做令牌替换（实测
+`path("M 354 150 L 646 222")`），**不注册 `@property`**——`offset-distance` 自己就可动画。
+这条是对 **0.18.0 那条否决的限定性翻案**：当时按回去的理由是"由 animation/keyframe 驱动，
+切掉动效那一帧落回**路径起点**，导出帧上多出一个谁也没请的小点"，本轮把驱动换成
+transition + 属性终态，实测切掉 transition 后 dist 落 100%、锚点停在路线终点那一格，
+"实体"那一半随之消失。仍然成立的是另一半：用户坐标下包围盒不跟着走（实测起步/中途/落定
+三采同值 [-6,-6,16,12]，屏幕盒一路在走，r=6 那枚中心 x 336.5 → 462.7 → 588.5）——QA 与
+相机看包围盒、观众看屏幕盒，所以 `.ride` 只能当**视觉指引**：不当热区、不参与 §5 连线几何
+判定。`offset-rotate:auto` 实测那条 292×72 斜线上 CTM = [0.8243, 0.2033]（含场景 E 相机
+缩放 0.849），反解 13.86° 与 `atan2(72,292)` 逐值相符，箭头不用 JS 再算角度。行程实测
+0 → 25 → 50 → 75 → 99.875%（t=0/200/400/600/799ms）等距连续，落定后锚点与那条 `.draw`
+连线右端点重合（±2px）。消费者：场景 E 两条连线各带一枚标记，挂 `e-body` 而不是 `e-ties`
+——后者 s2 起收拢退场会把走在半途的标记一起裁掉（实测 s2/s3 线收走了人还在、`class` 仍是
+`nt ride`）。
+
+**圆形绽开（`.bloom`）**。`@keyframes bloomIn` 从 `circle(0% at 50% 50%)` 推到
+`circle(75% …)`，`.bloom` 自身静止态写全开、`animation … backwards` 不写 forwards。用在
+"这个位置本来该有个东西、它空着"（范本开比较式里的空缺格 ∅）：从中心长出一个圆读作"这块
+是腾出来的"，直边扫描读作"往后推演"——后者在这里是错的。本轮最干净的一条数学：**`circle()`
+的百分比按 `sqrt(w²+h²)/√2` 归一，而盖住四角要 ≥ 半对角线 `sqrt(w²+h²)/2`，两者一比覆盖
+整盒的下限恒等于 √2/2 ≈ 70.7%、与长宽比无关**——所以终态取 75%：实测那张 42×52 的空缺格
+50% 咬掉上下边（墨量 142 对 286）、75% 与完全不裁逐像素相同（286 = 286）、100% 纯属白给。
+关键帧两端同型（0.15.0 discrete 教训），实测 0 → 34.97 → 62.41 → 73.78 → 75%
+（t=0/60/150/300/499ms）无硬跳，取消动画后计算值仍是 `circle(75% at 50% 50%)`。它是本轮
+三件套里**唯一不抢 `.nt` 简写的**（`.bloom` 只声明 animation，实测包装节点
+`transition-property` 完整留着 `.nt` 那九项）。clip-path 裁命中：实测绽开头 60ms 那一格
+点不着、150ms 圆推到 62% 才命中 `b-x00-r`——它不是热区所以无害，但要 Learner 点的图元
+不要开 `.bloom`。
+
+`prefers-reduced-motion` 三行进清单（`.flip,.flip .face,.flip .faceB{transition:none}` /
+`.ride{transition:none}` / `.bloom{animation:none}`），**都不需要抬特异度**（基础规则写在
+§3.4 动效原语区、媒体块之前——与 0.19.0 `.tuck` 同判据）；实测模拟 reduce 与导出式一刀两种
+口径下 θ 立即 180°、dist 立即 100%、clip 立即 `circle(75% at 50% 50%)`，`getAnimations()`
+恒空。`--route` 与 `circle()` 取值本身不进兜底清单：路线是数据、终态是定格。新增
+`--dur-flip` / `--dur-ride` / `--dur-bloom` 三个令牌。
+
+### 否决（本轮实测不合格 / 结构与模型不合，写进 stage.md「别这么干」）
+
+**HTML 卡片翻面那套两面 `backface-visibility:hidden`**（SVG 三种宿主各测一遍：`<g>`、带
+`transform-box:fill-box` 的 `<g>`、`<text>`，翻到背面镜像字全在）；**`corner-shape:squircle`**
+（打在 `<rect rx>` 上零差值，rx=9 那一档逐像素相同）；**`text-wrap:pretty`**（CJK 正文与
+`normal` 实测零差值，它靠空格分词）；**`@property --num` + `counter()` 的里程表数字**
+（0.17.0 已按回去一次，本轮研究报告又列成"前沿做法"，再量结论不变：不支持时渲染空字符串，
+且这里所有读数都是 `audio.currentTime` 的逐拍值，用计数器就是偷开第二个时钟）；
+**View Transitions**（`startViewTransition` 要等一次异步快照，renderer 没有可等的第二时钟，
+而逐帧冷启动导出里每一帧都是首帧——结构性排除）。
+
+### 其他
+
+`references/stage.md` §3.4 表格增三行 + "当面与抵达（0.20.0）"一节 + 本轮"别这么干"五条，
+令牌清单补三个 `--dur-*` 并记下"唯一不走 ease-out 的例外"，**0.18.0 那条 offset-path 否决
+改为限定性翻案**（翻案的是驱动方式，保留的是包围盒那条使用限制），§9 自检增三条；
+`SKILL.md` §5 增补一段；`references/runtime.md` §7 补 0.20.0 的导出侧口径（三条都落
+"完成之后那一格"，`.ride` 的定格是终点而不是路头）；README 能力清单与回归说明同步；
+`references/template.html` 里三处消费点改写（`b-{ri}-vs-w` 翻面、`e-ride-*` 两枚标记、
+空缺格包装 `<g class="bloom">`），并清掉旧的 `fill: won ? …` 换色写法。
+`tests/test_iteration_round2.py` +5 例（共 51 例）：静态契约一枚（令牌、翻面必须
+`--ease-in-out`、两面恰好两条 `calc(var(--dur-flip) / 2)` 规则、css 里不得出现
+`backface-visibility`、`.ride` 不得进 `@keyframes`、不注册 `@property --route`、标记不挂进
+收拢层、`.bloom` 终态不得写 100%、内层图元 `class:null`、reduced-motion 三行与
+`corner-shape` / `--num` 两把否决锁不得回流——五条否决里 `text-wrap:pretty` 与
+View Transitions 沿用 0.17.0 已有的那两把锁）+ CDP 四例（翻面 θ 逐档单调且交接落在 90° 那一采、
+命中从正面换到背面、bbox 全程不变、第二行晚一拍；标记匀速走到连线右端并活过收拢层；绽开半径连续且 75% 不啃描边、clip
+确实裁命中；三件套在 reduce 与导出口径下立即落终态且 `getAnimations()` 为空）。
+0.18.0 那条 `"offset-path" not in html` 的锁收窄成"`@keyframes` 里不得出现 offset-*"
++ "终态必须由属性驱动"，并把翻案理由写进注释。
+本机全量 **399 passed / 2 skipped**（0.19.0 时 394 passed）。
+
 ## [0.19.0] - 2026-10-20
 
 ### 新增（退场与逐字——跟读点亮 / 收拢退场 / CJK 行首标点）
