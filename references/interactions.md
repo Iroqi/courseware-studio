@@ -142,6 +142,13 @@ MutationObserver → data-locked
 data-locked="1" → 禁用当前题目 → 显示继续
 ```
 
+**按下那一下的确认**（0.21.0）：选项 `.opt` 上挂一枚从触点涨开的涟漪，走的是
+`pointerdown`，不是 `click`。两条路各说各的话：涟漪只回答"指尖碰到了这里"，判定与
+`data-locked` 仍由 `click` 那条路走。因此**键盘路径没有涟漪**——那是一条没有触点的
+路，硬编一个圆心只会是假信息；键盘的确认由反馈文字与 `aria-live` 承担。涟漪层
+`pointer-events:none`、宿主 `overflow:hidden`，静止态与终态都不可见，所以它既不是状态
+也抢不到热区（`::after` 圆心与直径由 JS 现量，见 `stage.md` §3.4 触点涟漪那条）。
+
 ## 6. 提示文案
 
 反馈只回答：为什么错、为什么这次对。
@@ -160,3 +167,5 @@ data-locked="1" → 禁用当前题目 → 显示继续
 - [ ] `choice` / `hotspot` 恰好一个正确项；
 - [ ] `sequence` 的 `correct_order` 与全部条目一一对应；
 - [ ] `bucket.answer` 完整覆盖全部条目，且只引用已存在的筐。
+- [ ] 用了按下涟漪（`.opt.rip`）的：只挂在 `pointerdown`、判定仍走 `click` 那条路，
+      键盘路径没有触点就不编圆心；涟漪层 `pointer-events:none`、静止态与终态都不可见。

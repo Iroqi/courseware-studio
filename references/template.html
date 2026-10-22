@@ -106,6 +106,33 @@
          · --dur-bloom .5s：与 --dur-reveal 同档——同属"揭示"家族，只是形状从直边
            扫描换成圆形绽开，时长没必要另立一档。 */
     --dur-flip:.6s; --dur-ride:.8s; --dur-bloom:.5s;
+    /* 定盘与成形（0.21.0）：三条各占一档，档位仍是跟已有词汇**对齐或错开**选的。
+         · --dur-tilt .55s：倾侧演的是"判定落了"，与画线（--dur-draw .55s）同档——
+           两者都是"一条结论落到画面上"；比翻面（--dur-flip .6s）短一档，因为倾侧
+           只报方向、不换内容。落定用 --ease-spring：改变几何的补间允许轻微过冲
+           （"空间弹簧"），改变颜色 / 透明度的不允许（"效果弹簧"）——这是前沿动效
+           体系（Material 3 Expressive 的 MotionScheme）把弹簧分成两族的判断，与
+           本仓库"退场用 inOut、入场用 out"的分族口径是同一件事的两面。实测这一趟
+           （+6.5° → −6.5°，把补间 `pause()` 后逐档钉住读）：134ms 还剩 +0.17°、
+           138ms 上下过零，385ms（70%）越到 −8.45°（超行程 1.95°，约为 13° 全程的
+           15%），551ms 收在 −6.5°；屏幕上左托盘从 439.7 沉到 460.7，过冲那一格
+           到 463.8——再多沉 3.1px，读作"盘沉下去了一下"，不是"抖"；
+         · --tilt-deg 6.5deg：**只有三档的离散倾角**（− / 0 / +）。连续角度在这里
+           是错的——契约只看符号，不看不平衡的程度。档位是量出来的：支点 (500,286)
+           到托盘中心 88 单位，倾 6.5° 端点升降 88·sin6.5° ≈ 10 单位，实测两枚托盘
+           屏幕 y 相差 21px（439.7 / 460.7）——"哪边沉"一眼读得出来，而托盘半径 6、
+           垂直差 20 单位，两盘不会撞在一起；再大一档（10° → 15.3 单位）左托盘就压
+           到 y=306 那根刻度轨上；
+         · --dur-rip .5s / --rip-ink：涟漪是"收到你点了这一下"的即时确认，比掠光
+           （--dur-shine .9s）短、比按压过渡（--dur-hover .16s）长。底色取主色一档
+           而不是纯白——白雾会把按钮上的字压过去，主色只经过不停留；
+         · --dur-gather .42s：与入场（--dur-in .42s）同档——字距归位**就是** tagline
+           的入场方式，不另立一档。--track-open .3em 是"散开"那一头：桌面 13px 下
+           即 3.9px，范本八句 tagline 实测在这一档 Range 行度全为 1（最长那句字宽
+           293.5 → 382.2px，容器 886px），见 .gather 边界 ③。 */
+    --dur-tilt:.55s; --tilt-deg:6.5deg;
+    --dur-rip:.5s; --rip-ink:rgba(245,166,35,.26);
+    --dur-gather:.42s; --track-open:.3em;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -258,7 +285,11 @@
      不支持的浏览器整条声明作废：标题照旧换行、照旧带 leading，一个字不少——
      又是纪律③那条：内容与装饰不能押在同一个可能不跑的门上。 */
   .chapter h1{font-size:19px;margin:0;font-weight:700;text-wrap:balance}
-  /* tagline 独占一行：和标题挤同一行时长句会在随机位置断行，起行后整句完整 */
+  /* tagline 独占一行：和标题挤同一行时长句会在随机位置断行，起行后整句完整。
+     这里**不**为 0.21.0 的 `.gather` 预留 `letter-spacing`：实测 Chrome 把
+     `normal` 当 0 参与字距插值（散→收逐帧连续，写不写 0 逐帧同值），但规范上
+     `normal` 不是长度、异型端点按 discrete 处理——同型的活交给关键帧自己写两头
+     （见 §③ `.gather` 边界 ②），作者的排版规则不必替动效让路。 */
   .chapter .tagline{font-size:13px;color:var(--dim);margin:0;flex:1 1 100%;
                     text-wrap:balance;text-box-trim:trim-both;text-box-edge:text}
   .chapter .tagline:empty{display:none}
@@ -608,6 +639,75 @@
                      to{clip-path:circle(75% at 50% 50%)}}
   .bloom{clip-path:circle(75% at 50% 50%);
          animation:bloomIn var(--dur-bloom) var(--ease-out) backwards}
+  /* 倾侧定盘（0.21.0 之一，前沿做法：独立 rotate 属性 + 空间弹簧）：一台只有
+     **三档**的符号盘——横梁绕支点倾侧，左倾 = 负、持平 = 零、右倾 = 正。它说的
+     是"返回值只看符号"这件事本身：倾角不是连续量，`a−b` 是 −1 还是 −99 都落在
+     同一格上。五条边界：
+       ① **终态在呈现属性上**（`data-pan="-1|0|1"`），与 .ride 的 `data-go` 同族：
+           静止态写 `rotate:0deg`、两档写在 `[data-pan]` 分支上，导出与
+           reduced-motion 各切一刀落的都是"这一拍该倾哪边"，不是"没收到的起点"
+           （实测注入 `transition:none!important` 后三档依次读回 −6.5deg / 0deg /
+           6.5deg；reduced-motion 下 `transition-property` 为 `none`、计算值同样是
+           该档终值、`getAnimations()` 为空）；
+       ② 补间的是**独立 `rotate` 属性**，不写进 `transform`：0.13.0 那条教训
+           （同节点写 transform 属性 + 独立变换属性会互相缩放）在这里反过来用——
+           横梁自己的位置由子图元的绝对坐标定，旋转这一笔不能去碰 transform，
+           否则子坐标一起被卷进函数列表里（实测计算值 `transform` 全程 `none`，
+           倾侧只在 `rotate` 上，`transition-property` 也只有 `rotate` 一项）；
+       ③ 支点靠 `transform-box:fill-box` + `transform-origin:50% 50%`：fill-box 的
+           参照盒是**自己的包围盒**，view-box 才是缺省。两种偷懒都实测过（1280×900
+           窗口、屏幕像素）：只把 `transform-box` 退回 `view-box`（origin 仍是 50%）
+           → 支点跑到 viewBox 中心 (500,230)，比梁那根线高 56 单位，倾 6.5° 时整根
+           梁**平飘 6.7px**（左托盘 368.9 → 375.6）；再省掉 origin（`0 0`）→ 绕
+           viewBox 左上角转，左托盘从 (368.9,460.7) 跑到 (399.6,399.1)，屏上位移
+           69px——那不是倾侧，是整台仪器平移出画。这条决定了包装层的纪律：**盒中心
+           必须正好是支点**——梁与两枚托盘都画在同一水平线上（y=286），包围盒的竖直
+           中心才落在那根梁上；往这个 g 里多塞一个"挂在下面的支点三角"，实测包围盒
+           从 [406,280,188,12] 胀成 [406,280,188,24]、中心从 y=286 掉到 y=292，支点
+           跟着掉下去，倾侧时梁再平移 0.7px（所以支画在包装层**外面**，静止不动）；
+       ④ `.tilt` 与 `.nt` 同节点：两条 `transition` 简写互相顶掉（后者源序在胜，
+           实测该节点 `transition-property` 只剩 `rotate`）——这是**已知的、且正是
+           想要的**：这一层只该有角度在动，位移归外层、描边色归内层（同 0.19.0
+           `.tuck` 那条）；
+       ⑤ `rotate` 不改 `getBBox()`：实测三档下包装层包围盒**同为 [406,280,188,12]**，
+           所以相机取景与 §5 的连线几何判定看不见这层转动。命中却是跟着变换走的
+           （playing 态下 `elementFromPoint` 打在倾侧后的左托盘上仍命中 `c-pan-l`，
+           这一层 `pointer-events` 是 `auto`）——视觉与热区一致、与几何判定不一致，
+           这正是 0.15.0 那条"看不见的东西不能当热区"的反面版本：**要判定的东西别
+           挂 `.tilt`，要动的东西别拿它当坐标**。 */
+  .tilt{transform-box:fill-box;transform-origin:50% 50%;rotate:0deg;
+        transition:rotate var(--dur-tilt) var(--ease-spring)}
+  .tilt[data-pan="-1"]{rotate:calc(var(--tilt-deg) * -1)}
+  .tilt[data-pan="1"]{rotate:var(--tilt-deg)}
+  /* 字距归位（0.21.0 之三，前沿做法：kinetic typography 的收束一拍）：一句副题
+     从**散着的字距**收成正常排布，读作"这句话成型了"——标题动画里最常见的收尾
+     动作，放在这里替"换节"多带一层"新的副题进场"。四条边界：
+       ① 走 **animation 而不是 transition**：tagline 是常驻节点、每节换文本，但
+           "散→收"不是两个状态之间的行程（换文本那一拍没有可读的上一档字距），
+           而是一次入场；换节那一拍由 JS 摘类 → 读一次盒子 → 挂类重放（同 0.20.0
+           `.flip` 的 retrigger 口径），同节内换句**不重放**（实测同节第二次换文本后
+           `getAnimations()` 为空、字距仍是落定值）。
+       ② 两头**显式同型**（都是 `<length>`）：这里不偷懒只写 `from`。只写 `from` 时
+           隐式 `to` 取元素自己的 `letter-spacing`，默认那是 `normal`——规范上
+           `normal` 不是长度，异型端点该按 discrete（0.15.0 那条 `inset()` ↔ `none`
+           的教训）。实测 Chrome 并不按 discrete 办：基础值留 `normal` 与写 `0` 两组
+           逐帧同值（3.9 → 3.23 → 2.62 → … → 2.95e-7px 一路连续），也就是它把
+           `normal` 当 0 来插。**这条不写进设计**——赌的是别家引擎不认的宽容，
+           把 `to{letter-spacing:0}` 写出来就把它变成引擎无关的同型对，作者的排版
+           规则也不必替动效让路（见 §② 排版层那条注释）。落定后 fill-mode 只有
+           `backwards`，计算值回到元素自己的 `normal`：实测 `0` 与 `normal` 在 13px
+           中文那档排宽逐值相同（117px），静止态与终态同形。
+       ③ 它改的是**排宽**，会带动换行，所以这一档要按"最坏那句"选：桌面 13px 下
+           `.3em` = 3.9px，范本八句 tagline 实测 Range 行度**全为 1**，最长那句
+           （closing 那句 22 字）散开档字宽 293.5 → 382.2px，容器 886px——余量够，
+           `text-wrap:balance` 不会中途把句子劈成两行。
+       ④ 窄屏关掉，是**按余量**关的而不是"实测会断"：500px 档字号升到 14px、容器
+           掉到 449px，最长那句散开档实测 315 → 411.6px，仍是一行但只剩 37px 余量。
+           作者文案比范本长一点就断行，而断行落在哪一秒跟着帧变——那是抖，不是收拢。
+           所以 `@media (max-width:560px)` 分支里把这条关了（实测关后 `animationName`
+           为 `none`、类名还挂着，字一个字不少）。 */
+  .gather{animation:gatherIn var(--dur-gather) var(--ease-out) backwards}
+  @keyframes gatherIn{from{letter-spacing:var(--track-open)}to{letter-spacing:0}}
   /* 擦除揭示（0.15.0，前沿做法：wipe reveal）：不是"淡进来"，而是**从一侧扫出来**——
      像擦掉一块遮布。用在"这一行/这条线是刚刚长出来的"那种场合，方向本身带信息
      （左→右读作"往后推演"，右→左读作"回溯"），比同质的淡入多一层语义。
@@ -915,6 +1015,21 @@
     .flip,.flip .face,.flip .faceB{transition:none}
     .ride{transition:none}
     .bloom{animation:none}
+    /* 定盘与成形（0.21.0）三条同口径，兜底落的都正是终态：
+         · 倾侧关 **transition**：`data-pan` 本就在呈现属性上，一刀下去直接落
+           "这一拍该倾哪边"那一格——它承担的是符号读数，不能连倾角一起关
+           （与 0.20.0 `.ride`、0.14.0 划重点同一判断：关的是补间不是终态）；
+         · 字距归位关 **animation**：两头都是长度，不跑就落回元素自己的正常排布
+           （实测 `animationName` 为 `none`、计算值 `normal`，与 `to` 那档 `0` 排宽
+           逐值相同）——一行副题一个字不少，与 .bloom 那条"关掉落在完整揭示"同源；
+         · 涟漪关 **animation** 之后必须**什么都不显**：它的静止态写在元素身上
+           （`scale:0;opacity:0`），关掉的正是"这一拍没有涟漪"那一格。兜底行要
+           带 `#gate-block` 抬特异度：基础规则写在 §⑤ 门禁卡片那一段里，源序排在
+           **本块之后**，朴素同形选择器会被它顶掉（与 0.15.0 折叠 / 0.17.0 掠光 /
+           0.16.0 侧栏那三条同一课——兜底不是写了就生效，要真的盖过基础规则）。 */
+    .tilt{transition:none}
+    .gather{animation:none}
+    #gate-block .opt.rip::after{animation:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -1020,6 +1135,51 @@
          位移挂外层 g、scale 挂内层形状才实测 0 位移——所以 **.pop 依旧只挂在
          没有 transform 的节点**，scale 并没有解锁它，别想省事少画一层。 */
   .opt:active:not(:disabled){scale:.94}
+  /* 触点涟漪（0.21.0 之二，前沿做法：Material 系的 touch ripple——按下的那一点
+     立刻给一圈确认，不用等两百毫秒后的反馈文字）。一枚圆从**触点**涨满整颗按钮
+     再淡掉。五条边界，全是实测出来的：
+       ① 静止态与终态**都看不见**（base `scale:0;opacity:0`）：把补间 `pause()` 后
+         逐档钉住读——0ms `op .85 / scale 0` → 40ms `.598 / .331` → 310ms（62% 那档）
+         `.340 / .987` → 470ms `.0002 / 1` → 500ms 落回 base `0 / 0`；再 `finish()`
+         一次，动画已经从 `getAnimations()` 里下场（fill 默认 none，不留最后一帧），
+         屏幕上什么都不显。涟漪是 **事件不是状态**，与 0.17.0 掠光 / 0.18.0 流光
+         同一族判断——reduced-motion 关掉 animation、导出截图页一刀切掉 animation，
+         落的都是"没有涟漪的正常按钮"（实测两种切法后 `::after` 计算值都是
+         `opacity:0 / scale:0`），不会留半截琥珀色圆盘压在字上（纪律③：装饰绝不把
+         内容锁进可能不跑的门）；顺带一条采法上的教训：headless 里按下之后动画的
+         start 要等 ~166ms 才落（前八趟追帧读到的都是 anim 0），**追帧采不到行程，
+         只有钉档采得到**；
+       ② 圆心走 `left/top:var(--rx)/var(--ry)` + **独立 `translate` 属性**居中，
+         不写进 transform：`:active{scale:.94}` 挂在同一颗按钮上，0.13.0 实测过
+         "独立变换属性排在 transform 之前，会被 scale 连位移一起缩"——写进
+         transform 的那条居中位移按下去就会漂；
+       ③ 直径 `--rip-d` 与触点坐标都由 JS **现量**（在 handler 里读 rect；触点到
+         四角的最大距离 ×2），写常数要么涨不满、要么白涨一大圈（同 0.14.0 划重点
+         "从字幕自己量"）。实测同一颗 84.2×30.9 的选项两个触点：按在 (21.1,21.6)
+         → `--rip-d` 133.6px（最远角在右下），按在 (12.6,7.7) → 150.4px（最远角换到
+         左上）——圆每次都刚好盖到自己那个最远的角，两档直径差 17px；"现量"这条
+         不是洁癖：按住的这段时间 `:active{scale:.94}` 把 rect 缩过（实测 84.2 →
+         79.9），提前量好再传进 handler 就会连着触点一起算错。坐标越界（合成的
+         pointerdown 打在盒外 +80/−60）时被夹进盒边，写进 `--rx 84.0px / --ry 0.0px`
+         → 179.0px，圆不会从按钮外面起头；`clientX/clientY` 缺席（合成的裸
+         `PointerEvent` 读出来是 0、不是 NaN，仍走夹取）才落到中心兜底——那条路只防
+         "事件对象根本没有坐标"，不是给键盘准备的；
+       ④ `pointer-events:none` + 宿主 `overflow:hidden`：伪元素不抢命中（涨到一半
+         时 `elementFromPoint` 仍命中按钮本身 `opt rip`，0.17.0 那条同一课：看不见
+         的层会挡住热区），涨出圆角盒的部分被裁住不糊到卡片上；`overflow:hidden`
+         是这颗药丸自己吃的：实测三颗选项 `scrollWidth == clientWidth`（83/83）、
+         `scrollHeight == clientHeight`（29/29），一个字都没被裁；
+       ⑤ **只挂在 pointerdown**，不挂 click：涟漪报的是"指尖碰到"这一件事，键盘
+         那条路没有触点，硬编一个圆心只会是假的。实测程序化 `click()`（没有
+         pointerdown）不挂 `.rip`——判定照走、反馈照出，只是没有涟漪。
+     消费者只有选项这颗药丸：hotspot 圈的 `::after` 已经在报 ✓ / ✕ 这个**状态**，
+     纯装饰层不去抢一个正在说事实的伪元素。 */
+  .opt{position:relative;overflow:hidden}
+  @keyframes ripGrow{0%{scale:0;opacity:.85}62%{opacity:.34}100%{scale:1;opacity:0}}
+  .opt.rip::after{content:"";position:absolute;left:var(--rx,50%);top:var(--ry,50%);
+        width:var(--rip-d,100%);height:var(--rip-d,100%);translate:-50% -50%;
+        border-radius:50%;background:var(--rip-ink);pointer-events:none;
+        scale:0;opacity:0;animation:ripGrow var(--dur-rip) var(--ease-out)}
   .opt:disabled{cursor:default;opacity:.85}
   .opt[data-selected="1"]{border-color:var(--key)}
   .interaction-feedback{margin-top:9px;font-size:13.5px;color:var(--dim);min-height:18px}
@@ -1312,6 +1472,14 @@
     .n-tag{font-size:11.5px}
     .n-jump{font-size:12.5px}
     .chapter .tagline{font-size:14px}
+    /* 字距归位在窄屏 / 矮屏这一档**关掉**（0.21.0 `.gather` 边界 ④）：关它是按
+       **余量**决策，不是"实测会断"——500px 档字号从 13 提到 14、栏宽掉到 449px，
+       范本最长那句实测散开档 315 → 411.6px 仍是一行，但只剩 37px 余量；作者文案
+       比范本长一点就断行，而"断在哪一秒"跟着帧变，那是抖不是收拢。关掉动画落的是
+       静止态（元素自己的 `letter-spacing`），信息一格不少。
+       特异度与基础规则 `.gather` 同为 (0,1,0)，源序在后 → 这一条胜（实测关后
+       `animationName` 为 `none`、`gather` 类名还挂着）。 */
+    .gather{animation:none}
   }
   /* 画布静态文字（场景头 / 字幕）按字号分档提级，与 JS 里 tfs() 的档位同比例
      （≤14 ×2、≤19 ×1.7）；常驻图元由 put() 在写属性时放大。1000 宽的 viewBox 压到手机上
@@ -2184,6 +2352,36 @@
       txt(g, 'c-' + q[0] + '-t', {x:0, y:13, 'text-anchor':'middle', 'font-size':34,
         'font-weight':'700', fill:q[1]}, q[0]);
     });
+    /* 倾侧定盘（0.21.0）：三句契约对应一台**只有三档**的符号盘——返回负数左端沉、
+       返回零持平、返回正数右端沉。`a − b` 是 −1 还是 −99 都落在同一格上，"离散
+       三档"本身就是"只看符号，不看数值"那个结论的形状（换成连续倾角就演歪了）。
+       三条口径：① 倾角终态写在呈现属性 `data-pan` 上，切掉补间（导出 / 减少动效）
+       落的是"这一拍该倾哪边"，不是没收到的水平起点；② 旋转层是**纯包装**：支点
+       三角与刻度留在它外面当静止参照，否则包围盒中心就不是支点，倾侧会绕着一个
+       飘忽的点转（边界见 CSS `.tilt` ③）；③ 这层旋转不进 `getBBox()`（实测三档同为
+       [406,280,188,12]），相机取景与 §5 的连线几何判定都看不见它——命中倒是跟着变换
+       走（见 `.tilt` 边界 ⑤），所以**要拿坐标判定的东西别挂 `.tilt`**。 */
+    if (pick >= 0){
+      var gp = pick === 0 ? '-1' : (pick === 1 ? '0' : '1');
+      put('c-body', 'line', 'c-rail', {x1:402, y1:306, x2:598, y2:306,
+        stroke:'#2a3140', 'stroke-width':1});
+      put('c-body', 'line', 'c-rail-mid', {x1:500, y1:299, x2:500, y2:313,
+        stroke:'#394052', 'stroke-width':1.5});
+      txt('c-body', 'c-rail-neg', {x:386, y:311, 'text-anchor':'end', 'font-size':15,
+        'font-family':MONO, fill:'#5d6577'}, '−');
+      txt('c-body', 'c-rail-pos', {x:614, y:311, 'text-anchor':'start', 'font-size':15,
+        'font-family':MONO, fill:'#5d6577'}, '+');
+      put('c-body', 'path', 'c-fulcrum', {d:'M500,290 L492,304 L508,304 Z',
+        fill:'#2a3140'});
+      // 梁与两枚托盘都画在同一水平线上：包围盒的竖直中心才落在那根梁上（②）
+      var beam = put('c-body', 'g', 'c-beam-w', {class:'tilt in', 'data-pan':gp});
+      put(beam, 'line', 'c-beam', {x1:412, y1:286, x2:588, y2:286, stroke:'#8d95a8',
+        'stroke-width':3, 'stroke-linecap':'round'});
+      put(beam, 'circle', 'c-pan-l', {cx:412, cy:286, r:6, fill:'#1c212c',
+        stroke:'#8d95a8', 'stroke-width':2});
+      put(beam, 'circle', 'c-pan-r', {cx:588, cy:286, r:6, fill:'#1c212c',
+        stroke:'#8d95a8', 'stroke-width':2});
+    }
     if (pick === 1) txt('c-body', 'c-eq', {x:500, y:cy+14, 'text-anchor':'middle',
       'font-size':30, 'font-weight':'700', fill:'#8d95a8'}, '=');
     // 图内短标注（**不是口播原句**）：s4「只看符号」、s5「升降序」各给一个独立标签——
@@ -3023,6 +3221,15 @@
           var ch = el('chapter');
           ch.classList.remove('chFlip'); void ch.getBoundingClientRect();
           ch.classList.add('chFlip');
+          /* 字距归位（0.21.0）：副题跟着**换节**从散开收成正常排布，读作"新的
+             一句进场"。判据与上面翻场同一个（换节不是换句），重触发口径也是同一段
+             三段式；挂在 tagline 自己身上而不是 #chapter——翻场动的是整块的位移，
+             这一条动的是副题的字距，两层叠在同一节点上会互相看不懂。
+             空 tagline（`:empty` 已 display:none）也照挂：没有盒子就没有动画，
+             没有副作用，不需要额外的 if。 */
+          var tg = el('ch-tagline');
+          tg.classList.remove('gather'); void tg.getBoundingClientRect();
+          tg.classList.add('gather');
           // 方向感换场（0.14.0）：**前进从右侧进、后退从左侧进**。章节头已经报了
           // "换节"，画面这一层跟着给出"往哪儿换"——回拖进度条重看时方向相反，
           // 观众不用读数字就知道自己是在往前走还是往回走。

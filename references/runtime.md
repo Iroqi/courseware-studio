@@ -322,6 +322,21 @@ transition/animation 不影响它——它不靠补间，靠 `tick()` 里那一�
 一个谁也没请的小点）。`.bloom` 走 animation 但**不写 forwards**、静止态自己就是全开，切掉
 animation 后计算值仍是 `circle(75% at 50% 50%)`（实测取消动画逐值相同）。三条在
 `getAnimations()` 里都恒空，与 `prefers-reduced-motion` 同口径。
+0.21.0 三条也**都不需要见旗分支**，落法仍分两组。`.tilt` 走 transition：注入的
+`transition:none!important` 让计算值直接落到 `data-pan` 那一档——实测模拟 reduce 与导出
+一刀两种口径下三档逐值相同（−6.5° / 0° / +6.5°）、`getAnimations()` 恒空，成片里那一格
+就是"已经读完方向的天平"；`.gather` 走 animation 但 fill 只有 `backwards`，切掉之后计算值
+回到元素自身的 `normal`，实测副题排宽与不动画时逐值相同（117px，一个字不少），成片永远是
+收好的那一句；`.opt.rip` 是**事件不是状态**，静止态与终态本来就都是 `opacity:0 / scale:0`
+（实测两种切法同值），导出帧上不可能出现半截琥珀色圆盘压在字上。
+**QA 取样口径**这一轮再多三条：① `.tilt` 的角度不进 `getBBox()`（实测三档同盒
+[406,280,188,12]），判"沉哪边"只能读屏幕盒或 `getScreenCTM()`——但命中**跟着变换走**
+（playing 态下 `elementFromPoint` 打在倾侧后的左托盘上仍命中 `c-pan-l`），所以既别拿它做
+几何判定、也别把它当"点不到"的证据；② `.gather` 要验"演过"得冻结动画读 `letter-spacing`
+的中间值（或像掠光那样按"已进入 + 动画已登记"取样），而它在 `@media (max-width:560px),
+(max-height:560px)` 分支里被关掉，浏览器用例必须按视口分档断言；③ 涟漪只能在真实
+`pointerdown` 之后采到（`Input.dispatchMouseEvent`），程序化 `click()` 永远没有——那是
+设计不是缺陷，别把它写成"事件没绑上"的假阴性。
 **QA 取样口径**这一轮要多记两条：`.ride` 的位移不进 `getBBox()`（实测用户坐标下
 [-6,-6,16,12] 起步/中途/落定三采同值），要判"抵达"只能读 `getScreenCTM()` 的平移分量或
 屏幕盒中心，拿 bbox 断言会得到"根本没动"的假阴性；`.bloom` 绽开途中命中被 clip 裁掉是

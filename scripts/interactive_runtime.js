@@ -115,6 +115,33 @@
     node.addEventListener(ev, fn);
   }
 
+  // 触点涟漪（0.21.0）：按下的那一点立刻起一圈确认，不等两百毫秒后的反馈文字
+  // （原语与五条边界在 template.html 的 `.opt.rip::after`，这里只补 CSS 量不到的
+  // 两个数：**触点坐标**与**涨满所需的直径**）。三条口径：
+  //   ① 坐标 clamp 进盒内再算直径——触屏上 pointerdown 偶尔落在 border 外半个
+  //      像素，不 clamp 就会量出一个偏心的圆；
+  //   ② 直径取"触点到四角的最大距离 ×2"，写常数要么涨不满要么白涨一大圈；
+  //   ③ 只挂 pointerdown：键盘那条路（Enter / Space 触发的是 click）**不经过这里**，
+  //      所以没有涟漪——它本来就有聚焦环 + 选中标记在报"我收到了"，硬编一个中心
+  //      圆只会是假的。程序化 `.click()`（QA 与导出时间线）同理不经过 pointerdown，
+  //      判定与放行完全不受影响；没有坐标时落回中心那一档只是兜底，正常路径走不到。
+  function ripple(node, e){
+    if(!node || !node.getBoundingClientRect) return;
+    const r = node.getBoundingClientRect();
+    if(!(r.width > 0) || !(r.height > 0)) return;      // display:none 的卡：没有盒就没有坐标
+    const rawX = e && Number.isFinite(e.clientX) ? e.clientX : r.left + r.width / 2;
+    const rawY = e && Number.isFinite(e.clientY) ? e.clientY : r.top + r.height / 2;
+    const x = Math.max(0, Math.min(r.width, rawX - r.left));
+    const y = Math.max(0, Math.min(r.height, rawY - r.top));
+    const d = 2 * Math.max(Math.hypot(x, y), Math.hypot(r.width - x, y),
+                           Math.hypot(x, r.height - y), Math.hypot(r.width - x, r.height - y));
+    node.style.setProperty('--rx', x.toFixed(1) + 'px');
+    node.style.setProperty('--ry', y.toFixed(1) + 'px');
+    node.style.setProperty('--rip-d', d.toFixed(1) + 'px');
+    // 重触发三段式（remove → 读一次几何 → add），与页面侧 capLift / chFlip 同款
+    node.classList.remove('rip'); void node.offsetWidth; node.classList.add('rip');
+  }
+
   // 无障碍三件套：反馈区对读屏播报、非原生可点元素可聚焦可回车、
   // 选中态用 aria-pressed 镜像 data-picked。
   function ensureLive(fb){
@@ -242,19 +269,22 @@
       // ── choice：单选 ───────────────────
       if(kind==='choice'){
         const fb=el.querySelector('.interaction-feedback'); ensureLive(fb);
-        el.querySelectorAll('[data-choice-id]').forEach(btn=>once(btn,'click',()=>{
-          if(el.dataset.locked==='1')return;
-          const cfg=parseConfig(el);                       // 点击时再读：页面改了配置不用重接线
-          const opts=cfg.options||cfg.choices||[];
-          el.querySelectorAll('[data-choice-id]').forEach(b=>b.dataset.selected='0');
-          btn.dataset.selected='1';
-          const opt=opts.find(o=>String(o.id)===String(btn.dataset.choiceId));
-          const correct=opt?.correct===true;
-          // validateConfig 保证恰有一个 correct=true，走到这里必有正确性语义
-          const msg=opt?.feedback||(correct?'正确，继续。':'再想一步，再试一次。');
-          // 反馈节点交给 finish 现场重查再写（页面重建过反馈区也不写进游离节点）
-          finish(el,msg,{correct});
-        }));
+        el.querySelectorAll('[data-choice-id]').forEach(btn=>{
+          once(btn, GEST.down, e => ripple(btn, e));   // 触点涟漪：按下那一圈，不是判定
+          once(btn,'click',()=>{
+            if(el.dataset.locked==='1')return;
+            const cfg=parseConfig(el);                   // 点击时再读：页面改了配置不用重接线
+            const opts=cfg.options||cfg.choices||[];
+            el.querySelectorAll('[data-choice-id]').forEach(b=>b.dataset.selected='0');
+            btn.dataset.selected='1';
+            const opt=opts.find(o=>String(o.id)===String(btn.dataset.choiceId));
+            const correct=opt?.correct===true;
+            // validateConfig 保证恰有一个 correct=true，走到这里必有正确性语义
+            const msg=opt?.feedback||(correct?'正确，继续。':'再想一步，再试一次。');
+            // 反馈节点交给 finish 现场重查再写（页面重建过反馈区也不写进游离节点）
+            finish(el,msg,{correct});
+          });
+        });
       }
 
       // ── hotspot：在图上点部位 ──────────────────────────────────────────

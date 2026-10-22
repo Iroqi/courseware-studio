@@ -11,6 +11,7 @@
     （字幕唯一来源契约不破，stage.md §4）。
 """
 import json
+import math
 import re
 import shutil
 import socket
@@ -4563,3 +4564,591 @@ def test_flip_ride_bloom_reduced_motion_and_shot_terminals(full_lesson):
             f"导出定格：空缺格完整一张：{st}"
     finally:
         _kill(chrome)
+
+
+# ── 0.21.0：定盘与成形（倾侧定盘 / 触点涟漪 / 字距归位）────────────────────
+
+def test_settle_and_form_primitives_present():
+    """模板结构契约：0.21.0 三条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮在 Chrome 152 里量出来"为什么只能这么写"的边界：
+      · `.tilt` 补间的是**独立 `rotate` 属性**，不是 `transform`：实测计算值
+        `transform` 全程 `none`、`transition-property` 只剩 `rotate`（`.tilt` 的简写
+        抢掉 `.nt` 那条，正是想要的），写进 transform 就把子图元的绝对坐标一起卷进
+        函数列表（0.13.0 那条互相缩放的教训）；
+      · 支点靠 `transform-box:fill-box` + `transform-origin:50% 50%`：两种偷懒都量过
+        ——退回 `view-box` 时支点跑到 viewBox 中心，倾 6.5° 整根梁平飘 6.7px；再省掉
+        origin 就绕左上角转，托盘屏位移 69px（那不是倾侧是平移出画）。所以支点三角
+        与刻度**画在包装层外面**：实测把它塞进包装层，包围盒从 [406,280,188,12] 胀成
+        [406,280,188,24]、中心从 y=286 掉到 y=292；
+      · 终态在呈现属性上（`data-pan="-1|0|1"`）：**三档离散**是这条原语的全部意义
+        （契约只看符号），所以两档只写在 `[data-pan]` 分支上，静止态是 `rotate:0deg`；
+      · 行程用空间弹簧 `--ease-spring`，涟漪与字距用 `--ease-out`：改几何的允许过冲
+        （实测 +6.5°→−6.5° 在 70% 那档越到 −8.45°、551ms 收住，屏幕上多沉 3.1px），
+        改透明度/字距的不允许——`linear()` 弹簧套在 opacity 上会读作闪两下；
+      · `.gather` 两头**显式同型**：`to{letter-spacing:0}` 必须写出来。实测 Chrome 把
+        基础值 `normal` 当 0 参与插值（留 normal 与写 0 两组逐帧同值），但规范上
+        `normal` 不是长度、异型该按 discrete——不赌实现；同时作者的排版规则里**不许**
+        为动效写 `letter-spacing`（静止态与终态在 13px 中文那档排宽逐值相同 117px）；
+      · `.gather` 窄屏关掉：500px 档实测最长那句散开档 411.6px / 容器 449px 仍是一行，
+        但只剩 37px 余量——按余量决策，作者文案再长一点就断行，那是抖不是收拢；
+      · 涟漪静止态与终态**都看不见**（`scale:0;opacity:0` 在元素身上）：它是事件不是
+         状态，兜底行必须带 `#gate-block` 抬特异度（基础规则写在 §⑤ 门禁那一段，源序
+         排在 reduced-motion 块**之后**，朴素同形会被顶掉）；
+      · 圆心与直径都由 JS 现量，且只挂 `GEST.down`：实测程序化 `click()`（键盘那条路）
+        不挂 `.rip`，判定与放行不受影响。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    js = (REPO / "scripts" / "interactive_runtime.js").read_text(encoding="utf-8")
+
+    # ① 令牌：三条各一档，且都跟已有词汇对齐或错开
+    assert "--dur-tilt:.55s; --tilt-deg:6.5deg;" in html
+    assert "--dur-rip:.5s; --rip-ink:rgba(245,166,35,.26);" in html
+    assert "--dur-gather:.42s; --track-open:.3em;" in html
+    assert "--dur-tilt:.9s" not in html and "--track-open:.6em" not in html
+
+    # ② 倾侧：独立 rotate 属性 + fill-box 支点 + 三档在属性上
+    assert (".tilt{transform-box:fill-box;transform-origin:50% 50%;rotate:0deg;"
+            in html), "支点必须是自己的包围盒中心：view-box 档实测平飘 6.7px，0 0 档飘 69px"
+    assert "transition:rotate var(--dur-tilt) var(--ease-spring)}" in html, \
+        "补间走独立 rotate 属性（写进 transform 会把子坐标卷进函数列表）"
+    assert '.tilt[data-pan="-1"]{rotate:calc(var(--tilt-deg) * -1)}' in html
+    assert '.tilt[data-pan="1"]{rotate:var(--tilt-deg)}' in html, \
+        "两档只写在 [data-pan] 分支上：倾角是符号读数，导出切掉补间落的正是这一档"
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    assert re.search(r"transform:[^;}]*--tilt-deg", css) is None, \
+        "倾侧不许写进 transform 函数列表（0.20.0 的 rotateY 是另一条原语，别混）"
+    assert "@keyframes tilt" not in css, "倾侧走 transition（档位是状态，不是入场）"
+
+    # ③ 倾侧的消费者：支点与刻度留在旋转层外面
+    assert "{class:'tilt in', 'data-pan':gp}" in html
+    i_ful = html.index("put('c-body', 'path', 'c-fulcrum'")
+    i_beam = html.index("put('c-body', 'g', 'c-beam-w'")
+    assert i_ful < i_beam, "支点画在包装层外面：塞进去包围盒中心掉 6 单位，支点跟着漂"
+    assert "put(beam, 'line', 'c-beam'" in html and "put(beam, 'circle', 'c-pan-l'" in html, \
+        "梁与两枚托盘同住旋转层，且同一水平线（盒竖直中心 = 支点）"
+    assert "put('c-body', 'g', 'c-beam-w', {class:'tilt'" not in html, \
+        "旋转层必须也带 .in（建档那一拍仍要有入场），但别漏掉 data-pan"
+
+    # ④ 字距归位：两头同型 + 排版规则不替动效让路 + 窄屏关掉
+    assert "@keyframes gatherIn{from{letter-spacing:var(--track-open)}" in html
+    assert "to{letter-spacing:0}}" in html, \
+        "隐式 to 是 normal：Chrome 实测当 0 插，规范上是 discrete——不赌实现"
+    kf = re.search(r"@keyframes gatherIn\{([^}]*\}[^}]*)?\}", css).group(0)
+    assert "normal" not in kf, f"关键帧两头都得是长度：{kf}"
+    assert "animation:gatherIn var(--dur-gather) var(--ease-out) backwards}" in html, \
+        "字距不是几何，用效果侧的 ease-out：弹簧过冲在这里读作抖"
+    tag = re.search(r"\.chapter \.tagline\{[^}]*\}", css).group(0)
+    assert "letter-spacing" not in tag, \
+        f"排版规则里不许为动效预留字距（静止态与终态实测等宽）：{tag}"
+    narrow = css.split("@media (max-width:560px), (max-height:560px){")[1].split("@media")[0]
+    assert ".gather{animation:none}" in narrow, \
+        "窄屏这一档关掉：实测最长那句只剩 37px 余量，断行跟着帧变"
+    assert ("tg.classList.remove('gather'); void tg.getBoundingClientRect();"
+            in html) and "tg.classList.add('gather');" in html, \
+        "换节重触发三段式（与 chFlip 同一个判据：换节不是换句）"
+
+    # ⑤ 涟漪：事件不是状态 —— 静止/终态都不可见，圆心现量，只挂按下
+    assert ("@keyframes ripGrow{0%{scale:0;opacity:.85}62%{opacity:.34}"
+            "100%{scale:1;opacity:0}}") in css
+    assert '.opt{position:relative;overflow:hidden}' in css, \
+        "宿主不裁就糊到卡片上；实测三颗选项 scrollWidth==clientWidth，裁不到字"
+    assert '.opt.rip::after{content:"";position:absolute;left:var(--rx,50%);top:var(--ry,50%);' in css
+    assert "width:var(--rip-d,100%);height:var(--rip-d,100%);translate:-50% -50%;" in css, \
+        "居中走独立 translate 属性：写进 transform 会被 :active{scale} 连位移一起缩"
+    assert "border-radius:50%;background:var(--rip-ink);pointer-events:none;" in css
+    assert "scale:0;opacity:0;animation:ripGrow var(--dur-rip) var(--ease-out)}" in css, \
+        "base 不可见 + 不写 forwards：跑完与切掉 animation 落的都是没有涟漪那一格"
+    assert "once(btn, GEST.down, e => ripple(btn, e));" in js, \
+        "涟漪只挂在按下那一拍（判定仍走 click，两条路各自说话）"
+    assert js.count("ripple(btn") == 1 and "ripple(btn, 'click'" not in js, \
+        "click 那条路上不许再挂一次涟漪（键盘与程序化 click 没有触点）"
+
+    # ⑥ reduced-motion：三条兜底都在；涟漪那条必须抬特异度
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    assert ".tilt{transition:none}" in rm
+    assert ".gather{animation:none}" in rm
+    assert "#gate-block .opt.rip::after{animation:none}" in rm, \
+        "基础规则源序在本块之后，朴素 .opt.rip::after 会被它顶掉（0.15.0 那一课）"
+    rm_rules = re.sub(r"/\*.*?\*/", "", rm, flags=re.S)
+    assert "--tilt-deg" not in rm_rules and "rotate:" not in rm_rules, \
+        "关的是补间不是档位：倾角读数本身不在兜底清单里（在清单里就等于把符号关掉）"
+
+    # ⑦ 本轮研究里量过/查证后仍不请回来的四条（连同旧锁一起复述一遍理由）
+    assert "conic-gradient" not in css, "计数器的扫环仍不合格：不支持时整块图案消失"
+    assert "view-transition" not in html, "跨元素快照在 WebKit 上不吃 clip-path/WAAPI，冷启动也不演"
+    assert "counter(" not in css and "@property --num" not in html, \
+        "里程表数字在不支持 @property 的引擎渲染空字符串（纪律③），且这里的数字都是时钟读数"
+    assert "<animate" not in html and "animateMotion" not in html, \
+        "SMIL 与 CSS 两套时钟不能同页（唯一时钟边界）"
+
+
+_TILT_PROBE = r"""(function(){
+  var w = document.getElementById('c-beam-w');
+  if (!w) return JSON.stringify({present:false});
+  var cs = getComputedStyle(w), bb = w.getBBox();
+  var l = document.getElementById('c-pan-l'), r = document.getElementById('c-pan-r');
+  var pl = l.getBoundingClientRect(), pr = r.getBoundingClientRect();
+  var hit = document.elementFromPoint(pl.left + pl.width / 2, pl.top + pl.height / 2);
+  return JSON.stringify({present:true, pan:w.getAttribute('data-pan'),
+    cls:w.getAttribute('class'), rot:cs.rotate, tf:cs.transform,
+    tp:cs.transitionProperty, tdur:cs.transitionDuration,
+    te:cs.transitionTimingFunction.slice(0, 24),
+    bbox:[+bb.x.toFixed(2), +bb.y.toFixed(2), +bb.width.toFixed(2), +bb.height.toFixed(2)],
+    ly:+((pl.top + pl.bottom) / 2).toFixed(1), ry:+((pr.top + pr.bottom) / 2).toFixed(1),
+    hit:hit ? (hit.id || hit.tagName) : null,
+    pe:getComputedStyle(document.getElementById('c-beam')).pointerEvents,
+    anims:(w.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;})});
+})()"""
+
+# 弹簧的行程必须逐帧读：过冲那一格只有在中途才看得见（落定档永远正好 ±6.5°）。
+_TILT_SWEEP = r"""(function(){
+  var w = document.getElementById('c-beam-w');
+  var list = (w.getAnimations()||[]).filter(function(a){
+    return a.transitionProperty === 'rotate';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'rotate 补间不在场',
+      an:(w.getAnimations()||[]).map(function(a){
+        return a.transitionProperty || a.animationName;})});
+  }
+  var out = {dur:list[0].effect.getComputedTiming().duration,
+             ease:list[0].effect.getTiming().easing.slice(0, 40), frames:[]};
+  list[0].pause();
+  [0, 105, 385, 470, 551].forEach(function(ms){
+    list[0].currentTime = ms;
+    var cs = getComputedStyle(w);
+    var pl = document.getElementById('c-pan-l').getBoundingClientRect();
+    out.frames.push({ms:ms, rot:parseFloat(cs.rotate),
+      ly:+((pl.top + pl.bottom) / 2).toFixed(1)});
+  });
+  list[0].cancel();
+  out.after = getComputedStyle(w).rotate;
+  return JSON.stringify(out);
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_tilt_pans_to_the_sign_it_reads(full_lesson):
+    """真实浏览器：符号盘**只有三档**，而每一档是靠弹簧落过去的（0.21.0）。
+
+    量四件事：① 建档前这一层根本不在（s0 没有仪器，入场不给没人看的拍子）；
+    ② 三档离散：s1/s2/s3 读回 −6.5° / 0° / +6.5°，`transform` 计算值全程 `none`
+    （倾侧只住在独立 `rotate` 属性里），而且**包装层包围盒三档逐值相同**
+    （[406,280,188,12]）——相机取景与 §5 的连线几何判定看不见这层转动；
+    ③ 弹簧真的过冲：把 rotate 补间冻在 0/105/385/470/551ms 逐格读，+6.5°→−6.5°
+      这一趟在 70% 那档（≈385ms）越到 −8.45°（超目标 1.95°），551ms 收在 −6.5°，
+      屏幕上左托盘过冲那一格比落定档再沉 3px 左右——这是"空间弹簧"，不是抖动
+      （透明度/字距那两条用的是 --ease-out，见下面的涟漪与字距用例）；
+    ④ 哪边沉跟着符号走：−1 档左托盘在屏幕下方（y 大），+1 档翻到上方。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "tilt")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")  # 让开命中
+        ev("window.__jump('seg-4', 0)")
+        assert json.loads(ev(_TILT_PROBE))["present"] is False, \
+            "s0 只讲『要传比较函数』，仪器还没登场，别把入场演给没人看"
+
+        boxes = {}
+        for k, want in ((1, "-6.5deg"), (2, "0deg"), (3, "6.5deg")):
+            ev("window.__jump('seg-4', %d)" % k)
+            _wait_idle(ev, "#c-beam-w")
+            st = json.loads(ev(_TILT_PROBE))
+            assert st["pan"] == {1: "-1", 2: "0", 3: "1"}[k], st
+            assert st["rot"] == want, f"s{k} 该落在 {want}：{st}"
+            assert st["tf"] == "none", f"倾侧不许碰 transform：{st['tf']}"
+            assert st["tp"] == "rotate", f".tilt 抢下整条简写，只剩 rotate 在补间：{st}"
+            assert st["tdur"] == "0.55s" and st["te"].startswith("linear("), \
+                f"时长 --dur-tilt、曲线是 linear() 弹簧：{st}"
+            assert st["cls"] == "nt tilt in", f"旋转层同时是入场层：{st['cls']}"
+            assert st["anims"] == [], f"落定后没有在跑的补间：{st}"
+            boxes[k] = st["bbox"]
+        assert boxes[1] == boxes[2] == boxes[3] == [406.0, 280.0, 188.0, 12.0], \
+            f"rotate 不进 getBBox（三档同一盒）：{boxes}"
+
+        neg = json.loads(ev(_TILT_PROBE))       # 此刻在 s3(+1)
+        ev("window.__jump('seg-4', 1)")
+        assert neg["ly"] < neg["ry"], f"+1 档左扬右沉（顺时针）：{neg}"
+        sw = json.loads(ev(_TILT_SWEEP))
+        assert "err" not in sw, str(sw)
+        assert sw["dur"] == 550, f"行程 550ms（--dur-tilt 与 --dur-draw 同档）：{sw}"
+        assert sw["ease"].startswith("linear("), f"曲线是注册的弹簧 linear()：{sw['ease']}"
+        rot = [f["rot"] for f in sw["frames"]]
+        assert abs(rot[0] - 6.5) <= 0.05 and abs(rot[4] + 6.5) <= 0.05, \
+            f"两端就是这一档的读数：{rot}"
+        assert rot[1] > 1.0, f"105ms 还在往回走（弹簧起步不猛）：{rot}"
+        assert rot[2] < -8.0, \
+            f"空间弹簧必须越过去（70% 那档实测 ≈−8.45°）：{rot}"
+        assert -6.5 > rot[3] > rot[2], \
+            f"过峰之后往回收，但仍在目标下方：{rot}"
+        assert abs(rot[4] + 6.5) <= 0.05, f"551ms 收在 −6.5°：{rot}"
+        ly = [f["ly"] for f in sw["frames"]]
+        assert ly[2] > ly[4] + 2.0, \
+            f"过冲那一格屏幕上左托盘比落定档再沉 ≥2px（实测 3px）：{ly}"
+        assert sw["after"] == "-6.5deg", \
+            f"cancel 之后落回 data-pan 那一档（导出与冷启动吃这格）：{sw['after']}"
+
+        st = json.loads(ev(_TILT_PROBE))
+        assert st["ly"] > st["ry"], f"−1 档左盘沉（左端在下）：{st}"
+        assert st["hit"] == "c-pan-l", \
+            f"命中跟着变换走（所以几何判定与热区不一致，见边界 ⑤）：{st}"
+        assert st["pe"] == "auto", f"这一层不是装饰隔离层，别把它当坐标用：{st}"
+    finally:
+        _kill(chrome)
+
+
+_GATHER_SWEEP = r"""(function(){
+  var t = document.getElementById('ch-tagline');
+  var list = (t.getAnimations()||[]).filter(function(a){
+    return a.animationName === 'gatherIn';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'gatherIn 不在场', an:(t.getAnimations()||[]).map(
+      function(a){ return a.transitionProperty || a.animationName; })});
+  }
+  var ct = list[0].effect.getComputedTiming();
+  var out = {dur:ct.duration, fill:ct.fill,
+             ease:((list[0].effect.getKeyframes()[0]||{}).easing || '').slice(0, 30),
+             text:t.textContent, frames:[], lines:0};
+  list[0].pause();
+  [0, 105, 210, 315, 419].forEach(function(ms){
+    list[0].currentTime = ms;
+    var cs = getComputedStyle(t);
+    var r = document.createRange(); r.selectNodeContents(t);
+    out.frames.push({ms:ms, ls:cs.letterSpacing, lines:r.getClientRects().length});
+  });
+  list[0].cancel();
+  var cs = getComputedStyle(t), r2 = document.createRange();
+  r2.selectNodeContents(t);
+  out.after = cs.letterSpacing;
+  out.lines = r2.getClientRects().length;
+  out.width = +t.getBoundingClientRect().width.toFixed(1);
+  return JSON.stringify(out);
+})()"""
+
+_GATHER_LINES = r"""(function(v){var t=document.getElementById('ch-tagline');
+  var old = t.style.letterSpacing; t.style.letterSpacing = v;
+  var r = document.createRange(); r.selectNodeContents(t);
+  var cs = r.getClientRects(), w = 0;
+  for (var i = 0; i < cs.length; i++) w += cs[i].width;
+  var out = {text:t.textContent, lines:cs.length, w:+w.toFixed(1),
+             fs:getComputedStyle(t).fontSize, box:+t.getBoundingClientRect().width.toFixed(1)};
+  t.style.letterSpacing = old; return JSON.stringify(out);
+})('%s')"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_gather_tightens_the_tagline_on_scene_change_only(full_lesson):
+    """真实浏览器：副题在**换节**那一拍从散开收成正常排布（0.21.0）。
+
+    ① 行程连续且两头同型：冻在 0/105/210/315/419ms 逐格读字距，3.9px 一路收到
+      ~0（.3em @ 13px = 3.9px）——`to{letter-spacing:0}` 写出来才是这条连续行程；
+    ② 它是入场不是状态：`fill-mode` 只有 backwards，cancel 之后计算值回到元素
+      自己的 `normal`，而实测 `normal` 与 `0` 在这一档**排宽逐值相同**，静止态与
+      终态同形（导出切掉 animation 落的正是这一格）；
+    ③ 判据是换节不是换句：同一节内换第二句**不重放**（getAnimations 里没有
+      gatherIn），换到另一节才重放；
+    ④ 不撑破一行：范本八句在 .3em 档实测 Range 行度全为 1（最长那句 293.5 →
+      382.2px / 容器 886px），这就是 --track-open 取 .3em 的依据；窄屏那条留给下面
+      的用例（关掉它的判据是余量，不是"实测会断"）。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "gather")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-1', 0)")
+        assert _motion(ev, "#ch-tagline") == ["gatherIn"], \
+            f"换节那一拍字距归位该在跑：{_motion(ev, '#ch-tagline')}"
+        sw = json.loads(ev(_GATHER_SWEEP))
+        assert "err" not in sw, str(sw)
+        assert sw["dur"] == 420 and sw["fill"] == "backwards", \
+            f"与入场同档（--dur-gather .42s）、不写 forwards：{sw}"
+        assert sw["ease"].startswith("cubic-bezier") or sw["ease"] == "ease-out", \
+            f"字距不是几何，走 --ease-out 不走弹簧：{sw['ease']}"
+        vals = [f["ls"] for f in sw["frames"]]
+        px = [float(v[:-2]) if v != "normal" else None for v in vals]
+        assert abs(px[0] - 3.9) <= 0.05, f"散开那一头 = .3em @13px：{vals}"
+        assert all(px[i] > px[i + 1] for i in range(4)) and px[4] < 0.02, \
+            f"一路连续收窄（不是两档闪烁）：{vals}"
+        assert all(f["lines"] == 1 for f in sw["frames"]), f"全程没被劈成两行：{sw['frames']}"
+        assert sw["after"] == "normal" and sw["lines"] == 1, \
+            f"cancel 后落回自己的排布、一行不少：{sw}"
+
+        # 判据：换节，不是换句
+        ev("window.__jump('seg-1', 1)")
+        time.sleep(0.1)
+        assert "gatherIn" not in _motion(ev, "#ch-tagline"), \
+            "同节换句不该再演一遍（它是换节的入场，不是每句的入场）"
+        ev("window.__jump('seg-2', 0)")
+        assert "gatherIn" in _motion(ev, "#ch-tagline"), "换到 seg-2 才重放"
+
+        # 八句的余量
+        for sid in _IDS:
+            ev("window.__jump('%s', 0)" % sid)
+            time.sleep(0.12)
+            for v in ("0", ".3em"):
+                st = json.loads(ev(_GATHER_LINES % v))
+                assert st["lines"] == 1, f"{sid} 在 {v} 档换行了：{st}"
+            open_ = json.loads(ev(_GATHER_LINES % ".3em"))
+            assert open_["box"] - open_["w"] > 400, \
+                f"桌面档余量该是量出来的（<400px 就该重新议 .3em）：{open_}"
+    finally:
+        _kill(chrome)
+
+
+_RIP_STATE = r"""(function(sel){
+  var o = document.querySelectorAll('#gate-block .opt')[sel];
+  var cs = getComputedStyle(o, '::after');
+  var r = o.getBoundingClientRect();
+  return JSON.stringify({cls:o.className, rx:cs.getPropertyValue('--rx'),
+    ry:cs.getPropertyValue('--ry'), d:cs.width, anim:cs.animationName,
+    cont:cs.content, op:cs.opacity, scale:cs.scale, pef:cs.pointerEvents,
+    rect:[+r.left.toFixed(1), +r.top.toFixed(1), +r.width.toFixed(1), +r.height.toFixed(1)],
+    sw:o.scrollWidth, cw:o.clientWidth, sh:o.scrollHeight, ch:o.clientHeight,
+    locked:document.querySelector('[data-interaction-type="choice"]').dataset.locked || '',
+    fb:(document.getElementById('gate-fb')||{}).textContent || ''});
+})('%s')"""
+
+# 逐档读：CDP 往返本身要 30ms 一趟，用 wall-clock 采到的动画钟会**整体滞后**
+# （实测按下后动画的 start 在 ~166ms 才落，前八趟读到的都是 anim 0）。所以行程
+# 判定不追帧，直接把动画 `pause()` + `currentTime` 钉在关键帧那几档上读——
+# 曲线形状由 CSS 保证，"有没有自己在跑"由下面的 playState 保证。
+_RIP_PLAY = """(function(){var o=document.querySelectorAll('#gate-block .opt')[0];
+  var a=(o.getAnimations({subtree:true})||[]).filter(function(x){
+    return x.animationName === 'ripGrow';})[0];
+  return JSON.stringify([a ? a.animationName : null, a ? a.playState : null,
+    a ? +a.effect.getTiming().duration.toFixed(0) : null,
+    a ? +a.currentTime.toFixed(0) : null]);})()"""
+
+_RIP_SWEEP = """(function(t){var o=document.querySelectorAll('#gate-block .opt')[0];
+  var a=(o.getAnimations({subtree:true})||[]).filter(function(x){
+    return x.animationName === 'ripGrow';})[0];
+  if(!a) return JSON.stringify([t, null, null, 'gone']);
+  a.pause(); a.currentTime = t;
+  var cs=getComputedStyle(o,'::after');
+  return JSON.stringify([t, +parseFloat(cs.opacity).toFixed(4),
+    +parseFloat(cs.scale).toFixed(4), a.playState]);})(%s)"""
+
+_RIP_FINISH = """(function(){var o=document.querySelectorAll('#gate-block .opt')[0];
+  var a=(o.getAnimations({subtree:true})||[]).filter(function(x){
+    return x.animationName === 'ripGrow';})[0];
+  if(a) a.finish();
+  return JSON.stringify(a ? a.playState : null);})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_ripple_grows_from_the_touch_point_and_vanishes(full_lesson):
+    """真实浏览器：按下那一点起一圈涟漪，涨满后**什么都不留**（0.21.0）。
+
+    ① 圆心 = 触点：JS 现量写进 `--rx/--ry`（按在 25%/70% 那一点，读回来对得上盒内
+      坐标），直径 `--rip-d` = 触点到四角最大距离 ×2——按 python 重算一遍与 CSS 读到
+      的值比（±1px），常数半径要么涨不满要么白涨一圈；
+    ② 行程：把动画 `pause()` 后逐档钉在 0/4/40/150/310/400/470/500ms 上读
+      opacity/scale（CDP 往返 30ms 一趟，追帧采到的是滞后的钟），起手 .85/0 →
+      62% 那档 .34/.9865 → 470ms .0002 → 500ms 落回 base 的 0/0，且 `finish()` 时
+      动画已经不在 `getAnimations()` 里（fill 默认 none）= 事件不是状态；
+    ③ 不抢命中：涨到一半时 `elementFromPoint` 仍是那颗按钮（`pointer-events:none`），
+      宿主 `overflow:hidden` 也没裁到字（scrollWidth==clientWidth）；
+    ④ 只挂在 pointerdown：松手在盒外 → 不触发 click → 门禁没被判定；随后的程序化
+      `click()` 正确项（键盘那条路的形状）判定照走、反馈照出，但**没有涟漪**。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rip")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-3', 0)")          # preGate：这一场第一句前就弹
+        vis = [False, 0]
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            vis = json.loads(ev("""(function(){var g=document.getElementById('gate-block');
+              var o=document.querySelectorAll('#gate-block .opt')[0];
+              var r=o ? o.getBoundingClientRect() : null;
+              return JSON.stringify([!g.hidden, r ? +r.width.toFixed(1) : 0]);})()"""))
+            if vis[0] and vis[1] > 0:
+                break
+            time.sleep(0.15)
+        assert vis[0] and vis[1] > 0, f"单选门禁没弹开（涟漪没有宿主可挂）：{vis}"
+
+        # 等盒子**静止**再量：门禁卡入场（cardIn + .stag 错峰）会把整块往下推，
+        # 没停就按 → 触点跟着漂（全量跑里实测漂 2.0px，圆心断言因此假失败）。
+        prev, cur = None, None
+        deadline = time.time() + 4
+        while time.time() < deadline:
+            prev = cur
+            cur = json.loads(ev("""(function(){var o=document.querySelectorAll(
+              '#gate-block .opt')[0];var r=o.getBoundingClientRect();
+              return JSON.stringify([+r.left.toFixed(2), +r.top.toFixed(2),
+                +r.width.toFixed(2), +r.height.toFixed(2)]);})()"""))
+            if prev == cur and cur[2] > 0:
+                break
+            time.sleep(0.1)
+        assert prev == cur and cur[2] > 0, f"盒子一直没停（触点无法预量）：{prev} / {cur}"
+
+        st0 = json.loads(ev(_RIP_STATE % 0))
+        x, y, w, h = st0["rect"]
+        assert st0["cls"] == "opt" and st0["cont"] == "none", \
+            f"没按过的选项**根本没有这一层**（::after 不生成盒子）：{st0}"
+        assert st0["sw"] == st0["cw"] and st0["sh"] == st0["ch"], \
+            f"overflow:hidden 裁不到字（{st0['sw']}/{st0['cw']}）：{st0}"
+
+        fx, fy = x + w * 0.25, y + h * 0.70
+        send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": fx, "y": fy,
+                                          "button": "left", "buttons": 1, "clickCount": 1})
+        play = json.loads(ev(_RIP_PLAY))
+        assert play[0] == "ripGrow" and play[1] == "running" and play[2] == 500, \
+            f"按下即自走（不是等松手、也不是挂成一等状态）：{play}"
+        st = json.loads(ev(_RIP_STATE % 0))
+        want_rx, want_ry = w * 0.25, h * 0.70
+        assert abs(float(st["rx"][:-2]) - want_rx) <= 1.0 \
+            and abs(float(st["ry"][:-2]) - want_ry) <= 1.0, \
+            f"圆心落在触点上（期望 {want_rx:.1f}/{want_ry:.1f}）：{st}"
+        corners = max(math.hypot(want_rx, want_ry), math.hypot(w - want_rx, want_ry),
+                      math.hypot(want_rx, h - want_ry), math.hypot(w - want_rx, h - want_ry))
+        assert abs(float(st["d"][:-2]) - 2 * corners) <= 1.0, \
+            f"直径 = 最远角距离 ×2（期望 {2 * corners:.1f}px）：{st}"
+        assert st["cls"] == "opt rip" and st["pef"] == "none", st
+
+        hit = json.loads(ev("""(function(){var o=document.querySelectorAll('#gate-block .opt')[0];
+          var r=o.getBoundingClientRect();var n=document.elementFromPoint(
+            r.left + r.width * .25, r.top + r.height * .7);
+          return JSON.stringify([n ? (n.className || n.tagName) : null,
+            n ? (n.id || n.tagName) : null]);})()"""))
+        assert "opt" in str(hit[0]), f"涟漪层不抢命中：{hit}"
+
+        send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": fx,
+                                          "y": y + h + 60, "button": "none",
+                                          "buttons": 0, "clickCount": 1})
+        # 逐档钉住读：t → [wall, anim t, opacity, scale]（探针实测的同一组数字）
+        sweep = [json.loads(ev(_RIP_SWEEP % t)) for t in (0, 4, 40, 150, 310, 400, 470, 500)]
+        pts = [(r[0], r[1], r[2]) for r in sweep]          # (动画 ms, opacity, scale)
+        assert all(r[3] == "paused" for r in sweep), sweep
+        assert pts[:4] == [(0, 0.85, 0), (4, 0.8205, 0.0361), (40, 0.5981, 0.3305),
+                           (150, 0.3624, 0.8322)], f"起手淡而小、圆从 0 涨出来：{pts}"
+        assert abs(pts[4][1] - 0.34) <= 0.005 and 0.98 <= pts[4][2] <= 0.99, \
+            f"62% 那档（310ms）透明度压在 .34、圆已近满：{pts[4]}"
+        assert pts[5][1] <= 0.02 and pts[5][2] > 0.998, f"后段只剩淡出（400ms）：{pts[5]}"
+        assert pts[6][1] <= 0.001, f"470ms 已经看不到了：{pts[6]}"
+        assert pts[7][1] == 0 and pts[7][2] == 0, \
+            f"跑到终点落回 base（静止态 = 终态 = 什么都不留）：{pts[7]}"
+        grow = [p[2] for p in pts[:7]]
+        assert all(grow[i] <= grow[i + 1] + 1e-6 for i in range(len(grow) - 1)), \
+            f"半径只涨不退：{grow}"
+        assert json.loads(ev(_RIP_FINISH)) is None, \
+            "500ms 一到动画就下场了（fill 默认 none：不占位、不留最后一帧）"
+        dead = json.loads(ev(_RIP_STATE % 0))
+        assert dead["op"] == "0" and dead["scale"] == "0", \
+            f"动画散场后圆不在屏幕上留东西：{dead}"
+
+        st = json.loads(ev(_RIP_STATE % 0))
+        assert st["locked"] != "1", \
+            f"松手在盒外不该判定（涟漪与判定是两条路）：{st}"
+
+        # 程序化 click（键盘那条路的形状）：判定走、涟漪不挂。点的是**正确项** b
+        ev("""(function(){document.querySelectorAll('#gate-block .opt')[1].click();})()""")
+        st = json.loads(ev(_RIP_STATE % 1))
+        assert "rip" not in st["cls"] and st["locked"] == "1" and "对" in st["fb"], \
+            f"没有 pointerdown 就没有涟漪，判定与放行不受影响：{st}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_settle_and_form_reduced_motion_and_shot_terminals(full_lesson):
+    """减动效、窄屏、导出三条退路：关掉之后落的**正是该说的那件事**。
+
+      · 减动效：倾侧关的是 **transition** 不是档位——换档后立即读到 ±6.5°/0°，
+        `transition-property` 落 `none`、`getAnimations()` 恒空（兜底行 `.tilt`
+        与基础规则同为 (0,1,0)、源序在后，不需要抬特异度）；字距归位关 **animation**，
+        计算值回到 `normal` 且副题仍是一行（内容一个字不少）；涟漪关 **animation**
+        之后 `::after` 的 `opacity/scale` 都是 0——这条**必须**带 `#gate-block`：
+        基础规则排在 reduce 块之后，朴素同形会被顶掉（实测抬过之后才落得上）。
+      · 窄屏（≤560 档）：`.gather` 关掉、`.tilt` 照旧（倾角是符号读数，与屏宽无关）。
+      · 导出：一刀切掉 transition/animation 后，三档定格与上面逐值相同。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm21")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+
+        for k, want in ((1, "-6.5deg"), (2, "0deg"), (3, "6.5deg")):
+            ev("window.__jump('seg-4', %d)" % k)
+            st = json.loads(ev(_TILT_PROBE))          # 不 sleep：这一档本就不该有补间
+            assert st["rot"] == want and st["tp"] == "none", \
+                f"减动效下 s{k} 直接落 {want}（关的是补间不是档位）：{st}"
+            assert "rotate" not in st["anims"], f"不该还有 rotate 在跑：{st}"
+
+        ev("window.__jump('seg-1', 0)")
+        g = json.loads(ev(_GATHER_SWEEP))
+        assert "err" in g and "gatherIn" not in [x for x in g["an"] if x], \
+            f"减动效下归位动画不该在场：{g}"
+        st = json.loads(ev("""(function(){var t=document.getElementById('ch-tagline');
+          var cs=getComputedStyle(t);var r=document.createRange();
+          r.selectNodeContents(t);
+          return JSON.stringify({an:cs.animationName,ls:cs.letterSpacing,
+            lines:r.getClientRects().length,cls:t.classList.contains('gather')});})()"""))
+        assert st["an"] == "none" and st["cls"] is True and st["lines"] == 1, \
+            f"类名挂着但不演，副题照常是完整一行：{st}"
+
+        ev("window.__jump('seg-3', 0)")
+        vis = [False, 0]
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            vis = json.loads(ev("""(function(){var g=document.getElementById('gate-block');
+              var o=document.querySelectorAll('#gate-block .opt')[0];
+              var r=o ? o.getBoundingClientRect() : null;
+              return JSON.stringify([!g.hidden, r ? +r.width.toFixed(1) : 0]);})()"""))
+            if vis[0] and vis[1] > 0:
+                break
+            time.sleep(0.15)
+        assert vis[0] and vis[1] > 0, f"减动效下门禁照样要弹开：{vis}"
+        st = json.loads(ev("""(function(){var o=document.querySelectorAll('#gate-block .opt')[0];
+          o.classList.add('rip');var cs=getComputedStyle(o,'::after');
+          return JSON.stringify({an:cs.animationName,op:cs.opacity,sc:cs.scale});})()"""))
+        assert st["an"] == "none" and st["op"] == "0" and st["sc"] == "0", \
+            f"减动效下硬挂 .rip 也什么都不显（兜底行抬过特异度才落得上）：{st}"
+
+        # 导出截图页口径：一刀切掉，三处定格与减动效逐值相同
+        ev("var s=document.createElement('style');s.textContent="
+           "'*,*::before,*::after{transition:none!important;animation:none!important}"
+           "';document.head.appendChild(s);")
+        ev("window.__coursewareShotMode = true")
+        for k, want in ((1, "-6.5deg"), (3, "6.5deg")):
+            ev("window.__jump('seg-4', %d)" % k)
+            st = json.loads(ev(_TILT_PROBE))
+            assert st["rot"] == want, f"导出定格 s{k}：倾侧该是这一档的读数：{st}"
+            assert st["bbox"] == [406.0, 280.0, 188.0, 12.0], \
+                f"导出定格的取景仍按未倾侧的盒算（rotate 不进 getBBox）：{st}"
+        st = json.loads(ev("""(function(){var o=document.querySelector('#gate-block .opt');
+          var cs=getComputedStyle(o,'::after');
+          return JSON.stringify([cs.opacity,cs.scale]);})()"""))
+        assert st == ["0", "0"], f"导出帧里没有半截涟漪压在字上：{st}"
+    finally:
+        _kill(chrome)
+
+    # 窄屏档：字距归位关掉，倾侧照旧（读数是符号不是像素）
+    chrome2, ev2, _s2 = _cdp(full_lesson, "narrow", ("--window-size=430,760",))
+    try:
+        assert ev2("matchMedia('(max-width:560px)').matches"), "窄屏档没进来"
+        ev2(_SEEK)
+        ev2("window.__jump('seg-1', 0)")
+        st = json.loads(ev2("""(function(){var t=document.getElementById('ch-tagline');
+          var cs=getComputedStyle(t);var r=document.createRange();r.selectNodeContents(t);
+          return JSON.stringify({cls:t.classList.contains('gather'),an:cs.animationName,
+            ls:cs.letterSpacing,lines:r.getClientRects().length,fs:cs.fontSize});})()"""))
+        assert st["cls"] is True and st["an"] == "none" and st["lines"] == 1, \
+            f"窄屏不演归位、句子仍是一行：{st}"
+        ev2("window.__jump('seg-4', 1)")
+        st = json.loads(ev2(_TILT_PROBE))
+        assert st["rot"] == "-6.5deg" and st["bbox"] == [406.0, 280.0, 188.0, 12.0], \
+            f"窄屏倾侧与档位照常（符号读数不随屏宽变）：{st}"
+    finally:
+        _kill(chrome2)
