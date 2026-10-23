@@ -192,7 +192,23 @@ rgba 兜底，兜底写在 `@supports` 里而不是"同名两行"）——见 st
 在 handler 里现量，**只挂 pointerdown**：判定仍走 click，键盘那条路没有触点、就不给它编一个
 圆心；静止态与终态都不可见，事件不是状态）、**字距归位**（`.gather` = `letter-spacing`
 关键帧 `.3em → 0`，只在**换节**那一拍重放；关键帧两端显式同型——"Chrome 把 `normal` 当 0
-插"这条宽容不写进设计；它改的是排宽，窄屏按余量关掉）。——见 stage.md §3.4。每个视觉步先过
+插"这条宽容不写进设计；它改的是排宽，窄屏按余量关掉）。这一轮管**注意力落在哪儿**与
+**时间被搬动过的那一下**：**落点灯**（`#spot` = 一层 `mask-image:radial-gradient()` 暗幕挂在
+`#cam` 末尾，洞心 / 洞径三个 `@property{syntax:'<length>'}` 注册属性可补间；洞心从 `camBox()`
+现量——`getBBox()` 逐层乘 `transform` **属性**（`baseVal`）升到相机坐标系，**不能用
+`getScreenCTM()`**，补间半途取到的是上一帧位置；半径取外接圆；幕深 `--spot-k` 按 §8 合成
+反推（洞外正文不许掉到 4.5:1 以下，实测 .15 档主色 6.11 / 正文 7.97，`.30` 就只剩 4.52），
+量的是**相对亮度跌幅**不是 WCAG 比值；整层全局、不随 `sweep()` 撤走，所以 `begin()` 每步归零、
+renderer 逐步声明，主角在世界层的那一句不打灯；灯只加暗不吃命中，`#cap` 在相机外不进灯；
+暗幕按世界坐标铺，所以四边各向外多铺 `--spot-bleed`（≥ 取景框宽 / 倍率钳位下限 .85 / 2）
+才盖得住镜头拉开时的可见区）、
+**快进掠擦**（`#ffwd` = 雪佛龙沿独立 `translate` 匀速掠过整块画布，判据是帧间 `currentTime`
+差过 `--ff-min`——阈值从令牌读、按"跳过大约一句"取；方向与箭头同号，冷启动 / 擦洗 / 截图模式 /
+门禁开着四道不演；**事件不是状态**：`linear`、不写 `forwards`、静止态 `opacity:0` 写在元素
+自己身上）、**浮层离散进出**（`.pregate` 用 `@starting-style` + `transition-behavior:
+allow-discrete` 过渡 `display`，进出各演一次；`display` 必须自己进 `transition-property` 清单、
+`transition-behavior` 单独一行、整块包 `@supports`，而 `hidden` 属性仍是 QA 放行信号的唯一真值
+——`#gate` 本体不转，见 stage.md §3.4 本轮"别这么干"）。——见 stage.md §3.4。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 

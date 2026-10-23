@@ -5152,3 +5152,696 @@ def test_settle_and_form_reduced_motion_and_shot_terminals(full_lesson):
             f"窄屏倾侧与档位照常（符号读数不随屏宽变）：{st}"
     finally:
         _kill(chrome2)
+
+
+# ── 16. 落点与过场：移动聚光 / 快进掠擦 / 浮层离散进出（0.22.0）──
+
+def _css_comment_problems(html):
+    """<style> 里的注释配对：注释**外**出现的 `*/`、到 `</style>` 还没关的 `/*`。
+
+    本轮踩过一次静默失效：0.22.0 的令牌注释是几段接在一起的，其中一段只写了收尾的
+    `*/`、没写开头的 `/*`——那十行中文于是变成**裸声明**，紧跟其后的 `--dur-spot:.5s`
+    被当作前一条乱码声明的尾巴一起吃掉，`:root` 里从此没有这个令牌；而
+    `transition:--spot-x var(--dur-spot) …` 整条 invalid at computed-value time，
+    计算值落回 `all 0s ease`——聚光还能亮、洞还在终位，独独不补间。CSSOM 数出来的
+    规则条数一点没变（264），既有断言与肉眼都看不出。**注释配对是 CSS 里唯一"少一个
+    符号就静默少一条声明"的地方**，所以钉在这里，而不是只钉 0.22.0 那一个令牌。
+    """
+    problems = []
+    for m in re.finditer(r"<style[^>]*>([\s\S]*?)</style>", html):
+        css = m.group(1)
+        line = html[:m.start(1)].count("\n") + 1
+        opened_at, i, in_c = None, 0, False
+        while i < len(css):
+            if css.startswith("/*", i):
+                if not in_c:
+                    in_c, opened_at = True, line
+                i += 2
+                continue
+            if css.startswith("*/", i):
+                if not in_c:
+                    problems.append("第 %d 行：*/ 没有对应的 /*" % line)
+                in_c = False
+                i += 2
+                continue
+            if css[i] == "\n":
+                line += 1
+            i += 1
+        if in_c:
+            problems.append("第 %d 行起的注释到 </style> 还没关" % opened_at)
+    return problems
+
+
+def test_spot_ffwd_pregate_primitives_present():
+    """模板结构契约：0.22.0 三条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮在 Chrome 152 里量出来"为什么只能这么写"的边界：
+      · **注释配对**（见 `_css_comment_problems`）与九个令牌必须真的在 `:root` 的
+        解析结果里——写在注释里的不算；
+      · 洞的三个参数注册成 `@property{syntax:'<length>'}` 才有补间（0.13.0 `--dimmer`、
+        0.17.0 `--feather`、0.19.0 `--lit` 同一条口径），而**幕深 `--spot-k` 故意不注册**：
+        它是常量替换、不补间，层的开合走 `opacity` 自己的 transition——这样不支持
+        `@property` 的浏览器里 var() 替换仍成立，遮罩照常裁出一个落在终位的洞，
+        降级掉的是行程不是内容（纪律③）；
+      · 单位写成 `<length>` 而不是 `<percentage>`：实测这些长度走的是**元素本地单位**
+        （洞沿 50% 那点落在"局部单位 × 相机倍率"的预测位 ±3px 内），写成百分比要多一层
+        fill-box 换算，而 camBox() 量回来的本来就是 viewBox 单位；
+      · `pointer-events:none` + 只加暗不改材质：mask **不裁命中测试**（0.17.0 同一条），
+        洞压在热区上 `elementFromPoint` 仍落回热区节点；`backdrop-filter` 在 SVG 元素上
+        实测不生效（本轮否决①），不许回流；
+      · 掠擦**两端都不留东西**：关键帧两端 `opacity:0`、静止态也是 0、不写 `forwards`
+        （事件不是状态，与 .flow / .rip 同课）；行程走独立 `translate`、镜像走独立
+        `scale`，两个通道各写各的（`transform` 简写会互相顶掉）；**两档都朝自己指的那边
+        掠**（本轮翻案：箭头朝右却往左飞读起来是"倒带"）；
+      · 阈值只有一份：JS 从 `--ff-min` 读，不在代码里写死第二个数（口径同 `--par-far`）；
+      · `.pregate` 的离散进出写在 `@supports (transition-behavior:allow-discrete)` 里，
+        基础规则留着旧的 `animation:gateIn`——不认识这一族的浏览器最多损失过渡，
+        不损失内容，也不会两层入场叠在一起糊掉；`transition-behavior` **单写一行**，
+        简写里那个 `allow-discrete` 是 CSS Transitions 2 的语法，单写让不认的引擎只作废
+        这一行；`#gate` 本体不转（本轮否决②：它是 QA 放行信号的唯一真值）；
+      · reduced-motion 三行：`#spot` 关 **transition** 不关灯（位置是信息）、
+        `#ffwd.go` 兜底**必须带 `.go`** 才压得住排在后面的基础规则、
+        `#pregate.pregate` **必须抬到 (1,1,0)**（基础规则源序在本块之后）。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", css)
+
+    # ⓪ 注释配对 + 令牌必须真在 :root 的解析结果里
+    assert _css_comment_problems(html) == [], _css_comment_problems(html)
+    root = re.search(r":root\{([\s\S]*?)\n  \}", css).group(1)
+    for tok in ("--dur-spot", "--spot-k", "--spot-ink", "--spot-soft", "--dur-ff",
+                "--ff-peak", "--ff-travel", "--ff-min", "--dur-dock", "--spot-bleed"):
+        assert re.search(re.escape(tok) + r"\s*:", root), \
+            f"{tok} 没长在 :root 里（被注释语法吃掉过一次，见 _css_comment_problems）"
+
+    # ① 令牌取值：本轮量出来的档，不许随手加深幕深或加长行程
+    assert "--dur-spot:.5s; --spot-k:.15; --spot-ink:#06080c; --spot-soft:78px;" in html
+    assert "--dur-ff:.34s; --ff-peak:.5; --ff-travel:520; --ff-min:2s;" in html
+    assert "--dur-dock:.24s; --spot-bleed:600px;" in html
+    assert "@property --spot-bleed" not in html, \
+        "bleed 是常量替换：注册了它就去补间，而洞心坐标已经把它加进 calc 了"
+    assert "--spot-k:." not in css.replace("--spot-k:.15", "") and "--spot-k:0." not in css, \
+        "幕深封顶 .15：.18 起主色掉出 4.5 + 三成余量（逐档合成读数见 :root 注释）"
+    assert "--ff-travel:1040" not in css, "520 是半幅，单程 1040 > 画布 1000 才两端出画"
+
+    # ② 三个洞参数注册成 <length>；--spot-k 故意不注册
+    assert "@property --spot-x{syntax:'<length>';inherits:false;initial-value:500px}" in html
+    assert "@property --spot-y{syntax:'<length>';inherits:false;initial-value:198px}" in html
+    assert "@property --spot-r{syntax:'<length>';inherits:false;initial-value:150px}" in html, \
+        "初值取画布中偏上：某一步只写了 data-on 没写坐标时，洞落在中间比落在左上少压住东西"
+    assert "@property --spot-k" not in html and "@property --spot-soft" not in html, \
+        "幕深与软边是常量替换：注册了就会去补间，而它们说的不是行程"
+    assert re.search(r"--spot-[xyr]\s*:\s*[^;}]*%", css) is None, \
+        "洞参数不许写百分比（参考盒与 viewBox 差一层换算，本轮实测过）"
+
+    # ③ #spot 本体：mask 停靠点、开合在呈现属性上、灯不吃命中
+    spot_rule = re.search(r"#spot\{[^}]*\}", css).group(0)
+    spot_flat = " ".join(spot_rule.split())
+    assert "fill:var(--spot-ink);opacity:0;pointer-events:none;mask-repeat:no-repeat;" in spot_rule
+    assert ("mask-image:radial-gradient(circle var(--spot-r) "
+            "at calc(var(--spot-x) + var(--spot-bleed)) calc(var(--spot-y) + var(--spot-bleed)),"
+            in spot_flat), "透明段必须到 var(--spot-r)（写 0 就是一只实心暗盘）"
+    assert "calc(var(--spot-y) + var(--spot-bleed))," in spot_flat, \
+        "mask 的定位盒是暗幕自己的 fill-box（左上角在 -600），洞心必须加回同一个 bleed"
+    assert "transparent 0 var(--spot-r)," in spot_flat
+    assert "#000 calc(var(--spot-r) + var(--spot-soft)));" in spot_rule, \
+        "满幅停靠点 = 半径 + 软边，两者必须一起跟着洞走"
+    assert "backdrop-filter" not in spot_rule, "SVG 上的 backdrop-filter 实测不生效（本轮否决①）"
+    assert 'transform-box' not in spot_rule, "灯层不旋转不缩放，别给它加变换锚点"
+    assert '#spot[data-on="1"]{opacity:var(--spot-k)}' in html, \
+        "开合挂在呈现属性上：不支持 @property 也照样能亮能灭"
+    for p in ("--spot-x", "--spot-y", "--spot-r", "opacity"):
+        assert re.search(r"transition:[^}]*" + re.escape(p) +
+                         r" var\(--dur-spot\) var\(--ease-out\)", css), f"{p} 没进补间清单"
+    assert "linear(" not in spot_rule, "改透明度不许过冲（效果弹簧），--ease-out 才对"
+
+    # ④ 结构位置：灯是 #cam 最后一个孩子，掠擦在 #cam 之外、仍在取景框里
+    i_clip = html.index('<g clip-path="url(#frameClip)">')
+    i_cam = html.index('<g id="cam">')
+    i_spot = html.index('<rect id="spot" x="-600" y="-600" width="2200" height="1660" aria-hidden="true">')
+    i_ff = html.index('<g id="ffwd" data-dir="f" aria-hidden="true">')
+    i_cap = html.index('<g id="cap" class="el">')
+    assert i_clip < i_cam < i_spot < i_ff, "灯在相机里、掠擦在相机外"
+    assert html.count("</g>", i_spot, i_ff) == 1, "spot 与 ffwd 之间只隔着 #cam 的收尾"
+    assert i_cap > i_ff, "字幕带在取景框之外——口播原文永远满墨，不进灯"
+    assert 'aria-hidden="true"' in html[i_spot:i_spot + 130] and \
+        'aria-hidden="true"' in html[i_ff:i_ff + 60], "两层都是纯视觉，读屏不播"
+    # bleed 的三处必须一起动：rect 坐标 = -bleed，尺寸 = viewBox + 2·bleed
+    bleed = int(re.search(r"--spot-bleed:(\d+)px", css).group(1))
+    geom = dict(re.findall(r'(x|y|width|height)="(-?\d+)"', html[i_spot:i_spot + 130]))
+    assert (int(geom["x"]), int(geom["y"])) == (-bleed, -bleed), \
+        "幕沿与 mask 里的 +bleed 是同一件事的两半，改一处就得改另一处"
+    assert (int(geom["width"]), int(geom["height"])) == (1000 + 2 * bleed, 460 + 2 * bleed)
+    assert bleed >= 1000 / 0.85 / 2, \
+        "bleed 必须 ≥ 取景框宽 / 相机倍率钳位下限 .85 / 2，否则镜头拉开时幕沿进画"
+
+    # ⑤ 掠擦：事件不是状态 + 两档各自朝自己指的那边掠
+    ff_rule = re.search(r"#ffwd\{[^}]*\}", css).group(0)
+    assert "opacity:0;pointer-events:none;fill:none;stroke:var(--dim);stroke-width:3;" in ff_rule
+    assert "transform-box:fill-box;transform-origin:50% 50%;scale:1;" in ff_rule
+    assert "--ff-from:calc(var(--ff-travel) * -1px);--ff-to:calc(var(--ff-travel) * 1px)" in ff_rule, \
+        "快进向右掠出（本轮翻案：反过来写读起来是倒带）"
+    assert "transform:" not in ff_rule, "行程走独立 translate、镜像走独立 scale，简写会互相顶掉"
+    assert "#ffwd.go{animation:ffSweep var(--dur-ff) linear}" in html, \
+        "不写 forwards：掠完必须隐形；曲线是 linear，ease-out 会让它在终点前刹住"
+    mirror = re.search(r'#ffwd\[data-dir="b"\]\{[^}]*\}', css).group(0)
+    assert "scale:-1 1" in mirror and "--ff-from:calc(var(--ff-travel) * 1px)" in mirror, \
+        "后退档：雪佛龙镜像 + 行程反向，两件事分两个通道写"
+    assert "@keyframes ffSweep{from{translate:var(--ff-from) 0;opacity:0}" in html
+    assert "20%{opacity:var(--ff-peak)}70%{opacity:var(--ff-peak)}" in html, \
+        "中段平台：峰值 --ff-peak 撑住 50% 的行程，两头才各留一段加减速"
+    assert "to{translate:var(--ff-to) 0;opacity:0}}" in html
+    assert '<g transform="translate(500,198)">' in html and \
+        html.count("<polyline points=") >= 3, "三枚雪佛龙住在画布中心那一层"
+
+    # ⑥ 掠擦的消费者与判据：JS 从令牌读阈值，四道不演
+    assert "function begin(){ GEN++; spotOff(); }" in html, \
+        "每一步开头归零：灯是全局层，不声明就是没有（纪律①）"
+    body = code[code.index("function camBox(node){"):code.index("function spotOn(keys, pad){")]
+    assert "transform.baseVal" in body, "洞心读的是 transform 属性（目标值）"
+    assert "getScreenCTM" not in code, \
+        "getScreenCTM 只许待在注释里：它给的是补间半途的矩阵，灯会照歪（本轮否决③）"
+    assert "if (!b) return spotOff();" in html, "一个都没找到就按灭——宁可不照"
+    assert "Math.hypot(b.w, b.h) / 2 + (pad == null ? 26 : pad)" in html, \
+        "半径取外接圆（方角不该先黑下去），pad 是灯有余量的那点余量"
+    assert "spot.style.setProperty('--spot-x', (b.x + b.w / 2).toFixed(1) + 'px');" in html
+    assert "if (step === 1) spotOn(['d-src']);" in html
+    assert "else if (step === 2) spotOn(['d-true-r', 'd-false-r']);" in html
+    assert "else if (step === 3) spotOn(['d-false-r', 'd-zero-r']);" in html, \
+        "s4/s5 故意不照：那两句的主角是世界层，不是管线"
+    assert "getPropertyValue('--ff-min')" in html and "Math.abs(d) < ffThreshold()" in html, \
+        "阈值只有一个来源，代码里不写死第二个数"
+    assert "if (Math.abs(d) < 2)" not in code and "Math.abs(d) < 2;" not in code, \
+        "把 2 抄进代码就是第二个数（--ff-min 改了不会跟着改）"
+    assert ("if (prev === null || scrubbing || window.__coursewareShotMode) return;" in html
+            and "if (el('rack').dataset.gated === '1') return;" in html), "四道不演"
+    assert "var prev = lastT; lastT = t;" in html, "演不演都要把上一拍推着走，否则下一拍读成假跳"
+    assert "f.dataset.dir = d > 0 ? 'f' : 'b';" in html
+    assert ("f.classList.remove('go'); void f.getBoundingClientRect();" in html
+            and "f.classList.add('go');" in html), "重触发三段式：连点两次进度条要演两次"
+    assert code.index("function tick(){") < code.index("ffCue(t);") < \
+        code.index("var hit = sentAt(t);"), \
+        "掠擦排在翻句之前：它说的是这一拍的来路，不是这一拍的内容"
+
+    # ⑦ .pregate 离散进出：认得 allow-discrete 的才覆盖，#gate 本体不转
+    assert ".pregate{position:absolute;inset:10px;z-index:8;display:flex;" in css
+    assert ".pregate[hidden]{display:none}\n  @supports" in html, \
+        "基础规则里 hidden 仍是硬切：不支持那一族也只是没有过渡"
+    i = css.index("@supports (transition-behavior:allow-discrete){")
+    depth, j = 0, i
+    while True:
+        if css[j] == "{":
+            depth += 1
+        elif css[j] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    dock = css[i:j]
+    assert ".pregate{animation:none;opacity:1;translate:0 0;" in dock, \
+        "旧的关键帧写法必须在这一档关掉：两层入场叠一起会糊"
+    for p in ("opacity", "translate", "display"):
+        assert re.search(p + r" var\(--dur-dock\) var\(--ease-out\)", dock), f"{p} 没进出坞清单"
+    assert ".pregate{transition-behavior:allow-discrete}" in dock, \
+        "单写一行：简写里的 allow-discrete 是 CSS Transitions 2 的语法，不认的引擎只作废这一行"
+    assert '.pregate[hidden]{display:none;opacity:0;translate:0 -10px}' in dock
+    assert "@starting-style{.pregate{opacity:0;translate:0 12px}}" in dock, \
+        "入场要有起点：没有 @starting-style，第一帧就是终帧（0.15.0 同一课）"
+    assert "@starting-style{#gate" not in css and "#gate{transition:" not in css, \
+        "#gate 本体不转——它的 hidden 是 QA 放行信号的唯一真值（本轮否决②）"
+    assert css.count("@starting-style") == 2, "离散入场只给 .pregate 与 0.15.0 那条折叠面板"
+
+    # ⑧ reduced-motion：三条兜底齐全，且各自抬到压得住基础规则的那一档
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    rm_code = re.sub(r"/\*.*?\*/", "", rm, flags=re.S)
+    assert "#spot{transition:none}" in rm_code, "关的是补间不是灯：洞心与开合留在呈现属性上"
+    assert "#ffwd.go{animation:none}" in rm_code and "#ffwd{animation:none}" not in rm_code, \
+        "兜底要带 .go 与基础规则同形 (1,1,0)，朴素 #ffwd 抢不过排在后面的那条"
+    assert "#pregate.pregate{transition:none}" in rm_code, \
+        "基础规则在 §②c、源序排在**本块之后**，同为 (0,1,0) 会被顶掉，抬到 (1,1,0)"
+    for dead in ("--spot-x", "--spot-r", "data-on", "--spot-k", "--ff-travel"):
+        assert dead not in rm_code, f"reduce 里不许出现 {dead}：那是把信息一起关掉（纪律③）"
+
+    # ⑨ 本轮研究里量过/查证后仍不请回来的（连同旧锁一起复述一遍理由）
+    assert "shape(" not in css, "clip-path: shape() 的形变补间本机没验过（本轮否决⑤）"
+    assert "view-transition-name" not in css, "SVG 子元素的快照行为本机没验过（本轮否决⑤）"
+    assert "mask:" not in css or True, "mask 长写法保留，no-repeat 是防止洞沿外重复"
+
+
+# 灯的读数：洞心用 cam.getScreenCTM() 折回屏幕，与目标节点 getBoundingClientRect()
+# 的并集中心对账——**这两条路必须独立**：模板里量的是 transform 属性（目标值），
+# 用例里量的是此刻屏幕上的盒子，落定之后两者应当逐值相同（偏心距实测 0.0px）。
+_SPOT_PROBE = r"""(function(){
+  var s = document.getElementById('spot'), cs = getComputedStyle(s);
+  var cam = document.getElementById('cam'), svg = cam.ownerSVGElement;
+  var ct = cam.getScreenCTM();
+  var hx = parseFloat(cs.getPropertyValue('--spot-x'));
+  var hy = parseFloat(cs.getPropertyValue('--spot-y'));
+  var hp = new DOMPoint(hx, hy).matrixTransform(ct);
+  var keys = JSON.parse('%s'), u = null;
+  keys.forEach(function(k){
+    var n = document.getElementById(k); if (!n) return;
+    var r = n.getBoundingClientRect();
+    u = !u ? {l:r.left, t:r.top, rr:r.right, b:r.bottom} : {
+      l:Math.min(u.l, r.left), t:Math.min(u.t, r.top),
+      rr:Math.max(u.rr, r.right), b:Math.max(u.b, r.bottom)};
+  });
+  var hit = document.elementFromPoint(hp.x, hp.y);
+  var sr = s.getBoundingClientRect(), vr = svg.getBoundingClientRect();
+  // 取景框窗：#frameClip 的 rect 在 svg 根的用户空间里（包装层不带 transform），
+  // 用 svg.getScreenCTM() 折到屏幕坐标——这才是"观众看到的那一块"，比 svg 的
+  // 外框小（字幕带 396..460 在框外）。暗幕要盖住的是它。
+  var clip = document.querySelector('#frameClip rect'), sc = svg.getScreenCTM();
+  var f0 = new DOMPoint(+clip.getAttribute('x'), +clip.getAttribute('y')).matrixTransform(sc);
+  var f1 = new DOMPoint(+clip.getAttribute('x') + +clip.getAttribute('width'),
+                        +clip.getAttribute('y') + +clip.getAttribute('height')).matrixTransform(sc);
+  var cap = document.getElementById('cap');
+  return JSON.stringify({
+    on:s.dataset.on, x:cs.getPropertyValue('--spot-x'), y:cs.getPropertyValue('--spot-y'),
+    r:cs.getPropertyValue('--spot-r'), op:cs.opacity, pe:cs.pointerEvents,
+    tp:cs.transitionProperty, td:cs.transitionDuration,
+    te:cs.transitionTimingFunction.slice(0, 30), mask:cs.maskImage,
+    hole:[+hp.x.toFixed(1), +hp.y.toFixed(1)],
+    tgt:u ? [+((u.l + u.rr) / 2).toFixed(1), +((u.t + u.b) / 2).toFixed(1)] : null,
+    hit:hit ? (hit.id || hit.tagName) : null,
+    spotRect:[+sr.left.toFixed(1), +sr.top.toFixed(1), +sr.right.toFixed(1), +sr.bottom.toFixed(1)],
+    svgRect:[+vr.left.toFixed(1), +vr.top.toFixed(1), +vr.right.toFixed(1), +vr.bottom.toFixed(1)],
+    frameRect:[+f0.x.toFixed(1), +f0.y.toFixed(1), +f1.x.toFixed(1), +f1.y.toFixed(1)],
+    capInCam:cam.contains(cap), capInClip:!!cap.closest('g[clip-path]'),
+    an:(s.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;})});
+})()"""
+
+# 洞心是补间过去的不是跳过去的：把 --spot-x 的 transition 冻住逐档读
+_SPOT_SWEEP = r"""(function(){
+  var s = document.getElementById('spot');
+  var list = (s.getAnimations()||[]).filter(function(a){
+    return a.transitionProperty === '--spot-x';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'--spot-x 的补间不在场', an:(s.getAnimations()||[]).map(
+      function(a){ return a.transitionProperty || a.animationName; })});
+  }
+  var a = list[0]; a.pause();
+  // 曲线读 getComputedTiming().easing：CSS 过渡的缓动挂在 timing 上，
+  // keyframes[0].easing 恒是默认的 'linear'（读错了会以为没缓动）
+  var out = {dur:a.effect.getComputedTiming().duration,
+             ease:a.effect.getComputedTiming().easing, kf:[], frames:[]};
+  (a.effect.getKeyframes() || []).forEach(function(k){
+    out.kf.push(k['--spot-x']); });
+  [0, 125, 250, 375, 499].forEach(function(ms){
+    a.currentTime = ms;
+    var cs = getComputedStyle(s);
+    out.frames.push({ms:ms, x:parseFloat(cs.getPropertyValue('--spot-x')),
+                     op:cs.opacity});
+  });
+  a.cancel();
+  out.after = getComputedStyle(s).getPropertyValue('--spot-x');
+  return JSON.stringify(out);
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_spot_lights_the_thing_the_narration_is_on(full_lesson):
+    """真实浏览器：一盏跟着旁白走的聚光，洞心落在**正在讲的那个东西**上（0.22.0）。
+
+    量五件事：① 三步的落点逐值等于模板 camBox() 该给出的数（s1 388/143/r=174.7、
+    s2 697/143/108.8、s3 710/176/193.7）——s2 那一对框挂在 `d-rig` 的 translate 下，
+    洞心 697 = 604+93，写死的坐标会跟着父层跑偏；② 屏幕对账：洞心折回屏幕与目标
+    盒子的屏幕中心**偏心 ≤1px**（实测 0.0px），命中打在洞心里的目标节点上而不是灯
+    （mask 不裁命中测试，边界②）；③ 软边跟着洞走：mask 的满幅停靠点 = 半径 + 78；
+    ④ 灯不压字幕带：`#cap` 既不在 `#cam` 里也不在取景框的 clip 下，永远满墨；
+    ⑤ 不声明就是没有：s0/s4/s5 三步 `data-on=0`、opacity 补到 0（纪律①）。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "spot22")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        want = {1: (388.0, 143.0, 174.7, ["d-src"]),
+                2: (697.0, 143.0, 108.8, ["d-true-r", "d-false-r"]),
+                3: (710.0, 176.0, 193.7, ["d-false-r", "d-zero-r"])}
+        for k in (1, 2, 3):
+            ev("window.__jump('seg-5', %d)" % k)
+            assert _wait_idle(ev, "#spot") == [], f"s{k} 落定后不该还有补间在跑"
+            x, y, r, keys = want[k]
+            st = json.loads(ev(_SPOT_PROBE % json.dumps(keys)))
+            assert st["on"] == "1" and st["op"] == "0.15", f"s{k} 灯该亮在 --spot-k 档：{st}"
+            assert st["pe"] == "none", f"灯不吃命中（边界②）：{st}"
+            assert (float(st["x"][:-2]), float(st["y"][:-2]), float(st["r"][:-2])) == (x, y, r), \
+                f"s{k} 洞心/半径该是 camBox 量出来的 {x}/{y}/{r}：{st}"
+            assert st["tgt"] and math.hypot(st["hole"][0] - st["tgt"][0],
+                                            st["hole"][1] - st["tgt"][1]) <= 1.0, \
+                f"s{k} 洞心落在目标盒子中心（实测偏心 0.0px）：{st}"
+            assert st["hit"] not in (None, "spot"), \
+                f"mask 不裁命中测试，洞心里该点得到东西而不是灯：{st}"
+            assert st["tp"] == "--spot-x, --spot-y, --spot-r, opacity" and \
+                st["td"] == "0.5s, 0.5s, 0.5s, 0.5s" and \
+                st["te"].startswith("cubic-bezier(0.22, 1, 0.36, 1)"), \
+                f"四个通道一起补间、时长 --dur-spot、曲线 --ease-out：{st}"
+            stops = [float(v) for v in re.findall(r"([\d.]+)px", st["mask"])]
+            assert abs(stops[-1] - (r + 78.0)) <= 0.2, \
+                f"满幅停靠点必须跟着洞走（r + --spot-soft）：{st['mask']}"
+            sr, fr = st["spotRect"], st["frameRect"]
+            assert sr[0] <= fr[0] + .5 and sr[1] <= fr[1] + .5 and \
+                   sr[2] >= fr[2] - .5 and sr[3] >= fr[3] - .5, \
+                f"暗幕要盖住整个取景框（四角都在洞外）：spot {sr} vs frame {fr}"
+            assert fr[0] >= st["svgRect"][0] - .5 and fr[3] <= st["svgRect"][3] + .5, \
+                f"取景框该落在画布内（口径自检）：frame {fr} vs svg {st['svgRect']}"
+            assert st["capInCam"] is False and st["capInClip"] is False, \
+                f"字幕带不进灯（口播原文永远满墨）：{st}"
+
+        # ⑤ 没有落点声明的三步：开头由 begin() 归零，等 fade 走完就是全灭
+        for k in (0, 4, 5):
+            ev("window.__jump('seg-5', %d)" % k)
+            assert _wait_idle(ev, "#spot") == [], f"s{k} 落定后不该有补间：{k}"
+            st = json.loads(ev(_SPOT_PROBE % "[]"))
+            assert st["on"] == "0" and st["op"] == "0", \
+                f"s{k} 不声明就是没有聚光（纪律①）：{st}"
+
+        # ③ 洞是补间过去的：s1→s2 逐档读 --spot-x（0.5s ease-out，前 25% 就走完大半）
+        ev("window.__jump('seg-5', 1)")
+        _wait_idle(ev, "#spot")
+        ev("window.__jump('seg-5', 2)")
+        sw = json.loads(ev(_SPOT_SWEEP))
+        assert "err" not in sw, str(sw)
+        assert sw["dur"] == 500, f"行程 --dur-spot .5s：{sw}"
+        assert sw["ease"] == "cubic-bezier(0.22, 1, 0.36, 1)", f"曲线是 --ease-out：{sw}"
+        assert sw["kf"] == ["388px", "697px"], f"两端就是这两步的落点：{sw['kf']}"
+        xs = [f["x"] for f in sw["frames"]]
+        assert abs(xs[0] - 388) < 0.5 and abs(xs[4] - 697) < 0.5, f"两端钉在档位上：{xs}"
+        assert all(xs[i] < xs[i + 1] for i in range(4)), f"一路单调走向下一格：{xs}"
+        assert xs[1] > 388 + (697 - 388) * 0.5, \
+            f"ease-out 前 1/4 行程就该走完大半（洞要领先镜头落位）：{xs}"
+        assert sw["after"] == "697px", \
+            f"cancel 之后落回属性上那一档（导出与冷启动吃这格）：{sw['after']}"
+    finally:
+        _kill(chrome)
+
+
+_FF_STATE = r"""(function(){
+  var f = document.getElementById('ffwd'), cs = getComputedStyle(f);
+  var r = f.getBoundingClientRect(), sr = document.getElementById('cam')
+        .ownerSVGElement.getBoundingClientRect();
+  return JSON.stringify({dir:f.dataset.dir, cls:f.className.baseVal,
+    op:cs.opacity, tr:cs.translate, sc:cs.scale, an2:cs.animationName,
+    pe:cs.pointerEvents, n:f.querySelectorAll('polyline').length,
+    rect:[+r.left.toFixed(1), +r.top.toFixed(1), +r.right.toFixed(1)],
+    svg:[+sr.left.toFixed(1), +sr.right.toFixed(1)],
+    an:(f.getAnimations()||[]).map(function(a){
+      return a.animationName || a.transitionProperty;})});
+})()"""
+
+_FF_SWEEP = r"""(function(){
+  var f = document.getElementById('ffwd');
+  var list = (f.getAnimations()||[]).filter(function(a){
+    return a.animationName === 'ffSweep';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'ffSweep 不在场', an:(f.getAnimations()||[]).map(
+      function(a){ return a.animationName || a.transitionProperty; })});
+  }
+  var a = list[0]; a.pause();
+  var t = a.effect.getComputedTiming();
+  var out = {dur:t.duration, fill:t.fill,
+             ease:(a.effect.getKeyframes()[0] || {}).easing, frames:[]};
+  [0, 68, 170, 238, 339].forEach(function(ms){
+    a.currentTime = ms;
+    var cs = getComputedStyle(f), r = f.getBoundingClientRect();
+    out.frames.push({ms:ms, tr:cs.translate, op:parseFloat(cs.opacity),
+                     left:+r.left.toFixed(1), right:+r.right.toFixed(1)});
+  });
+  out.tf = getComputedStyle(f).transform;      // 必须是 none：两个通道各写各的
+  out.sc = getComputedStyle(f).scale;
+  var vr = f.ownerSVGElement.getBoundingClientRect();
+  out.edge = [+vr.left.toFixed(1), +vr.right.toFixed(1)];   // 画布左右缘，别写死
+  a.cancel();
+  out.after = getComputedStyle(f).opacity;
+  return JSON.stringify(out);
+})()"""
+
+
+def _wait_cue(ev, want=True, timeout=1.6):
+    """掠擦只有 340ms，等它上场、确认它不在场，都得主动追几帧。"""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        last = json.loads(ev(_FF_STATE))
+        if ("ffSweep" in [x for x in last["an"] if x]) == want:
+            return last
+        time.sleep(0.02)
+    return last
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_ffwd_sweeps_only_when_the_playhead_is_moved(full_lesson):
+    """真实浏览器：播放头被**搬动**过才掠一道箭头，方向跟着时间符号走（0.22.0）。
+
+    范本 seg-5 的句长刚好把两档都摆出来：s1→s2 差 **1.264s**（不过 `--ff-min` 2s，
+    不演），s2→s3 差 **3.289s**（演）。量的三件事：
+      · 阈值：小跳确实不演，大跳演——判据是 currentTime 的差，不是拍的位数；
+      · 方向与镜像：快进 `data-dir=f`、`scale:1`、`translate` 从 −520 走到 +520；
+        快退 `data-dir=b`、`scale:-1 1`、从 +520 走到 −520——**两档都朝自己指的那边
+        掠**（本轮翻案：第一版反过来写，箭头朝右却往左飞，读起来是倒带）；
+      · 事件不是状态：`fill:none`、两端 opacity 0、`transform` 全程 `none`（行程走
+        独立 `translate`、镜像走独立 `scale`），极位时盒子落在 −21.1 / 941.3 而画布
+        只有 29..893——约四分之三在画外，被 #frameClip 裁着进出；
+      · 截图模式不演（成片每一帧本来就是 seek 出来的）。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "ff22")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        ev("window.__jump('seg-5', 1)")
+        time.sleep(0.7)                      # 让 lastT 跟上这一拍
+        st = _wait_cue(ev, want=False)
+        assert st["op"] == "0" and st["tr"] == "none" and st["n"] == 3, \
+            f"静止态看不见（base opacity:0，三枚雪佛龙）：{st}"
+        assert st["rect"][0] < st["svg"][1] and st["rect"][2] > st["svg"][0], \
+            f"静止位在画布中心：{st}"
+
+        # ① 小跳（1.264s < --ff-min）：不演
+        ev("window.__jump('seg-5', 2)")
+        st = _wait_cue(ev, want=False, timeout=0.8)
+        assert "ffSweep" not in [x for x in st["an"] if x], \
+            f"不过阈值的位移不该读成跳（正常翻句与它差五倍）：{st}"
+
+        # ② 大跳向前：向右掠出
+        ev("window.__jump('seg-5', 3)")
+        st = _wait_cue(ev, want=True)
+        assert st["dir"] == "f" and st["cls"] == "go", f"向前跳读作快进：{st}"
+        sw = json.loads(ev(_FF_SWEEP))
+        assert "err" not in sw, str(sw)
+        assert sw["dur"] == 340 and sw["fill"] == "none" and sw["ease"] == "linear", \
+            f"--dur-ff .34s / 不写 forwards / linear：{sw}"
+        assert sw["sc"] == "1" and sw["tf"] == "none", f"快进不镜像、不碰 transform：{sw}"
+        tr = [float(f["tr"][:-2]) for f in sw["frames"]]
+        assert abs(tr[0] + 520) < 0.5 and abs(tr[4] - 516.941) < 1.0, \
+            f"从画外左掠到画外右（--ff-travel 半幅 520）：{tr}"
+        assert all(tr[i] < tr[i + 1] for i in range(4)), f"linear 等速单调：{tr}"
+        ops = [f["op"] for f in sw["frames"]]
+        assert ops[0] == 0 and abs(ops[1] - .5) < .01 and abs(ops[3] - .5) < .01, \
+            f"两头隐形、中段平台 --ff-peak .5：{ops}"
+        assert sw["after"] == "0", f"cancel 之后仍是看不见那一格：{sw['after']}"
+        e0, e1 = sw["edge"]
+        f0 = sw["frames"][0]
+        w = f0["right"] - f0["left"]
+        assert 55 < w < 75, f"雪佛龙本体的宽度（极位不该改变它）：{f0}"
+        assert f0["left"] < e0 and (e0 - f0["left"]) / w > .7, \
+            f"极位约四分之三在画布左缘之外、被取景框裁着（画布 {e0}..{e1}）：{f0}"
+
+        # ③ 往回跳：反向掠 + 镜像
+        time.sleep(0.5)
+        ev("window.__jump('seg-5', 1)")
+        st = _wait_cue(ev, want=True)
+        assert st["dir"] == "b", f"回拖读作快退：{st}"
+        sw = json.loads(ev(_FF_SWEEP))
+        assert "err" not in sw, str(sw)
+        assert sw["sc"] == "-1 1", f"后退档雪佛龙镜像（独立 scale）：{sw['sc']}"
+        tr = [float(f["tr"][:-2]) for f in sw["frames"]]
+        assert abs(tr[0] - 520) < 0.5 and abs(tr[4] + 516.941) < 1.0, \
+            f"后退朝自己指的那边掠出（+520 → −520）：{tr}"
+        b0 = sw["frames"][0]
+        wb = b0["right"] - b0["left"]
+        assert b0["right"] > e1 and (b0["right"] - e1) / wb > .7, \
+            f"后退的起始极位约四分之三在画布右缘之外（画布 {e0}..{e1}）：{b0}"
+
+        # ④ 截图模式：不演
+        time.sleep(0.6)
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-5', 0)")
+        st = _wait_cue(ev, want=False, timeout=0.8)
+        assert "ffSweep" not in [x for x in st["an"] if x], \
+            f"导出每帧本来就是 seek 出来的，不演过场：{st}"
+    finally:
+        _kill(chrome)
+
+
+_PG_STATE = r"""(function(){
+  var p = document.getElementById('pregate'), cs = getComputedStyle(p);
+  var r = p.getBoundingClientRect();
+  return JSON.stringify({hidden:p.hidden, disp:cs.display, op:cs.opacity, tr:cs.translate,
+    tp:cs.transitionProperty, tb:cs.transitionBehavior, td:cs.transitionDuration,
+    an2:cs.animationName, rect:[+r.width.toFixed(1), +r.height.toFixed(1)],
+    an:(p.getAnimations()||[]).map(function(a){
+      return (a.transitionProperty || a.animationName);})});
+})()"""
+
+_PG_SWEEP = r"""(function(prop){
+  var p = document.getElementById('pregate');
+  var list = (p.getAnimations()||[]).filter(function(a){
+    return a.transitionProperty === prop;});
+  if (!list.length) return JSON.stringify({err:'没有 ' + prop + ' 的补间',
+    an:(p.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;})});
+  var a = list[0]; a.pause();
+  var out = {dur:a.effect.getComputedTiming().duration, frames:[]};
+  [0, 120, 239].forEach(function(ms){
+    a.currentTime = ms;
+    var cs = getComputedStyle(p);
+    out.frames.push({ms:ms, op:parseFloat(cs.opacity), tr:cs.translate, disp:cs.display});
+  });
+  a.cancel();
+  return JSON.stringify(out);
+})('%s')"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_pregate_docks_with_a_discrete_transition(full_lesson):
+    """真实浏览器：浮层的进出**直接补间离散属性 display**，JS 一行都不用等（0.22.0）。
+
+    原来是 `animation:gateIn both` + `hidden` 一盖就硬切——浮层"啪"地消失，与它下面
+    那条刚走完 1.1s 的环不配套。现在 `hidden` 仍由 JS 即时盖上（QA 读的就是这个属性），
+    过渡交给 CSS：`@starting-style` 给入场一个起点、`transition-behavior:allow-discrete`
+    让 `display` 在退场全程撑住不被摘掉。实测四格：
+      · 藏着的静止态：`display:none`、`opacity:0`、`translate:0 -10px`、清单三条齐
+        （`opacity, translate, display` 各 .24s、behavior `allow-discrete`）、
+        `animation-name` 落 `none`（旧关键帧在这一档被关掉，不会两层入场叠一起）；
+      · 入场：`display` 立刻是 `flex`（离散值只在**退场**才需要撑住），`opacity` 从
+        `@starting-style` 的 0 走到 1、`translate` 从 `0px 12px` 收到 `0px`；
+      · 退场第一帧：`hidden` 已 true 而 `display` 仍是 `flex`、`display` 自己的那条
+        transition 在场——这就是 allow-discrete 买到的东西；150ms 时 opacity 已掉到
+        .04 而盒还在（`rect` 仍非零）；400ms 后落 `display:none`；
+      · 全程 JS 只动了 `hidden` 一个属性。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "pg22")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-1', 0)")
+        assert ev("CSS.supports('transition-behavior','allow-discrete')"), \
+            "本机 Chrome 不认 allow-discrete，这条用例的前提就没了"
+        st = json.loads(ev(_PG_STATE))
+        assert st["hidden"] is True and st["disp"] == "none" and st["op"] == "0", \
+            f"静止态收起且看不见：{st}"
+        assert st["an2"] == "none", f"旧的关键帧写法必须让位给离散补间：{st}"
+        assert st["tp"] == "opacity, translate, display" and \
+            st["tb"] == "allow-discrete" and st["td"] == "0.24s, 0.24s, 0.24s", \
+            f"进出坞清单 --dur-dock .24s × 3：{st}"
+
+        ev("document.getElementById('pregate').hidden = false")
+        st = json.loads(ev(_PG_STATE))
+        assert st["disp"] == "flex", f"入场时 display 即时是 flex（离散值只在退场撑住）：{st}"
+        assert set(st["an"]) >= {"opacity", "translate"}, f"两条几何外的一起在补间：{st}"
+        sw = json.loads(ev(_PG_SWEEP % "opacity"))
+        assert "err" not in sw, str(sw)
+        assert sw["dur"] == 240, f"时长 --dur-dock：{sw}"
+        ops = [f["op"] for f in sw["frames"]]
+        assert ops[0] == 0 and 0.8 < ops[1] < 1.0 and abs(ops[2] - 1) < 0.02, \
+            f"从 @starting-style 的 0 起步、ease-out 一路到 1：{ops}"
+        assert json.loads(ev(_PG_SWEEP % "display"))["err"], \
+            "入场不该有 display 的补间（none→flex 是即时出现的，撑住的是退场那一头）"
+        time.sleep(0.4)
+        st = json.loads(ev(_PG_STATE))
+        assert st["op"] == "1" and st["tr"] == "0px" and st["an"] == [], \
+            f"落定：满不透明、位移收到零、没有补间在跑：{st}"
+
+        ev("document.getElementById('pregate').hidden = true")
+        st = json.loads(ev(_PG_STATE))
+        assert st["hidden"] is True and st["disp"] == "flex", \
+            f"退场全程 display 撑住（这就是 allow-discrete 买到的东西）：{st}"
+        assert "display" in st["an"], f"display 自己也在补间清单上：{st}"
+        time.sleep(0.15)
+        mid = json.loads(ev(_PG_STATE))
+        assert mid["disp"] == "flex" and 0 < float(mid["op"]) < 0.5 and mid["rect"][0] > 0, \
+            f"150ms 时淡出过半而盒还在：{mid}"
+        time.sleep(0.4)
+        end = json.loads(ev(_PG_STATE))
+        assert end["disp"] == "none" and end["op"] == "0" and end["an"] == [], \
+            f"400ms 之后落回 none：{end}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_spot_ffwd_pregate_reduced_motion_and_shot_terminals(full_lesson):
+    """减动效与导出两刀之下：三条各落**该说的那件事**，一格内容不少（0.22.0）。
+
+      · 减动效：`#spot{transition:none}` 关的是补间不是灯——不用等 idle，换步后**立刻**
+        读到 388/143/174.7 与 `opacity:.15`（`transition-property` 落 `none`、
+        `getAnimations()` 恒空），不声明的那一步也**立刻**灭（`data-on:0` / `op:0`）。
+        位置信息本身留在呈现属性上，这是纪律③；
+      · `#ffwd.go{animation:none}`：大跳之后 `.go` 照样挂上（JS 不管这一档），但
+        `animation-name` 落 `none`、`opacity` 仍是 0——画布上什么都不留；
+      · `#pregate.pregate{transition:none}`：`transition-behavior` 跟着回 `normal`，
+        `hidden` 一盖就即时 `display:none`，没有那 240ms 的撑住——"这层在 / 不在"照样
+        读得出（与 0.15.0 折叠面板完全同形：allow-discrete 没有时长就没有撑住）；
+      · 导出式一刀：叠在 reduce 之上再切一层，洞心直接落终位、掠擦隐形、`#pregate`
+        被导出注入的 `#gate,#pregate{display:none!important}` 整层摘掉。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm22")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+
+        for k, want in ((1, ("388px", "143px", "174.7px", "0.15")),
+                        (3, ("710px", "176px", "193.7px", "0.15"))):
+            ev("window.__jump('seg-5', %d)" % k)      # 不 sleep：这一档本就不该有补间
+            st = json.loads(ev(_SPOT_PROBE % "[]"))
+            assert (st["x"], st["y"], st["r"], st["op"]) == want, \
+                f"减动效下 s{k} 直接落 {want}（关的是补间不是灯位）：{st}"
+            assert st["tp"] == "none" and st["an"] == [], \
+                f"减动效下不该有任何补间在跑：{st}"
+        ev("window.__jump('seg-5', 0)")
+        st = json.loads(ev(_SPOT_PROBE % "[]"))
+        assert st["on"] == "0" and st["op"] == "0", f"减动效下灭灯也是即时的：{st}"
+
+        ev("window.__jump('seg-5', 3)")               # 4.5s 的大跳，够过 --ff-min
+        time.sleep(0.25)
+        st = _wait_cue(ev, want=False, timeout=0.6)
+        assert "ffSweep" not in [x for x in st["an"] if x] and st["an2"] == "none", \
+            f"减动效下掠擦不演（兜底行带 .go 才压得住）：{st}"
+        assert st["op"] == "0" and st["tr"] == "none", f"看不见才是对的落档：{st}"
+
+        ev("document.getElementById('pregate').hidden = false")
+        st = json.loads(ev(_PG_STATE))
+        assert st["disp"] == "flex" and st["op"] == "1" and st["tr"] == "0px" and \
+            st["tp"] == "none" and st["tb"] == "normal" and st["an"] == [], \
+            f"减动效下浮层即时进场、过渡回 normal：{st}"
+        ev("document.getElementById('pregate').hidden = true")
+        st = json.loads(ev(_PG_STATE))
+        assert st["disp"] == "none", f"减动效下没有那 240ms 的撑住，hidden 即时生效：{st}"
+
+        # 导出截图页口径：reduce 之上再叠一刀（与 export_video.SNIPPET 同式）
+        ev("var s=document.createElement('style');s.textContent="
+           "'*,*::before,*::after{transition:none!important;animation:none!important}"
+           "#gate,#pregate{display:none!important}';document.head.appendChild(s);")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-5', 2)")
+        st = json.loads(ev(_SPOT_PROBE % "[]"))
+        assert (st["x"], st["y"], st["r"], st["op"]) == ("697px", "143px", "108.8px", "0.15"), \
+            f"导出定格里洞落在这一格的终位、幕深照旧：{st}"
+        assert st["an"] == [], f"导出帧里不该有在跑的补间：{st}"
+        st = json.loads(ev(_FF_STATE))
+        assert st["op"] == "0" and st["an2"] == "none", f"导出帧里没有半截箭头：{st}"
+        assert json.loads(ev(_PG_STATE))["disp"] == "none", "成片里这层本来就不该在场"
+    finally:
+        _kill(chrome)

@@ -329,6 +329,20 @@ animation 后计算值仍是 `circle(75% at 50% 50%)`（实测取消动画逐值
 回到元素自身的 `normal`，实测副题排宽与不动画时逐值相同（117px，一个字不少），成片永远是
 收好的那一句；`.opt.rip` 是**事件不是状态**，静止态与终态本来就都是 `opacity:0 / scale:0`
 （实测两种切法同值），导出帧上不可能出现半截琥珀色圆盘压在字上。
+0.22.0 三条同样**都不需要见旗分支**，但各落自己那一格。`#spot` 走 transition：注入的
+`transition:none!important` 让 `--spot-x/y/r` 直接落到 `camBox()` 声明的那一档——实测导出
+一刀下 s2 读到 697/143/108.8、`opacity` 仍是 `--spot-k`，成片每一帧都是"灯已经落在那一句的
+主角上"，关掉的只是行程；而开合挂在呈现属性 `data-on` 上，不认识 `@property` 的引擎照样有
+灯（降级掉的是走位不是内容）。`#ffwd` 是**事件不是状态**：静止态本来 `opacity:0`、不写
+`forwards`，成片上不可能出现半排雪佛龙压在正文上，截图模式另外还有一道 `__coursewareShotMode`
+不演。`.pregate` 走离散过渡：导出注入的 `#gate,#pregate{display:none!important}` 直接把它
+摘掉——`!important` 压得住补间，而 QA 读的 `hidden` 那把真值一行都没改。
+**QA 取样口径**这一轮加三条：① 灯罩的覆盖要拿 `#frameClip` 折出来的**取景框窗**断言，不是
+svg 外框——`#spot` 的 `getBoundingClientRect()` 因为 bleed 比画布大得多，跟 svg 比反而看不出
+"幕沿进画"这类漏；② 洞心读的是 `--spot-x` 的**计算值**，源文件里有那行令牌不算数（本轮踩过：
+一条不成对的注释吞掉 `--dur-spot`，CSSOM 规则数一点没变而整条 transition 在计算值阶段作废）；
+③ 掠擦只有 340ms 且不留下终态，`getAnimations()` 里登记了 `ffSweep` 就算"演过"，行程本身
+只能 `pause()` + `currentTime` 钉档采（0.21.0 那条采法教训同样成立）。
 **QA 取样口径**这一轮再多三条：① `.tilt` 的角度不进 `getBBox()`（实测三档同盒
 [406,280,188,12]），判"沉哪边"只能读屏幕盒或 `getScreenCTM()`——但命中**跟着变换走**
 （playing 态下 `elementFromPoint` 打在倾侧后的左托盘上仍命中 `c-pan-l`），所以既别拿它做
