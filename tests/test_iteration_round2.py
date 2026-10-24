@@ -3412,8 +3412,8 @@ def test_reading_and_tuck_primitives_present():
         就把每句**末尾那 18%** 永久留在灰阶地板上，静止态变成"句尾永远没念到"，
         纪律③（绝不把内容锁进可能不跑的门）直接不合格；
       · 地板档 `--lit-floor` 必须是 **.85**：合成后的实测对比度非结论 7.97:1、
-        结论 6.08:1；.72 那一档墨量差更大（均值比 1.20 vs 1.10）但结论字色掉到
-        4.76:1（贴线），.92 那一档均值比只剩 1.05（肉眼分不出念没念过）。
+        结论 6.08:1；.72 那一档墨量差更大（均值比 1.250 vs 1.128，0.23.1 同字两行口径）
+        但结论字色掉到 4.76:1（贴线），.92 那一档均值比只剩 1.063（肉眼分不出念没念过）。
         这条是本轮改错过一次的地方：第一版按截图像素的**平均亮度**算出"8.04:1"
         并据此选了 .72——量法本身就不对（§8 要的是合成色对底色）；
       · 收拢两端都必须是**带四个长度的 `inset()`**、静止档 **-15%**（外扩，`inset(0 0 0 0)`
@@ -3836,8 +3836,15 @@ def test_tuck_retracts_on_reused_node(full_lesson):
 # "8.04:1" 并据此选了 .72——量法本身就错。
 # 注意 data-URL 里 `<percentage>` 要写成实体，否则整张 SVG 解析失败（实测 onerror）。
 _LIT_INK = r"""new Promise(function(res){
-  var FLOOR = @FLOOR@, RAMP = @RAMP@, BG = @BG@, FILL = @FILL@, K = 0.5;
-  var W = 640, H = 120, X0 = 20, TL = 520, X1 = X0 + TL, LIT = 118 * K;
+  var FLOOR = @FLOOR@, RAMP = @RAMP@, BG = @BG@, FILL = @FILL@;
+  var W = 640, H = 150, X0 = 20, TL = 520, X1 = X0 + TL;
+  // 两行是**同一串字、同一个 textLength、同一批列采样带**：
+  //   行 A `--lit:118%` → 实心段铺满整行，就是"念过"那一侧；
+  //   行 B `--lit:RAMP%` → 过渡带只剩左边 RAMP%，采样带全部落在地板段，就是"未念"。
+  // 于是 ratio / cr_* 量的是"同一批像素被地板压掉多少"，不再拿两串不同的字互相比——
+  // 换渲染环境（字形宽度、缺字库）读数不动。改之前比的是"左半边 vs 右半边"，那等于让
+  // 字体决定哪几个字落进哪一侧：同一份 CSS 本机均值比 1.132、CI 1.108。
+  var STR = '排序看的是字符，不是数值大小。位数不同才看得出差别。';
   var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H +
     '" viewBox="0 0 ' + W + ' ' + H + '">' +
     '<style>@property --lit{syntax:\'&lt;percentage&gt;\';inherits:false;initial-value:118%}' +
@@ -3845,10 +3852,10 @@ _LIT_INK = r"""new Promise(function(res){
     '.l{mask-image:linear-gradient(90deg,#000 0 calc(var(--lit) - ' + RAMP + '%),' +
     'rgba(0,0,0,' + FLOOR + ') var(--lit) 100%)}</style>' +
     '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>' +
-    '<text id="t" class="l" x="' + X0 + '" y="60" textLength="' + TL +
-    '" lengthAdjust="spacing" fill="' + FILL +
-    '" style="--lit:' + LIT + '%">' +
-    '排序看的是字符，不是数值大小。位数不同才看得出差别。</text></svg>';
+    '<text class="l" x="' + X0 + '" y="50" textLength="' + TL + '" lengthAdjust="spacing"' +
+    ' fill="' + FILL + '" style="--lit:118%">' + STR + '</text>' +
+    '<text class="l" x="' + X0 + '" y="120" textLength="' + TL + '" lengthAdjust="spacing"' +
+    ' fill="' + FILL + '" style="--lit:' + RAMP + '%">' + STR + '</text></svg>';
   var img = new Image();
   img.onload = function(){
     var c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -3856,9 +3863,9 @@ _LIT_INK = r"""new Promise(function(res){
     x.drawImage(img, 0, 0);
     var d = x.getImageData(0, 0, W, H).data;
     function px(i){ return [d[i], d[i + 1], d[i + 2]]; }
-    function stats(x0, x1){
+    function stats(y0, y1, x0, x1){
       var lum = [], bg = 1e9;
-      for (var y = 30; y < 80; y++){
+      for (var y = y0; y < y1; y++){
         for (var xx = x0; xx < x1; xx++){
           var p = px((y * W + xx) * 4);
           var L = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
@@ -3880,13 +3887,11 @@ _LIT_INK = r"""new Promise(function(res){
       var hi = Math.max(a, b), lo = Math.min(a, b);
       return Math.round((hi + 0.05) / (lo + 0.05) * 100) / 100;
     }
-    var bgp = px(((55 * W) + 600) * 4);
-    // 采样带由 mask 的几何算出来，不靠"字体把这一行推到哪"：亮段 = 实心平台
-    //（0 ~ (LIT-RAMP)%），暗段 = 地板平台（LIT% ~ 100%）。CI 上曾经因为跑图里
-    // 没有中文字体、字形宽度变窄，暗段落在字尾之外 → 取不到墨 → cr_* 全是 null。
-    var lit = stats(X0 + 4, Math.round(X0 + (LIT - RAMP) / 100 * TL) - 4);
-    var dim = stats(Math.round(X0 + LIT / 100 * TL) + 6, X1 - 4);
-    res(JSON.stringify({fill:FILL, floor:FLOOR, bg:bgp,
+    var BX0 = Math.round(X0 + TL * (RAMP + 8) / 100), BX1 = X1 - 4;
+    var bgp = px((75 * W + 6) * 4);              // 行间空白 + 左边距：确定是底
+    var lit = stats(28, 60, BX0, BX1);           // 行 A 基线 50
+    var dim = stats(98, 130, BX0, BX1);          // 行 B 基线 120
+    res(JSON.stringify({fill:FILL, floor:FLOOR, bg:bgp, band:[BX0, BX1],
       lit_n:lit.n, dim_n:dim.n,
       lit_mean:lit.mean, dim_mean:dim.mean,
       cr_lit:lit.p90 ? cr(lit.p90, bgp) : null,
@@ -3917,18 +3922,21 @@ def test_lit_floor_passes_composite_contrast(full_lesson):
     """量**合成后**的对比度：范本那一档地板过线，两档被否决的替代品复现否决理由。
 
     阈值不写死在自己机器上：判据是 §8 那两条线（正文 4.5:1、次要文字 7:1）加一条
-    "念过 vs 未念"的墨量均值比 ≥1.12。0.23.1 复按（probe13b，采样带改成由 mask 几何
-    算出的两段**平台**——实心段 0~(LIT−RAMP)% 与地板段 LIT%~100%，不再把过渡带
-    混进"念过"那一侧）逐值：
-      · floor=.85 对 panel `#1c212d`：非结论 10.48 / 7.97（均值比 1.132）、结论
-        7.94 / 6.08（1.132）；对 edge `#161a23` 更好（11.34 / 8.46、8.59 / 6.45）；
-      · floor=.72 墨量差更大（均值比 1.259）但结论字色对 panel 只剩 **4.76:1**——
+    "念过 vs 未念"的墨量均值比 ≥1.10。0.23.1 复按（probe13b）把探针改成**同一串字的两行
+    对照**——行 A `--lit:118%` 整行走实心段、行 B `--lit:RAMP%` 整行走地板段，同一批列
+    采样带取两边的墨量均值。这样量的才是"地板把同一批像素压掉多少"，字体换环境只改字形
+    不改比值（改之前比的是左半边与右半边两串不同的字，本机 1.132 而 CI 1.108，就红在
+    阈值上）：
+      · floor=.85 对 panel `#1c212d`：非结论 10.48 / 7.97（均值比 1.128）、结论
+        7.94 / 6.08（1.121）；对 edge `#161a23` 更好（11.34 / 8.46 比 1.140、
+        8.59 / 6.45 比 1.128）；
+      · floor=.72 墨量差更大（均值比 1.250）但结论字色对 panel 只剩 **4.76:1**——
         贴 4.5:1 线零余量，所以否决；
-      · floor=.92 均值比掉到 **1.067**，肉眼分不出念没念过，等于没做。
+      · floor=.92 均值比掉到 **1.063**，肉眼分不出念没念过，等于没做。
     断言只走"过线 / 不过线"的方向，不锁小数：字体渲染环境换了数值会漂。
-    取样带也不许依赖字形宽度：CI 跑图里没装中文字体时，固定列区间会落在字尾之外、
-    取不到墨而返回 null（TypeError 那场就是它），现在带子从 mask 百分比算，`textLength`
-    把这一行钉成 520 单位，取不到墨直接报 lit_n / dim_n。
+    取样带也不许依赖字形宽度：`<text>` 钉 `textLength="520" lengthAdjust="spacing"`、
+    带子由 mask 自身的百分比算（行 B 左边那 RAMP% 是过渡带，避开），取不到墨直接报
+    lit_n / dim_n，而不是留一个 null 给下游 `>=` 炸成 TypeError。
     """
     html = TEMPLATE_HTML.read_text(encoding="utf-8")
     m = re.search(r"--dur-tuck:\.42s; --lit-floor:([\d.]+); --lit-ramp:(\d+)%;", html)
@@ -3944,7 +3952,7 @@ def test_lit_floor_passes_composite_contrast(full_lesson):
         for (bg, fill), r in rows.items():
             assert r["cr_dim"] >= 4.5, f"{fill} on {bg}：未念段合成后 {r['cr_dim']}:1 不过正文线"
             assert r["cr_lit"] >= 4.5 and r["cr_lit"] > r["cr_dim"], r
-            assert r["ratio"] >= 1.12, f"{fill} on {bg}：念过 vs 未念均值比只有 {r['ratio']}"
+            assert r["ratio"] >= 1.10, f"{fill} on {bg}：念过 vs 未念均值比只有 {r['ratio']}"
         for bg in ("#1c212d", "#161a23"):
             r = rows[(bg, "#c9d1e0")]
             assert r["cr_dim"] >= 7.0, \
@@ -3959,7 +3967,7 @@ def test_lit_floor_passes_composite_contrast(full_lesson):
 
         # ③ 被否决的 .92：差小到分不出来
         high = _ink(ev, 0.92, ramp, "#c9d1e0", "#1c212d")
-        assert high["ratio"] < 1.10, \
+        assert high["ratio"] < 1.09, \
             f".92 那一档均值比 {high['ratio']}，与不压暗（1.00）已经分不出两件事：{high}"
     finally:
         _kill(chrome)
