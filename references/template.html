@@ -182,6 +182,23 @@
     --dur-spot:.5s; --spot-k:.15; --spot-ink:#06080c; --spot-soft:78px;
     --dur-ff:.34s; --ff-peak:.5; --ff-travel:520; --ff-min:2s;
     --dur-dock:.24s; --spot-bleed:600px;
+    /* 重量与预备（0.23.0）：三条补的是 12 项动画原则在网页侧的落地表里、本仓库
+       一直没有词的那三格——**挤压与拉伸**（质量）、**预备动作**（先反向蓄一下）、
+       **次要动作**（投影跟着主动作走）。档位仍然跟已有词汇对齐或错开选：
+         · --dur-settle .42s：与入场（--dur-in .42s）**同档**——徽标落位就是它的
+           入场方式，不另立一档（.gather 同一判断）；
+         · --dur-wind .28s：预备那一拍必须**短于**主动作（位移走 --dur-move .5s），
+           否则"蓄力"会把落点推到主动作结束之后，读起来像两次移动而不是一次起跳；
+           峰值按关键帧的 34% 落点算，实测 .0952s（见 .wind）；
+         · --dur-lift .38s：与图层浮起（--dur-el .38s）同档——提牌改的是"这一块
+           在不在台面上"，属浮起家族，不是揭示家族。
+       --squash-* 是挤压那一档的两个分量（体积守恒的近读数见 .settle 注释），
+       --wind-back 是蓄力的行程（viewBox 单位），--wind-hold 是主动为此让出的那一拍
+       （实测必须让，不让就看不见，见 .wind 边界 ④），
+       --lift-hi 是提牌高度，--lift-ink 是投影墨色。 */
+    --dur-settle:.42s; --squash-x:1.14; --squash-y:.84;
+    --dur-wind:.28s; --wind-back:9; --wind-hold:calc(var(--dur-wind) * .34);
+    --dur-lift:.38s; --lift-hi:5px; --lift-ink:rgba(4,6,10,.62);
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -235,6 +252,17 @@
   @property --spot-x{syntax:'<length>';inherits:false;initial-value:500px}
   @property --spot-y{syntax:'<length>';inherits:false;initial-value:198px}
   @property --spot-r{syntax:'<length>';inherits:false;initial-value:150px}
+  /* 提牌海拔的驱动变量（0.23.0）：注册成 `<length>` 才能被 transition 逐帧补间，
+     而它**只被两处消费**——`filter:drop-shadow()` 的偏移/虚化，与独立 `translate`
+     的抬升量（见 .lift）。initial-value 取 **0px = 还在台面上**：不播、不能播、
+     被导出注入 `transition:none` 时都落在"没有投影、没有抬升"那一格，纪律③
+     （绝不把内容锁进可能不跑的门）在这里的形态是"**静止即无投影**"，与
+     0.17.0 --feather 取 134%（静止即全显）、0.19.0 --lit 取 118%（静止即全亮）
+     同一条口径，只是"终值"在这一族里恰好是零档。
+     `inherits:false`：海拔是**这一块自己的**状态，不该传给里面的 rect/字（传下去
+     会让每个子图元各算一次 drop-shadow）。名字先全仓 grep 过，不与 --dim /
+     --elevated 之类的既有令牌撞。 */
+  @property --elev{syntax:'<length>';inherits:false;initial-value:0px}
   /* color-mix 的覆盖档：认得它的浏览器用现调的浅色，换主色时底色跟着走。
      写成 @supports 而不是"同名两行"——自定义属性解析期什么都收，第二行照样
      成立，坏的是替换后的那条 background（非法计算值 → 属性 unset → 背景透明）。 */
@@ -1057,6 +1085,153 @@
                      20%{opacity:var(--ff-peak)}70%{opacity:var(--ff-peak)}
                      to{translate:var(--ff-to) 0;opacity:0}}
 
+  /* ── 重量与预备（0.23.0）：挤压落位 / 预备后蓄 / 提牌投影 ─────────────
+     三条都是"12 项动画原则 → 网页落地"那张对照表里的格子，而本仓库此前没有词：
+     原则表里 Slow In/Out（缓动令牌）、Arc（.ride 的 offset-path）、
+     Follow Through（.stag 错峰 / --ease-spring）、Staging（#spot / [data-dim]）、
+     Exaggeration（弹簧过冲）都已经有对应物，唯独**挤压与拉伸**、**预备动作**、
+     **次要动作（投影跟着主动作走）**三格一直空着。空着的代价不是"不好看"，是
+     课堂上三个说法没法说出口：判词**落下来**了（有重量）、主角**要跳**了
+     （先蓄一下）、这一对被**拿起来**比（离开了台面）。 */
+
+  /* 挤压落位（`.settle`，Squash & Stretch 的落地版）：一个东西落到该在的那一格时
+     先被压扁、再回弹收住，读作"它有质量"。五条边界：
+       ① **两头由同一对令牌镜像出来**：拉伸档 = `calc(2 − --squash-x)` /
+          `calc(2 − --squash-y)`，也就是绕 1 镜像——压扁 1.14×.84 与拉长 .86×1.16
+          是同一个旋钮的两面，作者只改一档，行程形状不变；
+       ② **体积近似守恒**（原则表要的是"压扁时体积不变"，这里只能取二维面积）：
+          同一枚徽标（`a-rule`）冻结九个档位，屏幕矩形面积——静止 77.41×30.97 = 2396.9；
+          压扁那一格（t=160）88.213×26.03 = 2296.1（**−4.2%**）；0% 拉长那一格
+          66.576×35.92 = 2391.4（**−0.2%**）；70% 回弹那一格 75.092×32.204 = 2418.3
+          （**+0.9%**）。镜像写法 `calc(2 − x)` 让拉长那一格天然比压扁那一格更接近
+          守恒——观感上要的正是"砸下去那一下亏一点、弹起来那一下赚一点"，比强行开方
+          取 1/x（压扁格 1.14×.877 = 100.0%）少一分橡皮感；
+       ③ **支点在接触边**（`transform-origin:50% 100%` +
+          `transform-box:fill-box`）：压扁时底边不动、只有顶边往下砸。九个冻结档位的
+          下沿读数**一个不差全是 514.05**。原点若退回默认的 50% 50%，同一格（t=200）
+          底边抬到 512.51——**抬离接触线 1.54 设备px**，约为那一格高度损失（3.10px）的
+          一半：那不是落地，是悬浮（0.21.0 `.tilt` 那条"盒中心必须正好是支点"的同一课，
+          只是这里要的支点恰好是包围盒底边中点，天然成立）；
+       ④ **走独立 `scale` 属性，不碰 `transform`**：徽标的位移由 `transform`
+          呈现属性承载（`.nt` 补间它），挤压若写进 transform 会把位移整条顶掉
+          （0.13.0 那条老账）。独立属性与属性值各走各的通道，两层合成；
+       ⑤ **只挂纯包装 `<g>`**：`.settle` 只声明 `animation`，因此**不抢 `.nt` 的
+          transition 简写**（与 0.20.0 `.bloom` 同一判据）；但同一节点上不能再有
+          第二条 `animation`——徽标的淡入 `.in` 留给内层图元，两层各演各的。
+     曲线用 **linear**：行程的形状已经写进四个档位里了。同一节点上把
+     `animation-timing-function` 换成 --ease-out 再冻结一次：**t=105ms（25%）就读到
+     1.13742×.842954**，压扁那一格被提前到整段行程的四分之一；t=200ms 已经回到
+     .998411×1.00657（肉眼等于静止），70% 那格只剩 0.97×1.04 的一点余量——等于把
+     "砸下去—弹起来"演成"一开头就砸完"。linear 下 105ms 是 1.04421×.949474（还在半路）、
+     160ms 才是 1.13949×.840595（压扁那一格落点）。
+     `backwards`、不写 forwards：静止态 = 元素自己的 `scale:none` = 单位阵（实测
+     自然演完之后 `getAnimations()` 为空、scale 读回 none），
+     导出切掉 animation 之后落回"稳稳在那一格"的那张定格（纪律③）。 */
+  @keyframes settleIn{
+    0%{scale:calc(2 - var(--squash-x)) calc(2 - var(--squash-y))}
+    38%{scale:var(--squash-x) var(--squash-y)}
+    70%{scale:.97 1.04}
+    100%{scale:1 1}}
+  .settle{transform-box:fill-box;transform-origin:50% 100%;
+          animation:settleIn var(--dur-settle) linear backwards}
+
+  /* 预备后蓄（`.wind`，Anticipation 的落地版）：**起跳之前先往下沉一点**——
+     原则表那句"物体在向前运动之前会发生细微的向后移动"。这里要的正是它：主角那排
+     数字被收上架子（世界 y 232 → 84，主角自己还从 k=1 缩到 k=.46）时，如果直接走，
+     观众读作"被系统搬走了"；先沉 `--wind-back` 单位再起来，才读作"它自己跳上去的"。
+     五条边界：
+       ① 行程挂在**独立 `translate` 属性**上，位移本体在 `transform` 呈现属性上
+          （由 `.nt` 补间）——两条通道合成，谁也不顶谁（`.swF` / `#ffwd` 同族写法）。
+          合成顺序 translate → rotate → scale → transform，所以 `translate` 走的是
+          **父层（世界）坐标系**：在 shelf 那一格（主角自己 `scale(.46)`）量三种写法
+          的屏幕位移——独立属性写 `translate:0 9px` 动 **13.997 设备px**、同一串走
+          `transform` 列表且排在 `scale(.46)` **之后**只剩 **6.439**（正好被自己的 k
+          缩掉）、排在**之前**又是 13.997。既然父层坐标系这一点是白送的，这一层买的
+          就不是"躲开缩放"，而是**不占主角的 `animation` 位子**：主角那层的简写已经
+          被 `.in` 占着，同节点再来一条就把入场淡入顶掉了（0.19.0 老账的另一面）；
+       ② **幅度与方向都是令牌，不写在 JS 里**：`--wind-back` 给量，
+          `--wind-dx/--wind-dy` 给轴向（默认只有竖直那一档，横向预备把
+          `--wind-dx` 写在节点上即可，符号就是方向）；renderer 只写"这一步蓄不蓄"，
+          不排程、不计帧（纪律 1）；
+       ③ 曲线 **--ease-in-out**：一去一回是对称行程，用 --ease-out 会把"沉下去"
+          演成急刹车、把"回来"演成滑行，读起来就不像蓄力了；
+       ④ **主动作得为它让出那一拍**（这条是量出来的，不是美学判断）：位移走
+          `--dur-move .5s` 的 --ease-out，前 95ms 已经走完大半行程，蓄力若只是"叠在
+          上面"就被顶得看不见。同一拍逐 rAF 采主角屏幕 y（起点 348.17）：
+            · 只蓄不让（原方案）：**最高点仍是 348.17，dip = 0.00 设备px** —— 蓄力层
+              自己确实算出了 8.995px 的位移，可它在屏幕上完全没有回头，观众看不见；
+            · 让 95.2ms 不蓄（对照组）：屏幕 y 先沉到 **416.75**（dip 68.58px，因为镜头
+              在这一拍正往推近，被让出来的那 95.2ms 里旧位置在画面上一路下沉）；
+            · 让 95.2ms 且蓄（**范本现状**，回归用例同一次跑里复量）：**429.17**，
+              dip 81.00px —— 蓄力自己在屏幕上多推下来的那 12.4px 才是"它要跳"。
+          所以 `--wind-hold:calc(--dur-wind * .34)` = .0952s，取的是**关键帧蓄满那一格**
+          （屏幕上的最低点落在它之后的 110~126ms，因为那一拍还叠着镜头推近，两件事
+          不是同一个读数）：预备是主动作的**前缀**，不是同时叠上去的第二笔；
+       ⑤ 那一拍走 **transition-delay 长档**，不写 transition 简写：简写会把 `.nt`
+          那份十七项清单整条顶掉（0.19.0 老账），长档只改延迟、清单与时长照旧
+          ——实测挂上让拍之后 `transitionProperty` 与 `transitionDuration` 与不蓄力的
+          那一步**逐字符相同**（十七项、transform .5s / opacity .4s / …），只有
+          `transitionDelay` 从十七个 `0s` 变成一格 `0.0952s`。
+          它必须落在**被补间的那一层**，而 `.wind` 自己在上一层，所以选择器写
+          `.wind > g`（蓄力层在场 = 它的主角让拍；平时没有 `.wind`，让拍也就无从
+          谈起——档位与延迟是同一个来源，不是两处状态）。
+          代价说清楚：这一层的**所有**补间一起晚 95.2ms 起步，主角这层只有
+          transform / opacity 有意义，屏幕上看不出来。 */
+  @keyframes windIn{0%{translate:0 0}
+                    34%{translate:calc(var(--wind-dx) * 1px) calc(var(--wind-dy) * 1px)}
+                    100%{translate:0 0}}
+  .wind{--wind-dx:0;--wind-dy:var(--wind-back);
+        animation:windIn var(--dur-wind) var(--ease-in-out)}
+  /* 让拍挂在**被补间的那一层**（主角 g 自己）而不是蓄力层：蓄力层只有 animation、
+     没有补间可延。用 `.wind > g` 而不是给主角再写一个 class，是为了让"档位与延迟
+     同一个来源"——蓄力层在场 = 它的主角让拍，不存在两处状态各写一遍的对不齐风险。
+     特异度 (0,1,1) 压得住 `.nt` 的 (0,1,0)：减少动效那一块里要显式把它归零——
+     实测把这条长档原样重述到媒体块**之后**，`transition-property` 仍是 `none`
+     （`.nt` 那行在管），而 `transition-delay` 回到 `0.0952s`：清单空了的时候延迟
+     确实不动任何东西，但兜底不该在页面上留一个"等着补间"的读数。 */
+  .wind > g{transition-delay:var(--wind-hold)}
+  /* 两端都是 `translate:0 0`、静止态也是 0：**事件不是状态**（与 .flow / .rip /
+     #ffwd 同族）——切掉 animation 之后这一层什么都不留，位移照旧由呈现属性承载，
+     导出帧落在"已经跳上去"的那一格；让拍与蓄力在 reduced-motion 里一起归零。 */
+
+  /* 提牌投影（`.lift`，Secondary Action 的落地版：投影跟着主动作走）：把一块牌
+     **提到台面上方**，靠的不是位移而是**影子**——影子从没有长出来、跟着越拖越长，
+     观众才读得出"它离开台面了"。这一条说的是"谁是被拿起来比的那一对"，与颜色
+     （对错）、灯（注意力）、弱化（参照）都是不同的轴。五条边界（数字全部来自
+     Chrome 152 冻结采样与屏幕对拍）：
+       ① **投影走 `filter:drop-shadow()`，不走 `box-shadow`**：SVG 的 `<g>` / `<rect>`
+          没有盒——同一份 `0 14px 20px` 打在 `c-a-r` 与 `c-a-lf` 上，计算值读得到
+          （`rgb(255, 0, 0) 0px 14px 20px 0px`），屏幕对拍 28836 个采样点**变了 0 个**；
+          同一份写在一个 HTML 盒上，2408 个采样点里 2005 个变了。drop-shadow 走
+          **内容的 alpha 形状**，卡片与字的影子分开、不糊成一个方框；
+       ② 驱动变量 `--elev` 注册成 `<length>`，**initial 取 0px = 还在台面上**：
+          不播 / 不能播 / 导出切掉 transition 三种情形都落在"没有投影、没有抬升"
+          那一格（纪律③；与 --feather 取 134%、--lit 取 118% 同一条口径，只是
+          这一族的终值恰好是零档）；
+       ③ 抬升量与影子**都由同一个 --elev 派生**（`translate:0 calc(--elev * -1)`
+          与 drop-shadow 的两个 calc），所以影子永远跟着牌走，不会出现"东西抬起
+          来了、影子还在原地"那条假 3D。系数 1.5 / 1.2 说的是**影子比抬升走得远**
+          ——真实光源在台面上方时，物体抬起，影子同时变长变淡。逐帧读数：清单里
+          只留 `--elev` 那一档，t=122ms 时 `--elev`=3.09456px / 影子偏移=4.64184px /
+          模糊=3.71347px，33 帧里偏移与 1.5× 的最大偏差 **0.00001px**、模糊与 1.2×
+          为 0——派生关系逐帧成立，所以**影子不需要自己再补间一次**（把 `filter`
+          也列进清单是第二套补间，量出来一样对，但多一套就多一处会不同步的地方）。
+          影子的墨量是真的落在台面上：把这一层钉成 `translate:0 0`（只投影不抬）之后
+          与"完全没抬"那格对拍，卡片下沿那条 106×19 的台面带里**变暗 1430 点、变亮 0 点**，
+          而同状态重拍两次的噪声地板是 0 点；
+       ④ 档位写在呈现属性 `data-lift="1"` 上：它承担的是"这一对被拿起来比"的
+          状态读数，所以 reduced-motion 关的是**补间不是档位**（与 `#cap-hl` /
+          `.tilt` / `.ride` 同一判断）——实测这一档下 `transition-property` 落 `none`，
+          而 `--elev:5px`、`translate:0px -5px`、影子 `0px 7.5px 6px` 全部读得到；
+       ⑤ **只挂纯包装 `<g>`**：`.lift` 自己声明 `transition` 简写，与 `.nt` 同
+          节点会互相顶掉（0.19.0 那条老账）；位置、描边一律留给外层与内层。
+     `pointer-events` 不禁：drop-shadow 与 mask 一样**不裁命中测试**——抬起那一格里
+     牌中心的 `elementFromPoint` 仍落回字节点 `c-a-t`（不是这一层、不是灯），下沿外
+     8px 落回台面 `rect`；这一层本来就盖在牌上，不需要额外退命中。 */
+  .lift{filter:drop-shadow(0 calc(var(--elev) * 1.5) calc(var(--elev) * 1.2) var(--lift-ink));
+        translate:0 calc(var(--elev) * -1);
+        transition:--elev var(--dur-lift) var(--ease-out)}
+  .lift[data-lift="1"]{--elev:var(--lift-hi)}
 
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
@@ -1203,6 +1378,28 @@
     #spot{transition:none}
     #ffwd.go{animation:none}
     #pregate.pregate{transition:none}
+    /* 重量与预备（0.23.0）三条同口径，但**关掉的层数不一样**：
+         · 挤压落位关 **animation**：静止态就是元素自己的 `scale`（`none` = 单位阵），
+           一刀下去落"稳稳在那一格"，没有"压扁一半"的定格留在画面上——与 .bloom /
+           .gather / .flow 同一课；
+         · 预备后蓄关 **animation**：两端与静止态都是 `translate:0 0`，**事件不是
+           状态**，关掉之后什么痕迹都不留，位移照旧由 `transform` 属性承载；
+           随它挂上去的**让拍**（`.wind > g` 的 transition-delay）也一起归零——
+           兜底不是"先停 95ms 再瞬移"。这一行与基础规则同形、同特异度 (0,1,1)，
+           靠源序在后面压住（实测归零后读回 `0s`）；
+         · 提牌投影关 **transition**、不关档位：`data-lift` 与 `--elev` 的终值都在
+           呈现属性与注册初值上，一刀下去直接落"这一对被提起来"那一格——它承担的
+           是状态读数，不能连影子一起关（与 `#cap-hl` / `.tilt` / `.ride` / `#spot`
+           同一判断）。
+       这四行**都不需要抬特异度**：基础规则全部写在本块**之前**的 §③ 动效原语区，
+       同特异度时源序后者胜（与 0.19.0 `.tuck`、0.20.0 三件套、0.21.0 `.tilt`
+       同一侧；掠光 / 折叠 / 侧栏那三条要抬，是因为它们的基础规则在本块**之后**）。
+       清单里也不许出现 `--elev` / `data-lift` / `--squash-x`：关的是补间与事件，
+       不是档位读数。 */
+    .settle{animation:none}
+    .wind{animation:none}
+    .wind > g{transition-delay:0s}
+    .lift{transition:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -2110,14 +2307,21 @@
     return n;                                 // 也就不会被补间到起飞点上
   }
   function txt(parent, key, attrs, s){ return put(parent, 'text', key, attrs, s); }
-  /** 短标签/徽标：药丸底 + 居中字。s 必须是短标注，不是句子（纪律 3）。 */
+  /** 短标签/徽标：药丸底 + 居中字。s 必须是短标注，不是句子（纪律 3）。
+   *  0.23.0 起判词**落下来**带重量：中间加一层纯包装 `<g class="settle">`，
+   *  挤压落位在那一层上（见 CSS「挤压落位」边界 ⑤——它只声明 animation，不抢
+   *  `.nt` 的 transition 简写；淡入 `.in` 留在内层 rect/字上，两层各演各的）。
+   *  支点取这层的**底边中点**，所以药丸的下沿全程不动，只有顶边砸下去再弹回。
+   *  同一 key 复用节点时 class 不变 → 不重放：徽标**第一次落位**才演，
+   *  后来换位置/换文案是补间与重排，不是又一次落地（g-luck 在 s4 换位置就是这种）。 */
   function badge(parent, key, x, y, s, col){
     var fs = scaleFontSize('text', 14);
     var g = put(parent, 'g', key + '-g', {transform:'translate(' + x + ',' + y + ')'});
+    var sq = put(g, 'g', key + '-sq', {class:'settle'});
     var w = Math.max(30, s.length * (fs > 14 ? fs + 2 : 13) + 18);
-    put(g, 'rect', key + '-r', {x:-w/2, y:-(fs*0.5+7), width:w, height:fs+14, rx:(fs+14)/2,
+    put(sq, 'rect', key + '-r', {x:-w/2, y:-(fs*0.5+7), width:w, height:fs+14, rx:(fs+14)/2,
       fill:'rgba(245,166,35,.12)', stroke:col, 'stroke-width':1.5});
-    txt(g, key + '-t', {x:0, y:Math.round(fs*0.36), 'text-anchor':'middle', 'font-size':14,
+    txt(sq, key + '-t', {x:0, y:Math.round(fs*0.36), 'text-anchor':'middle', 'font-size':14,
       'font-weight':'600', fill:col}, s);
     return g;
   }
@@ -2248,9 +2452,28 @@
     var p = POSE[name];
     if (!p) return;
     poseNow = name;
+    /* 预备后蓄（0.23.0）：只有**上架子**那一跳有——世界 y 从 232 直冲 84 是 148
+       单位的向上位移，直接走读作"被系统搬走了"，先沉 --wind-back 单位再起来才读作
+       "它自己跳上去的"。四条口径：
+         · 蓄力的那一层在**主角之外**（`w-<v>-ant` → `w-<v>`）：独立 `translate`
+           走的是父层坐标系（实测：在 shelf 那一格给主角自己写 `translate:0 9px`，
+           屏幕动 13.997 设备px，与它 `scale(.46)` 无关），所以这一层买到的不是
+           "躲开缩放"，而是**不占主角的 animation 位子**——主角那层的 `animation`
+           已经被 `.in` 占着，同节点两条简写会互相顶掉（0.19.0 老账）；
+         · 这一层**从建档那一步就在**（姿势切换时才补挂要把主角 g 重新入树，而重新
+           入树的节点没有 before-change style——那一次 148 单位的位移会当场落成终态，
+           "跳上去"变"瞬移"，本轮实测过）；平时它是个空状态的 `<g>`，只多一层分组，
+           不进任何几何读数（getBBox 逐值不变）；
+         · class 由 (scene, step) 推导（`name === 'shelf'`），**不是"记住建上跳"**：
+           导出每帧一次冷启动，seek 到 s3 那一帧时它照样是该蓄力的一步（纪律 1）；
+           跨幕沿用 shelf 姿势时 class 不变 → put 不重写 → 不重放；
+         · 幅度、方向、让出的那一拍全在令牌上（`--wind-back` / `--wind-dy` /
+           `--wind-hold`），这里只写"这一步蓄不蓄"（纪律 1）。 */
+    var wind = name === 'shelf';
     HERO.forEach(function(v){
       var slot = p.order.indexOf(v), g = 'w-' + v, boxKey = g + '-r';
-      put('world', 'g', g, {transform:'translate(' + p.xs[slot] + ',' + p.y + ') scale(' + p.k + ')',
+      var A = put('world', 'g', g + '-ant', {class: wind ? 'wind' : null});
+      put(A, 'g', g, {transform:'translate(' + p.xs[slot] + ',' + p.y + ') scale(' + p.k + ')',
         opacity:p.op});
       var t = TONE[p.tone];
       if (!REG[boxKey]) put(g, 'rect', boxKey, {x:-48, y:-46, width:96, height:92, rx:14,
@@ -2605,11 +2828,24 @@
     var aX = pick >= 0 ? 500 + cases[pick].dx[0] : 448;
     var bX = pick >= 0 ? 500 + cases[pick].dx[1] : 552;
     var boxStroke = (step === 4 || step === 5) ? '#f5a623' : null;
+    /* 提牌投影（0.23.0）：**谁排在前面，谁被提到台面上方**。三条契约各给一格：
+         · `a - b < 0` → a 起、b 不落（a 排在 b 前面）；
+         · `a - b = 0` → 两枚一样高（"相等"在这台仪器上的形状就是同高）；
+         · `a - b > 0` → b 起（a 排在 b 后面）；
+       s0 / s4 / s5 都落在台面上（没在比这一对、或这一句交给倾侧盘与描边色说话）。
+       为什么值得再加一条轴：横向位移说的是"**结果**里谁在左"，抬升说的是
+       "**次序**里谁在前"——两者正交，同一句判决可以说两遍而不会互相解释
+       （位移轴已被 .tilt 的倾侧占用为 −/0/+ 的符号读数，抬升是空着的那一条）。
+       档位只写 `data-lift`，抬多少、影子多长全在令牌与 CSS 里（纪律 1）；
+       投影层是**纯包装**，位置归外层 `c-a`/`c-b`（由 .nt 补间），描边归内层
+       rect——见 CSS「提牌投影」边界 ⑤。 */
     [['a','#4d90f0', aX], ['b','#f5a623', bX]].forEach(function(q){
       var g = put('c-body', 'g', 'c-' + q[0], {transform:'translate(' + q[2] + ',' + cy + ')'});
-      put(g, 'rect', 'c-' + q[0] + '-r', {x:-52, y:-40, width:104, height:80, rx:13,
+      var lift = pick === 0 ? (q[0] === 'a') : pick === 1 ? true : pick === 2 ? (q[0] === 'b') : false;
+      var lf = put(g, 'g', 'c-' + q[0] + '-lf', {class:'lift', 'data-lift': lift ? '1' : '0'});
+      put(lf, 'rect', 'c-' + q[0] + '-r', {x:-52, y:-40, width:104, height:80, rx:13,
         fill:'#1c212c', stroke: boxStroke || q[1], 'stroke-width':2});
-      txt(g, 'c-' + q[0] + '-t', {x:0, y:13, 'text-anchor':'middle', 'font-size':34,
+      txt(lf, 'c-' + q[0] + '-t', {x:0, y:13, 'text-anchor':'middle', 'font-size':34,
         'font-weight':'700', fill:q[1]}, q[0]);
     });
     /* 倾侧定盘（0.21.0）：三句契约对应一台**只有三档**的符号盘——返回负数左端沉、

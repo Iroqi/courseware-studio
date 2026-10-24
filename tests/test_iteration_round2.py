@@ -5845,3 +5845,794 @@ def test_spot_ffwd_pregate_reduced_motion_and_shot_terminals(full_lesson):
         assert json.loads(ev(_PG_STATE))["disp"] == "none", "成片里这层本来就不该在场"
     finally:
         _kill(chrome)
+
+# ══════════════════════════════════════════════════════════════════════
+# 0.23.0 重量与预备：`.settle` / `.wind` / `.lift`
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_settle_wind_lift_primitives_present():
+    """模板结构契约：0.23.0 三条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮在 Chrome 152 里量出来"为什么只能这么写"的边界：
+      · **注释配对**与九个令牌必须真的在 `:root` 的解析结果里（写在注释里的不算），
+        三个时长各自有出处：`--dur-settle .42s` 与入场同档、`--dur-wind .28s` 必须
+        **短于**主动作 `--dur-move .5s`、`--dur-lift .38s` 与浮起同档；
+      · 让出的那一拍**只能有一个来源**：`--wind-hold:calc(var(--dur-wind) * .34)`，
+        把实测的 `0.0952s` 抄进 CSS 就是第二个数（口径同 `--ff-min` / `--par-far`）；
+      · 挤压的两头由同一对令牌镜像（`calc(2 - --squash-x)`），作者只改一档、
+        行程形状不变；支点是 `transform-box:fill-box` + `transform-origin:50% 100%`
+        （接触边），退回 50% 50% 会让下沿**抬离接触线 1.54 设备px**（实测）；
+      · 三条都走**独立属性**：`.settle` 用 `scale`、`.wind` 用 `translate`、
+        `.lift` 用 `translate` + `filter`——写进 `transform` 会把 `.nt` 补间的位移
+        整条顶掉（0.13.0 老账），三条规则里都不许出现 `transform:`；
+      · 一个节点上**不能有第二条 animation / 两份 transition 简写**：`.settle` 与
+        `.wind` 只声明 `animation`（不抢 `.nt` 的 transition 清单，实测挂上之后
+        十七项逐字符不变），`.lift` 只声明 `transition`（清单只有 `--elev` 一项，
+        `filter` 是**派生**的不是补间对象，列进去就是第二套补间）；
+      · 蓄力层的让拍走 `transition-delay` **长档**（`.wind > g`），写简写会顶掉
+        `.nt` 那份十七项清单（0.19.0 老账）；
+      · **事件不是状态**：`settleIn` 用 `backwards` 不用 `forwards`（静止态 =
+        `scale:none`），`windIn` 两端与静止态都是 `translate:0 0` 且不写填充——
+        切掉 animation 之后画布上什么都不留（纪律③）；
+      · 抬升量注册成 `@property --elev{syntax:'<length>';initial-value:0px}`：
+        0px 就是"还在台面上"，不播 / 不能播 / 导出三种情形都落在那一格；
+        `--squash-*`、`--wind-back`、`--wind-hold`、`--lift-ink` **故意不注册**
+        （常量替换，注册了就去补间，而它们说的不是行程）；
+      · 投影只走 `filter:drop-shadow()`：`box-shadow` 在 SVG 上计算值读得到而屏幕
+        一个像素不动（本轮否决①，28836 点变 0 个，正对照 HTML 盒 2408 点变 2005 个），
+        `perspective() translateZ()` 同样抬不起 SVG（否决②），所以 `.lift` 规则里
+        这两个词都不许出现；
+      · 消费者各就各位且**由 (scene, step) 推导**：`badge()` 中间那层
+        `key + '-sq'` 挂 `.settle`、`poseWorld()` 的 `wind = name === 'shelf'` 挂
+        `.wind` 且蓄力层在主角**之外**、`renderC()` 的 `data-lift` 只写档位；
+      · reduced-motion 四行：`.settle` / `.wind` 关 animation（事件）、
+        `.wind > g{transition-delay:0s}` 把让拍一起归零（否则"先停 95ms 再瞬移"）、
+        `.lift{transition:none}` 关补间不关档位。四条基础规则都在本块**之前**、
+        同特异度靠源序压住，所以都不抬特异度——但 `.wind > g` 那行必须**同形**
+        （(0,1,1)，实测朴素 `.wind g` 写法仍然归零，改成同形是为了读数清楚）。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", css)
+
+    # ⓪ 注释配对 + 九个令牌必须真在 :root 的解析结果里
+    assert _css_comment_problems(html) == [], _css_comment_problems(html)
+    root = re.search(r":root\{([\s\S]*?)\n  \}", css).group(1)
+    for tok in ("--dur-settle", "--squash-x", "--squash-y", "--dur-wind", "--wind-back",
+                "--wind-hold", "--dur-lift", "--lift-hi", "--lift-ink"):
+        assert re.search(re.escape(tok) + r"\s*:", root), \
+            f"{tok} 没长在 :root 里（被注释语法吃掉过一次，见 _css_comment_problems）"
+
+    # ① 令牌取值：三个档位各有出处，改之前先回去读注释
+    assert "--dur-settle:.42s; --squash-x:1.14; --squash-y:.84;" in html, \
+        ".42s 与入场 --dur-in 同档：徽标落位就是它的入场方式"
+    assert "--dur-wind:.28s; --wind-back:9; --wind-hold:calc(var(--dur-wind) * .34);" in html
+    assert "--dur-lift:.38s; --lift-hi:5px; --lift-ink:rgba(4,6,10,.62);" in html
+    assert "0.0952s" not in css and ".0952s" not in css, \
+        "让拍只许从 --dur-wind 派生：把实测的 0.0952s 抄进 CSS 就是第二个数"
+    assert "--wind-hold:calc(var(--dur-wind) * .34);" in root, \
+        ".34 就是 windIn 峰值那一格（34%），换曲线要一起换"
+    m = re.search(r"--dur-wind:\.(\d+)s", root)
+    mv = re.search(r"--dur-move:\.(\d+)s", root)
+    assert float("0." + m.group(1)) < float("0." + mv.group(1)), \
+        "预备那一拍必须短于主动作，否则蓄力把落点推到主动作之后，读成两次移动"
+
+    # ② 只注册真正要补间的那一个
+    assert "@property --elev{syntax:'<length>';inherits:false;initial-value:0px}" in html, \
+        "初值 0px = 还在台面上：不播 / 不能播 / 导出三种情形都落在没有投影那一格"
+    for dead in ("--squash-x", "--squash-y", "--wind-back", "--wind-hold",
+                 "--lift-hi", "--lift-ink", "--wind-dx", "--wind-dy"):
+        assert "@property " + dead not in html, \
+            f"{dead} 是常量替换：注册了就会去补间，而它说的不是行程"
+    assert re.search(r"--lift-hi:\.?\d+%", css) is None, \
+        "抬升量是长度不是百分比（fill-box 的百分比要多一层换算，本轮实测过）"
+
+    # ③ .settle：镜像的两头、接触边支点、独立 scale、backwards 不写 forwards
+    m = re.search(r"@keyframes settleIn\{([\s\S]*?)100%\{scale:1 1\}\}", css)
+    assert m, "settleIn 的关键帧没按范本写法长（收尾必须是 scale:1 1）"
+    kf = m.group(1)
+    kf_flat = " ".join((kf + "100%{scale:1 1}").split())
+    assert "0%{scale:calc(2 - var(--squash-x)) calc(2 - var(--squash-y))}" in kf_flat, \
+        "拉伸档必须由同一对令牌绕 1 镜像：实测拉长那格面积只差 0.2%，压扁那格差 4.2%"
+    assert "38%{scale:var(--squash-x) var(--squash-y)}" in kf_flat
+    assert "70%{scale:.97 1.04}" in kf_flat and "100%{scale:1 1}" in kf_flat
+    assert "sqrt(" not in kf and "1 / var(--squash" not in kf, \
+        "不许强行开方取 1/x：压扁那格守恒到 100.0% 反而读出橡皮感（本轮否决④）"
+    settle = " ".join(re.search(r"\.settle\{[^}]*\}", css).group(0).split())
+    assert "transform-box:fill-box" in settle and "transform-origin:50% 100%" in settle, \
+        "支点是包围盒底边中点：九档冻结读数下沿全是 514.05，退回 50% 50% 抬离 1.54px"
+    assert "animation:settleIn var(--dur-settle) linear backwards" in settle, \
+        "形状已写进四个档位：曲线换成 --ease-out 会把压扁格提前到 25%（本轮实测）"
+    assert "forwards" not in settle, "不写 forwards：静止态 = 元素自己的 scale:none"
+    assert "transform:" not in settle and "transition:" not in settle, \
+        "挤压走独立 scale，且只声明 animation——不抢 .nt 的 transition 简写"
+
+    # ④ .wind：独立 translate、令牌给量与轴向、--ease-in-out、两端归零
+    m2 = re.search(r"@keyframes windIn\{([\s\S]*?100%\{translate:0 0\})\}", css)
+    assert m2, "windIn 的关键帧没按范本写法长（收尾必须回到 translate:0 0）"
+    wkf_flat = " ".join(m2.group(1).split())
+    assert "34%{translate:calc(var(--wind-dx) * 1px) calc(var(--wind-dy) * 1px)}" in wkf_flat, \
+        "幅度与轴向都在令牌上：JS 只写这一步蓄不蓄（纪律 1）"
+    assert wkf_flat.startswith("0%{translate:0 0} 34%") and wkf_flat.endswith("100%{translate:0 0}"), \
+        "两端都回零：事件不是状态，切掉 animation 之后什么都不留"
+    wind = " ".join(re.search(r"\.wind\{[^}]*\}", css).group(0).split())
+    assert "--wind-dx:0;--wind-dy:var(--wind-back)" in wind, \
+        "默认只有竖直那一档，横向预备把 --wind-dx 写在节点上即可"
+    assert "animation:windIn var(--dur-wind) var(--ease-in-out)" in wind, \
+        "一去一回是对称行程：--ease-out 会把沉下去演成急刹车"
+    assert "forwards" not in wind and "both" not in wind, "不填终态：终态本来就是零"
+    assert "transform:" not in wind, "蓄力走独立 translate，不碰主角的 transform"
+    hold = re.search(r"\.wind > g\{([^}]*)\}", css).group(1)
+    assert "transition-delay:var(--wind-hold)" in hold, \
+        "让拍必须落在被补间的那一层（主角 g），蓄力层自己没有补间可延"
+    assert "transition:" not in hold and "transition-property" not in hold, \
+        "只许写长档：transition 简写会把 .nt 那份十七项清单整条顶掉（0.19.0 老账）"
+
+    # ⑤ .lift：影子与抬升同出一个 --elev，清单里只有它自己
+    lift = " ".join(re.search(r"\.lift\{[^}]*\}", css).group(0).split())
+    assert "filter:drop-shadow(0 calc(var(--elev) * 1.5) calc(var(--elev) * 1.2) var(--lift-ink))" in lift, \
+        "影子比抬升走得远（1.5 / 1.2）：光源在台面上方时，物体抬起影子同时变长"
+    assert "translate:0 calc(var(--elev) * -1)" in lift
+    assert "transition:--elev var(--dur-lift) var(--ease-out)" in lift
+    assert "filter" not in lift.split("transition:")[1], \
+        "filter 不进补间清单：它由 --elev 派生，逐帧实测偏差 0.00001px，列进去是第二套补间"
+    assert "box-shadow" not in lift, "SVG 上没有盒：box-shadow 计算值读得到而屏幕 0 个像素变（否决①）"
+    assert "perspective" not in lift and "translateZ" not in lift, \
+        "perspective + translateZ 抬不起 SVG 子元素，getScreenCTM 的 a/d 纹丝不动（否决②）"
+    assert "animation:" not in lift and "transform:" not in lift
+    assert '.lift[data-lift="1"]{--elev:var(--lift-hi)}' in css, \
+        "档位挂在呈现属性上：不支持 @property 也照样能抬能落（纪律③）"
+    assert '.lift[data-lift="0"]' not in css, "不落地就是初值 0px，不需要再写一档"
+
+    # ⑥ 消费者：三处都只写"这一步是什么状态"，不排程不计帧
+    assert "var sq = put(g, 'g', key + '-sq', {class:'settle'});" in html, \
+        "徽标中间那层纯包装挂 .settle：淡入 .in 留在内层 rect/字上，两层各演各的"
+    assert "put(parent, 'g', key + '-g', {transform:'translate(' + x + ',' + y + ')'});" in html, \
+        "位移仍由外层 transform 承载，挤压层只负责形状"
+    assert re.search(r"var wind = name === 'shelf';", html), \
+        "蓄不蓄由姿势推导（纪律 1）：导出每帧一次冷启动，记住建上跳会漏演"
+    assert "g + '-ant', {class: wind ? 'wind' : null}" in html
+    i_ant = html.index("var A = put('world', 'g', g + '-ant'")
+    i_hero = html.index("put(A, 'g', g, {transform:'translate('")
+    assert i_ant < i_hero, "蓄力层必须在主角之外、且是主角的父层"
+    assert html.index("function poseWorld(name){") < i_ant < html.index("function renderA(step){"), \
+        "让拍与蓄力都在 poseWorld 里就地声明（renderer 只写这一步蓄不蓄）"
+    assert "{class:'lift', 'data-lift': lift ? '1' : '0'}" in html, \
+        "投影层是纯包装：位置归外层 c-a/c-b，描边归内层 rect"
+
+    # ⑦ reduced-motion：四条齐全，且关掉的是补间与事件、不是档位读数
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
+    rm_code = re.sub(r"/\*.*?\*/", "", rm, flags=re.S)
+    assert ".settle{animation:none}" in rm_code and ".wind{animation:none}" in rm_code
+    assert ".wind > g{transition-delay:0s}" in rm_code, \
+        "让拍要跟着归零：兜底不该是「先停 95ms 再瞬移」（实测不归零会读回 0.0952s）"
+    assert ".lift{transition:none}" in rm_code, "关的是补间不是档位：data-lift 与 --elev 终值仍读得到"
+    for dead in ("--elev", "data-lift", "--squash-x", "--wind-back", "--lift-hi"):
+        assert dead not in rm_code, f"reduce 里不许出现 {dead}：那是把状态读数一起关掉（纪律③）"
+    assert "transition-delay:var(--wind-hold)" not in rm_code
+
+    # ⑧ 本轮量过仍不请回来的（连同像素与矩阵证据一起复述理由）
+    assert "@keyframes liftIn" not in css and "@keyframes windBack" not in css, \
+        "三条都靠 transition / 一段关键帧完成，不要多一层 JS 排程"
+    assert "will-change" not in css, "为装饰性合成加 will-change：本轮没量到收益，先不加"
+
+
+_SETTLE_STATE = r"""(function(){
+  var n = document.getElementById('%s-sq'), r = document.getElementById('%s-r');
+  var cs = getComputedStyle(n), q = r.getBoundingClientRect();
+  return JSON.stringify({cls:n.getAttribute('class'), an:cs.animationName,
+    dur:cs.animationDuration, fill:cs.animationFillMode, ease:cs.animationTimingFunction,
+    tb:cs.transformBox, org:cs.transformOrigin, scale:cs.scale,
+    running:(n.getAnimations({subtree:false})||[]).length,
+    inner:getComputedStyle(r).animationName,
+    tpItems:cs.transitionProperty.split(',').length,
+    w:+q.width.toFixed(3), h:+q.height.toFixed(3), bottom:+(q.y + q.height).toFixed(2)});
+})()"""
+
+# 冻结采样：重新挂上 class 起一段 settleIn，暂停后按九个档位读 scale 与屏幕盒。
+# 九个档位取 [0,60,160,200,210,254,294,340,419]：两端 + 38%/70% 两格 + 中间若干，
+# 为的是"下沿一个都不许动"这句话必须有九个证据而不是三个。
+_SETTLE_FREEZE = r"""(function(id, org, ease, times){
+  var n = document.getElementById(id + '-sq'), r = document.getElementById(id + '-r');
+  n.setAttribute('class', 'nt'); void n.getBoundingClientRect();
+  if (org) n.style.transformOrigin = org;
+  if (ease) n.style.animationTimingFunction = ease;
+  n.setAttribute('class', 'nt settle'); void n.getBoundingClientRect();
+  var a = (n.getAnimations({subtree:false}) || []).filter(function(x){
+    return x.animationName === 'settleIn';})[0];
+  if (!a) return JSON.stringify({err:'settleIn 不在场', an:(n.getAnimations({subtree:false})||[]).map(
+    function(x){ return x.animationName || x.transitionProperty; })});
+  a.pause(); var rows = [];
+  times.forEach(function(t){
+    a.currentTime = t; void r.getBoundingClientRect();
+    var q = r.getBoundingClientRect();
+    rows.push({t:t, scale:getComputedStyle(n).scale, w:+q.width.toFixed(3),
+               h:+q.height.toFixed(3), area:+(q.width * q.height).toFixed(1),
+               bottom:+(q.y + q.height).toFixed(2)});
+  });
+  var ct = a.effect.getComputedTiming();
+  var out = {dur:ct.duration, fill:ct.fill, rows:rows,
+             rest:getComputedStyle(n).scale, tb:getComputedStyle(n).transformBox,
+             org:getComputedStyle(n).transformOrigin,
+             csEase:getComputedStyle(n).animationTimingFunction};
+  a.cancel();
+  n.style.transformOrigin = ''; n.style.animationTimingFunction = '';
+  return JSON.stringify(out);
+})('%s','%s','%s',%s)"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_settle_lands_with_its_bottom_edge_on_the_floor(full_lesson):
+    """真实浏览器：徽标**落下来**那一下有质量，而接触的那条边全程不动（0.23.0）。
+
+    范本 seg-1 s2 第一次挂出 `a-rule` 这一枚判词徽标，中间那层 `<g class="settle">`
+    就是挤压落位。量四件事（数字全部来自 Chrome 152 的 `pause()` + `currentTime`）：
+      · **静止态 = 终态**：演完之后 `getComputedStyle().scale` 读回 `none`、
+        `getAnimations({subtree:false})` 为空、`animation-fill-mode` 是 `backwards`
+        而不是 `forwards`——切掉 animation 的导出帧落在"稳稳在那一格"；
+      · **支点**：`transform-box:fill-box` + `transform-origin:50% 100%`（计算值
+        `35px 28px` = 药丸的底边中点），九个冻结档位的屏幕下沿**一个不差全是 514.05**；
+        把原点改回默认的 `50% 50%` 重跑同一批档位，t=200 那格下沿落到 512.51——
+        抬离接触线 **1.54 设备px**，约为该格高度损失（3.10px）的一半，那就是悬浮；
+      · **体积近似守恒**（二维面积，压扁那格亏一点、弹起那格赚一点）：压扁 38% 那格
+        面积比静止少 4.2%，0% 拉长那格只差 0.2%，70% 回弹那格多 0.9%；
+      · **曲线只能是 linear**：同一节点把 `animation-timing-function` 换成 --ease-out，
+        t=105ms（行程的四分之一）就读到 1.13742×.842954——压扁那一格被提前演完，
+        "砸下去—弹起来"变成"一开头就砸完"；linear 下同一刻还在 1.04421×.949474 半路。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "settle23")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        ev("window.__jump('seg-1', 1)")
+        # s1 那一格还没有这枚徽标（它在 s2 第一次落位）
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(1.0)                                     # 420ms 的行程自己走完
+
+        st = json.loads(ev(_SETTLE_STATE % ("a-rule", "a-rule")))
+        assert st["cls"] == "nt settle" and st["an"] == "settleIn", \
+            f"落位层挂的是 .settle、演的是 settleIn：{st}"
+        assert st["dur"] == "0.42s" and st["ease"] == "linear", f"时长 --dur-settle、曲线 linear：{st}"
+        assert st["fill"] == "backwards" and "forwards" not in st["fill"], \
+            f"backwards 不写 forwards：静止态必须是元素自己的 scale：{st}"
+        assert st["scale"] == "none" and st["running"] == 0, \
+            f"演完之后不落任何终态痕迹（导出吃这一格）：{st}"
+        assert st["tb"] == "fill-box" and st["org"] == "35px 28px", \
+            f"支点是包围盒底边中点：{st}"
+        assert st["inner"] == "ntIn", f"淡入留在内层图元上，两层各演各的：{st}"
+        assert st["tpItems"] == 17, \
+            f".settle 只声明 animation，不抢 .nt 那份十七项 transition 清单：{st}"
+        floor = st["bottom"]
+
+        TIMES = "[0,60,160,200,210,254,294,340,419]"
+        fz = json.loads(ev(_SETTLE_FREEZE % ("a-rule", "", "", TIMES)))
+        assert "err" not in fz, str(fz)
+        assert fz["dur"] == 420 and fz["fill"] == "backwards", f"冻结读到的行程本体：{fz}"
+        assert [f["bottom"] for f in fz["rows"]].count(floor) == len(fz["rows"]), \
+            f"九个档位的下沿全都钉在接触线 {floor} 上（实测 514.05）：{fz['rows']}"
+        got = {f["t"]: f for f in fz["rows"]}
+        assert got[0]["scale"] == "0.86 1.16", \
+            f"0% 那档是镜像出来的拉伸格 calc(2 − 1.14) × calc(2 − .84)：{got[0]}"
+        assert got[160]["scale"].startswith("1.1394"), \
+            f"38% 那档读的就是压扁档（t=160 = 420×38%）：{got[160]}"
+        assert got[294]["scale"] == "0.97 1.04", f"70% 是回弹那一格：{got[294]}"
+        rest = got[419]["area"]
+        assert 0.955 < got[160]["area"] / rest < 0.975, \
+            f"压扁那格面积比静止少 4.2%（−4%～−2% 之间，守恒取的是二维近读数）：{got[160]}"
+        assert 0.995 < got[0]["area"] / rest < 1.005, \
+            f"拉长那格只差 0.2%——镜像写法本来就比压扁那格更守恒：{got[0]}"
+        assert 1.0 < got[294]["area"] / rest < 1.015, \
+            f"回弹那格赚 0.9%：砸下去亏一点、弹起来赚一点：{got[294]}"
+
+        # 支点回到默认中心：同一段行程，底边抬离接触线
+        ctr = json.loads(ev(_SETTLE_FREEZE % ("a-rule", "50% 50%", "", TIMES)))
+        c200 = [f for f in ctr["rows"] if f["t"] == 200][0]
+        assert c200["scale"] == got[200]["scale"], f"同一档位同一形状，改的只是支点：{c200}"
+        assert floor - c200["bottom"] >= 1.0, \
+            f"原点是 50% 50% 时底边抬离接触线（实测 514.05 → 512.51，差 1.54px）：{c200}"
+
+        # 曲线 A/B：换成 --ease-out，压扁那一格被提前到行程四分之一处
+        ab = json.loads(ev(_SETTLE_FREEZE % ("a-rule", "", "cubic-bezier(.22,1,.36,1)", "[105]")))
+        lin = json.loads(ev(_SETTLE_FREEZE % ("a-rule", "", "linear", "[105]")))
+        x_eo = float(ab["rows"][0]["scale"].split()[0])
+        x_ln = float(lin["rows"][0]["scale"].split()[0])
+        assert x_eo > 1.12 and x_ln < 1.08, \
+            f"t=105：ease-out 已读到 {x_eo}（压扁演完），linear 还在 {x_ln} 半路：{ab} vs {lin}"
+        assert lin["rows"][0]["bottom"] == floor == ab["rows"][0]["bottom"], \
+            "换曲线不许把底边挪走"
+    finally:
+        _kill(chrome)
+
+
+_WIND_READ = r"""(function(){
+  var h = document.getElementById('w-10'), a = document.getElementById('w-10-ant');
+  var cs = getComputedStyle(h), ca = getComputedStyle(a);
+  var q = h.getBoundingClientRect();
+  return JSON.stringify({antCls:a.getAttribute('class'), antAnim:ca.animationName,
+    antDur:ca.animationDuration, antEase:ca.animationTimingFunction,
+    antTranslate:ca.translate, antFill:ca.animationFillMode,
+    heroInAnt:(h.parentNode === a), heroCls:h.getAttribute('class'),
+    heroDelay:cs.transitionDelay, heroTp:cs.transitionProperty,
+    heroTd:cs.transitionDuration, heroTe:cs.transitionTimingFunction.slice(0, 32),
+    back:ca.getPropertyValue('--wind-back'), hold:ca.getPropertyValue('--wind-hold'),
+    y:+q.y.toFixed(2)});
+})()"""
+
+# 冻结采样 windIn：蓄力层的行程两端都回零，34% 那格是峰值。
+# 曲线必须从 animationTimingFunction 读——getComputedTiming().easing 给的是
+# 关键帧自己的 easing（CSS 动画恒为 'linear'），读错了会以为没缓动。
+_WIND_FREEZE = r"""(function(){
+  var n = document.getElementById('w-10-ant');
+  n.setAttribute('class', 'nt'); void n.getBoundingClientRect();
+  n.setAttribute('class', 'nt wind'); void n.getBoundingClientRect();
+  var a = (n.getAnimations({subtree:false}) || []).filter(function(x){
+    return x.animationName === 'windIn';})[0];
+  if (!a) return JSON.stringify({err:'windIn 不在场', an:(n.getAnimations({subtree:false})||[]).map(
+    function(x){ return x.animationName || x.transitionProperty; })});
+  a.pause(); var rows = [];
+  [0, 95, 140, 180, 279].forEach(function(t){
+    a.currentTime = t; void n.getBoundingClientRect();
+    rows.push({t:t, tr:getComputedStyle(n).translate});
+  });
+  var ct = a.effect.getComputedTiming();
+  var out = {dur:ct.duration, fill:ct.fill, timingEase:ct.easing,
+             csEase:getComputedStyle(n).animationTimingFunction,
+             fill2:getComputedStyle(n).animationFillMode, rows:rows};
+  a.cancel();
+  return JSON.stringify(out);
+})()"""
+
+# 逐 rAF 采主角的屏幕 y：蓄力到底有没有"看得见"，只有沿屏幕坐标问才答得出。
+_WIND_SAMPLER = r"""(function(){
+  var ant = document.getElementById('w-10-ant'), h = document.getElementById('w-10');
+  var rows = [], t0 = performance.now();
+  window.__jump('seg-1', 3);
+  return new Promise(function(res){
+    (function step(){
+      var q = h.getBoundingClientRect();
+      rows.push([+(performance.now() - t0).toFixed(1), +q.y.toFixed(2),
+                 getComputedStyle(ant).translate, getComputedStyle(h).transitionDelay]);
+      if (performance.now() - t0 < 760) requestAnimationFrame(step);
+      else res(JSON.stringify(rows));
+    })();
+  });
+})()"""
+
+
+def _tval(s):
+    """`getComputedStyle().translate` 在静止/零位移时塌成一个值（`"0px"` / `"none"`），
+       有 y 分量时才是两个值：直接 split()[1] 会 IndexError，也会把"没动"读成"动了"。"""
+    if not s or s == "none":
+        return 0.0
+    p = s.split()
+    return float(p[1][:-2]) if len(p) > 1 else float(p[0][:-2])
+
+
+def _wind_dip(ev, override, tag):
+    """s2 → s3 那一步的屏幕读数：起点、最低点（y 最大）、回落终位、蓄力层峰值位移。
+
+    `override` 是给 A/B 对照组注入的样式（范本现状传空串）。
+    """
+    ev("window.__jump('seg-1', 2)")
+    time.sleep(1.1)                       # 让主角先落回 s2 那一格（位移本身在补间）
+    if override:
+        ev("(function(){var s=document.createElement('style');s.id='ab023';s.textContent="
+           + json.dumps(override) + ";document.head.appendChild(s);return 1;})()")
+    rows = json.loads(ev(_WIND_SAMPLER, True))
+    if override:
+        ev("document.getElementById('ab023').remove()")
+    ys = [r[1] for r in rows]
+    time.sleep(0.6)
+    return {"tag": tag, "n": len(rows), "y0": ys[0], "max": max(ys),
+            "dip": round(max(ys) - ys[0], 2), "end": ys[-1],
+            "antMax": round(max(_tval(r[2]) for r in rows), 3),
+            "delay0": rows[0][3], "t_peak": rows[ys.index(max(ys))][0]}
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_wind_anticipates_by_borrowing_a_frame_from_the_move(full_lesson):
+    """真实浏览器：主角上架子之前先往下沉一下，而那一下是**借来的**（0.23.0）。
+
+    范本 seg-1 s3 把世界层换成 `shelf` 姿势（y 232→84、k 1→.46），`w-10-ant` 那一层
+    挂上 `.wind`。三件事必须一起成立，"它自己跳上去的"才读得出来：
+      · 蓄力层的行程：`windIn` 280ms、`--ease-in-out` = `cubic-bezier(0.65, 0, 0.35, 1)`、
+        34% 那格（t=95.2ms）读到 `0px 8.99997px`（= `--wind-back` 9 单位），两端回零、
+        `fill:none`、静止态 `translate` 读 `none`——事件不是状态；
+      · 让拍只改延迟不改清单：主角 `w-10` 的 `transitionDelay` 从 s2 的十七个 `0s`
+        变成 s3 的一格 `0.0952s`，而 `transitionProperty` / `transitionDuration` /
+        `transitionTimingFunction` 与不蓄力的那一步**逐字符相同**（十七项）；
+      · **主动作必须为它让出那一拍**（这条是量出来的，不是美学判断）：同一步走三遍，
+        每遍逐 rAF 采主角屏幕 y（起点 348.17）——范本现状最低沉到 **429.17**
+        （dip 81.00 设备px，峰值在 110~126ms）；只让不蓄（`.wind{animation:none}`）
+        **416.75**（dip 68.58）；只蓄不让（延迟归零）dip **0.00**——蓄力层自己确实
+        算出了 8.995 的位移，可屏幕上完全没有回头，观众看不见。范本现状比"只让不蓄"
+        多沉的那 12.4px 才是"它要跳"。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "wind23")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+
+        ev("window.__jump('seg-1', 2)")
+        assert _wait_idle(ev, "#w-10") == [], "s2 落定后不该还有补间在跑"
+        s2 = json.loads(ev(_WIND_READ))
+        assert s2["antCls"] == "nt" and s2["antAnim"] == "none", \
+            f"不蓄力的那一步：蓄力层还在（主角的父层），但 class 是空状态：{s2}"
+        assert s2["heroInAnt"] is True, "主角住在蓄力层里（`.wind > g` 的 g 就是它）"
+        assert len(s2["heroTp"].split(",")) == 17 and s2["heroDelay"].count("0s") == 17, \
+            f"不蓄力时十七项清单配十七个 0s：{s2}"
+
+        ev("window.__jump('seg-1', 3)")
+        s3 = json.loads(ev(_WIND_READ))
+        assert s3["antCls"] == "nt wind" and s3["antAnim"] == "windIn", \
+            f"上架子那一步才蓄力（class 由姿势推导，导出冷启动也演）：{s3}"
+        assert s3["antDur"] == "0.28s", f"蓄力行程 --dur-wind .28s：{s3}"
+        assert s3["antEase"] == "cubic-bezier(0.65, 0, 0.35, 1)", \
+            f"曲线是 --ease-in-out（一去一回对称行程）：{s3}"
+        assert s3["antFill"] == "none", f"两端归零、不填终态：{s3}"
+        assert s3["back"] == "9" and s3["hold"] == "calc(.28s * .34)", \
+            f"幅度与让拍都从令牌来：{s3}"
+        assert s3["heroDelay"] == "0.0952s", \
+            f"十七个 0s 换成一格 0.0952s（--wind-hold）：{s3}"
+        for k in ("heroTp", "heroTd", "heroTe"):
+            assert s3[k] == s2[k], f"{k} 不许被让拍动到（只写长档）：\n{s2[k]}\n{s3[k]}"
+
+        fz = json.loads(ev(_WIND_FREEZE))
+        assert "err" not in fz, str(fz)
+        assert fz["dur"] == 280 and fz["fill"] == "none" and fz["fill2"] == "none", \
+            f"280ms、两端归零、不填充：{fz}"
+        assert fz["csEase"] == "cubic-bezier(0.65, 0, 0.35, 1)", f"{fz}"
+        assert fz["timingEase"] == "linear", \
+            "getComputedTiming().easing 给的是关键帧自己的 easing（恒 linear）——" \
+            "曲线要从 animationTimingFunction 读，这条断言就是在锁这个读法"
+        rows = {r["t"]: r["tr"] for r in fz["rows"]}
+        assert _tval(rows[0]) == 0.0, f"起点不预位移：{rows[0]}"
+        assert abs(_tval(rows[95]) - 8.99997) < 0.01, \
+            f"34% 那格（95.2ms）蓄满 --wind-back 9 单位：{rows[95]}"
+        assert _tval(rows[140]) < _tval(rows[95]) and _tval(rows[180]) < _tval(rows[140]), \
+            f"过了峰值就往回收：{rows}"
+        assert _tval(rows[279]) < 0.01, f"收尾回到零（事件不是状态）：{rows[279]}"
+
+        assert _wait_idle(ev, "#w-10") == [], "主角那层的补间要先落定，才谈得上静止态读数"
+        idle = json.loads(ev(r"""(function(){
+          var a = document.getElementById('w-10-ant'), h = document.getElementById('w-10');
+          return JSON.stringify({tr:getComputedStyle(a).translate,
+            an:(a.getAnimations({subtree:false})||[]).length,
+            han:(h.getAnimations({subtree:false})||[]).map(function(x){
+              return x.transitionProperty || x.animationName;})});
+        })()"""))
+        assert idle["tr"] == "none" and idle["an"] == 0 and \
+            [x for x in idle["han"] if x] == [], f"落定之后蓄力层什么都不留：{idle}"
+
+        A = _wind_dip(ev, "", "shipped")
+        B = _wind_dip(ev, ".wind{animation:none!important}", "hold_only")
+        C = _wind_dip(ev, ".wind > g{transition-delay:0s!important}", "wind_only")
+        assert A["y0"] == B["y0"] == C["y0"], f"三步的起点同格：{A['y0']} {B['y0']} {C['y0']}"
+        for v in (A, B, C):
+            assert abs(v["end"] - 283.65) < 0.5, \
+                f"三遍的终点都落在 shelf 那一格（让拍不许改终态）：{v}"
+        assert A["dip"] > 60, f"范本现状：屏幕 y 先沉到 429 一线（实测 dip 81.00）：{A}"
+        assert A["antMax"] > 8.5, f"蓄力层自己确实走满了 9 单位：{A}"
+        assert B["antMax"] == 0.0 and B["dip"] > 40, \
+            f"只让不蓄：让出那一拍本身就有 68.58 的下沉（镜头在推近，旧位置在画面上沉下去）：{B}"
+        assert C["dip"] < 10, \
+            f"只蓄不让：dip 0.00——蓄力层算出了位移而屏幕上完全不回头，观众看不见：{C}"
+        assert C["antMax"] > 8.5, f"对照组里蓄力层自己照样走满：{C}"
+        assert A["dip"] - B["dip"] > 6, \
+            f"蓄力在屏幕上多推下来的那 ~12.4px 才是「它要跳」：A {A['dip']} vs B {B['dip']}"
+    finally:
+        _kill(chrome)
+
+
+_LIFT_READ = r"""(function(){
+  var n = document.getElementById('c-a-lf'), r = document.getElementById('c-a-r');
+  var cs = getComputedStyle(n), q = r.getBoundingClientRect();
+  return JSON.stringify({cls:n.getAttribute('class'), data:n.getAttribute('data-lift'),
+    tp:cs.transitionProperty, td:cs.transitionDuration, te:cs.transitionTimingFunction.slice(0, 32),
+    an:cs.animationName, elev:cs.getPropertyValue('--elev'), filter:cs.filter,
+    tr:cs.translate, bs:cs.boxShadow, ink:cs.getPropertyValue('--lift-ink'),
+    h:cs.height, y:+q.y.toFixed(2),
+    running:(n.getAnimations({subtree:false})||[]).length});
+})()"""
+
+# 冻结 --elev 那条补间：同一次读里把影子两个数与 translate 一起取回来，
+# 这三者必须永远等于 1.5× / 1.2× / −1× 同一个 --elev（派生，不是第二套补间）。
+_LIFT_FREEZE = r"""(function(){
+  var n = document.getElementById('c-a-lf'), r = document.getElementById('c-a-r');
+  window.__jump('seg-4', 0); void n.getBoundingClientRect();
+  window.__jump('seg-4', 1); void n.getBoundingClientRect();
+  var list = (n.getAnimations({subtree:false}) || []).filter(function(x){
+    return x.transitionProperty === '--elev';});
+  if (list.length !== 1) return JSON.stringify({err:'--elev 的补间不是恰好一条',
+    an:(n.getAnimations({subtree:false})||[]).map(function(x){
+      return x.transitionProperty || x.animationName;})});
+  var a = list[0]; a.pause(); var rows = [];
+  [0, 120, 250, 379].forEach(function(t){
+    a.currentTime = t; void r.getBoundingClientRect();
+    var cs = getComputedStyle(n), nums = (cs.filter.match(/-?[\d.]+px/g) || []);
+    rows.push({t:t, elev:cs.getPropertyValue('--elev'), off:nums[1], blur:nums[2],
+               tr:cs.translate, y:+r.getBoundingClientRect().y.toFixed(3)});
+  });
+  var ct = a.effect.getComputedTiming();
+  var out = {dur:ct.duration, ease:ct.easing, kf:a.effect.getKeyframes().map(function(k){
+    return k['--elev'];}), rows:rows};
+  a.cancel();
+  out.after = getComputedStyle(n).getPropertyValue('--elev');
+  return JSON.stringify(out);
+})()"""
+
+_LIFT_FRAMES = r"""(function(){
+  var n = document.getElementById('c-a-lf'), r = document.getElementById('c-a-r');
+  var t0 = performance.now(), rows = [];
+  window.__jump('seg-4', 1);
+  return new Promise(function(res){
+    (function step(){
+      var cs = getComputedStyle(n), nums = (cs.filter.match(/-?[\d.]+px/g) || []);
+      rows.push([+(performance.now() - t0).toFixed(1),
+                 parseFloat(cs.getPropertyValue('--elev')),
+                 nums.length > 1 ? parseFloat(nums[1]) : null,
+                 nums.length > 2 ? parseFloat(nums[2]) : null,
+                 cs.translate, +r.getBoundingClientRect().y.toFixed(3)]);
+      if (performance.now() - t0 < 560) requestAnimationFrame(step);
+      else res(JSON.stringify(rows));
+    })();
+  });
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_lift_raises_a_shadow_that_is_not_a_second_tween(full_lesson):
+    """真实浏览器：影子**跟着牌走**，因为它俩本来就是同一个数（0.23.0）。
+
+    范本 seg-4 的 a/b 两块上各有一层 `<g class="lift">`——谁排在前面谁被提到台面上方。
+    量五件事（Chrome 152 冻结采样 + 逐 rAF 对账）：
+      · 静止态就在地面上：`data-lift="0"`、`--elev:0px`（`@property` 的 initial）、
+        `filter` 是 `drop-shadow(rgba(4, 6, 10, 0.62) 0px 0px 0px)`、`box-shadow:none`、
+        `animation:none`；
+      · 清单里只有 `--elev` 一项、时长 `--dur-lift .38s`、曲线 `--ease-out`；
+        补间两端 `["0px","5px"]`（5px = `--lift-hi`），`cancel()` 之后落回 `5px`；
+      · **派生逐帧成立**：t=120ms 读到 `--elev` 4.24728px / 影子偏移 6.37092px /
+        模糊 5.09674px / `translate:0px -4.24728px`——偏移恒为 1.5×、模糊恒为 1.2×、
+        抬升恒为 −1×；整段 35 帧里最大偏差 0.00001px（阈值给 0.02）。所以影子不需要
+        自己再补间一次，`filter` 进清单是第二套补间（本轮否决③）；
+      · 六步的档位表就是那三条契约的形状：s0 都不抬、s1 只抬 a、s2 两枚同高
+        （"相等"在这台仪器上就是同高）、s3 只抬 b、s4/s5 回到台面；
+      · 投影不裁命中测试：抬起那一格牌心 `elementFromPoint` 仍落回字节点 `c-a-t`，
+        下沿外 8px 落回台面 `rect`；同一份 `box-shadow` 写在 `c-a-r` / `c-a-lf` 上
+        **计算值读得到**（`rgb(255, 0, 0) 0px 14px 20px 0px`）而屏幕上 28836 个采样点
+        一个都不动（正对照：HTML 盒 2408 点里变 2005 个）——读得到不等于画得出。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "lift23")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        ev("window.__jump('seg-4', 0)")
+        assert _wait_idle(ev, "#c-a-lf") == [], "s0 落定后不该还有补间在跑"
+
+        st = json.loads(ev(_LIFT_READ))
+        assert st["cls"] == "nt lift" and st["data"] == "0", f"投影层是纯包装：{st}"
+        assert st["tp"] == "--elev" and st["td"] == "0.38s", \
+            f"清单里只有 --elev 一项（filter 是派生不是补间对象）：{st}"
+        assert st["te"].startswith("cubic-bezier(0.22, 1, 0.36, 1)"), f"曲线 --ease-out：{st}"
+        assert st["an"] == "none" and st["bs"] == "none", \
+            f"这一层不演关键帧也不用 box-shadow：{st}"
+        assert (st["elev"], st["tr"]) == ("0px", "0px"), \
+            f"@property 初值 0px = 还在台面上（不播/不能播/导出都落这格）：{st}"
+        assert st["filter"] == "drop-shadow(rgba(4, 6, 10, 0.62) 0px 0px 0px)", \
+            f"墨色 --lift-ink 在令牌上、零抬升就是零影子：{st}"
+
+        fz = json.loads(ev(_LIFT_FREEZE))
+        assert "err" not in fz, str(fz)
+        assert fz["dur"] == 380 and fz["ease"] == "cubic-bezier(0.22, 1, 0.36, 1)", \
+            f"时长与曲线：{fz}"
+        assert fz["kf"] == ["0px", "5px"], f"两端就是台面与 --lift-hi：{fz['kf']}"
+        rows = {r["t"]: r for r in fz["rows"]}
+        for t in rows:
+            e = float(rows[t]["elev"][:-2])
+            assert abs(float(rows[t]["off"][:-2]) - 1.5 * e) < 0.02, f"t={t} 偏移恒 1.5×：{rows[t]}"
+            assert abs(float(rows[t]["blur"][:-2]) - 1.2 * e) < 0.02, f"t={t} 模糊恒 1.2×：{rows[t]}"
+            assert abs(_tval(rows[t]["tr"]) + e) < 0.02, f"t={t} 抬升恒 −1×：{rows[t]}"
+        assert abs(float(rows[120]["elev"][:-2]) - 4.24728) < 0.01, \
+            f"冻结在 t=120 的读数（本轮写进注释的那一组）：{rows[120]}"
+        assert rows[379]["elev"] == "5px" and float(rows[120]["y"]) > float(rows[379]["y"]), \
+            f"一路走向终格且落在 5px：{rows[379]}"
+        assert fz["after"] == "5px", f"cancel 之后回到属性上那一档：{fz['after']}"
+
+        # 逐帧：补间真的在跑（不是跳过去），而派生关系一帧都没脱开
+        ev("window.__jump('seg-4', 0)")
+        assert _wait_idle(ev, "#c-a-lf") == [], "s0 落定后不该有补间"
+        frames = json.loads(ev(_LIFT_FRAMES, True))
+        assert len(frames) >= 20, f"整段 .38s 至少采到 20 帧：{len(frames)}"
+        mid = [r for r in frames if 0.02 < r[1] < 4.98]
+        assert len({r[1] for r in mid}) >= 8, \
+            f"--elev 是补间过去的、不是跳过去的（实测 24 个不同中间值）：{len(mid)}"
+        worst = 0.0
+        for t, e, off, blur, tr, y in frames:
+            if off is None or blur is None:
+                continue
+            worst = max(worst, abs(off - 1.5 * e), abs(blur - 1.2 * e), abs(_tval(tr) + e))
+        assert worst < 0.02, f"35 帧里派生关系最大偏差（实测 0.00001px）：{worst}"
+
+        # 六步档位表：三条契约各自一格，s4/s5 回到台面
+        want = [(("0", "0px"), ("0", "0px")), (("1", "5px"), ("0", "0px")),
+                (("1", "5px"), ("1", "5px")), (("0", "0px"), ("1", "5px")),
+                (("0", "0px"), ("0", "0px")), (("0", "0px"), ("0", "0px"))]
+        for k, exp in enumerate(want):
+            ev("window.__jump('seg-4', %d)" % k)
+            for who in ("#c-a-lf", "#c-b-lf"):
+                assert _wait_idle(ev, who) == [], f"s{k} 落定后 {who} 不该有补间"
+            got = json.loads(ev(r"""(function(){
+              var o = {};['a','b'].forEach(function(k){
+                var n = document.getElementById('c-' + k + '-lf');
+                o[k] = [n.getAttribute('data-lift'),
+                        getComputedStyle(n).getPropertyValue('--elev')];});
+              return JSON.stringify(o);})()"""))
+            assert (tuple(got["a"]), tuple(got["b"])) == exp, f"s{k} 档位该是 {exp}：{got}"
+
+        # 命中与否决
+        ev("window.__jump('seg-4', 1)")
+        time.sleep(0.6)
+        hit = json.loads(ev(r"""(function(){
+          var vp = document.getElementById('veilplay');
+          if (vp) vp.style.display = 'none';
+          var q = document.getElementById('c-a-r').getBoundingClientRect();
+          var a = document.elementFromPoint(q.x + q.width / 2, q.y + q.height / 2);
+          var b = document.elementFromPoint(q.x + q.width / 2, q.bottom + 8);
+          return JSON.stringify({hit:a ? (a.id || a.tagName) : null,
+                                 below:b ? (b.id || b.tagName) : null});
+        })()"""))
+        assert hit["hit"] == "c-a-t", \
+            f"drop-shadow 与 mask 一样不裁命中测试，牌心仍点得到字：{hit}"
+        assert hit["below"] == "rect", f"下沿外 8px 落回台面：{hit}"
+        bs = json.loads(ev(r"""(function(){
+          var r = document.getElementById('c-a-r'), g = document.getElementById('c-a-lf');
+          r.style.boxShadow = '0 14px 20px rgba(255,0,0,1)';
+          g.style.boxShadow = '0 14px 20px rgba(255,0,0,1)';
+          var v = [getComputedStyle(r).boxShadow, getComputedStyle(g).boxShadow];
+          r.style.boxShadow = ''; g.style.boxShadow = '';
+          return JSON.stringify({onRect:v[0], onG:v[1]});
+        })()"""))
+        assert "0px 14px 20px" in bs["onRect"] and "0px 14px 20px" in bs["onG"], \
+            f"box-shadow 的计算值读得到（本轮否决①的全部陷阱：读得到 ≠ 画得出，" \
+            f"屏幕对拍 28836 点变 0 个）：{bs}"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_settle_wind_lift_reduced_motion_and_shot_terminals(full_lesson):
+    """减动效与导出两刀之下：三条各落**该说的那件事**，一格内容不少（0.23.0）。
+
+      · 减动效：`.settle{animation:none}` 之后徽标的 `scale` 读 `none`、屏幕盒就是
+        静止盒（`a-rule` 高 30.966、下沿仍在接触线 514.05）——落"稳稳在那一格"，
+        没有半截压扁的定格留在画面上；
+      · `.wind{animation:none}` + `.wind > g{transition-delay:0s}`：蓄力层留着
+        （class 仍是 `nt wind`）但不演，主角**立刻**读回 shelf 终位 283.65（位移
+        由 `transform` 属性承载，不是蓄力层承载的），而主角的 `transitionDelay`
+        必须回到 `0s`——兜底不是"先停 95.2ms 再瞬移"。这一行是承重的：把那档
+        `transition-delay:var(--wind-hold)` 原样重述到媒体块**之后**，`transition-property`
+        仍是 `none`（`.nt` 那行在管），而延迟读回 `0.0952s`——清单空了的时候延迟
+        确实不动任何东西，但兜底不该在页面上留一个"等着补间"的读数；
+      · `.lift{transition:none}` 关的是补间不是档位：`data-lift="1"` 那枚直接落
+        `--elev:5px`、`translate:0px -5px`、影子 `0px 7.5px 6px`，没抬的那枚
+        `0px` / `0px`——"这一对被提起来比"这件事仍然读得出（与 `#cap-hl` /
+        `.tilt` / `.ride` / `#spot` 同一判断）；
+      · 导出式一刀叠在 reduce 之上：徽标 `scale:none`、蓄力层 `translate:none` 且
+        主角落在 `translate(500,84) scale(0.46)` 那一格（"已经跳上去"），
+        s3 那一格里 b 抬 a 不抬、影子照旧——成片每帧都是这一格。
+    """
+    chrome, ev, send = _cdp(full_lesson, "rm23")
+    try:
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+
+        # ① .settle：不演，但盒就是那一格的盒
+        ev("window.__jump('seg-1', 2)")
+        st = json.loads(ev(_SETTLE_STATE % ("a-rule", "a-rule")))
+        assert st["an"] == "none" and st["scale"] == "none" and st["running"] == 0, \
+            f"减动效下徽标不演挤压、也不留半截压扁：{st}"
+        assert abs(st["bottom"] - 514.05) < 0.05 and abs(st["h"] - 30.966) < 0.05, \
+            f"静止态 = 终态（下沿仍在接触线上）：{st}"
+        ev("window.__jump('seg-1', 3)")
+        st2 = json.loads(ev(_SETTLE_STATE % ("a-str", "a-str")))
+        assert st2["an"] == "none" and st2["scale"] == "none" and st2["running"] == 0, \
+            f"换一枚徽标同样不演（class 由 renderer 现写，不是记住的）：{st2}"
+
+        # ② .wind：蓄力层在场但不演，位移直接落终位；让拍一起归零
+        w = json.loads(ev(_WIND_READ))
+        assert w["antCls"] == "nt wind" and w["antAnim"] == "none", \
+            f"这一拍该蓄力（class 由姿势推导），但兜底把事件关掉：{w}"
+        assert w["antTranslate"] == "none", f"关掉之后画布上什么都不留：{w}"
+        assert w["heroDelay"] == "0s", f"让拍跟着归零（不是先停 95ms 再瞬移）：{w}"
+        assert w["heroTp"] == "none", f".nt 的补间整条关掉的既有口径：{w}"
+        assert abs(w["y"] - 283.65) < 0.5, \
+            f"位移照旧由 transform 属性承载，主角立刻在 shelf 那一格：{w}"
+        ev("(function(){var s=document.createElement('style');s.id='ab23';"
+           "s.textContent='.wind > g{transition-delay:var(--wind-hold)}';"
+           "document.head.appendChild(s);return 1;})()")
+        time.sleep(0.2)
+        ab = json.loads(ev(r"""(function(){
+          var cs = getComputedStyle(document.getElementById('w-10'));
+          return JSON.stringify({delay:cs.transitionDelay, tp:cs.transitionProperty,
+                                 td:cs.transitionDuration});
+        })()"""))
+        assert ab["delay"] == "0.0952s" and ab["tp"] == "none", \
+            f"没有那行归零，页面上会留一个「等着补间」的读数（清单空了所以不动东西，" \
+            f"但读数不该在）：{ab}"
+        ev("document.getElementById('ab23').remove()")
+        time.sleep(0.2)
+        assert json.loads(ev("(function(){return JSON.stringify({d:getComputedStyle("
+                             "document.getElementById('w-10')).transitionDelay});})()"))["d"] == "0s", \
+            "归零那行确实压得住（同特异度、源序在后）"
+
+        # ③ .lift：关补间不关档位
+        ev("window.__jump('seg-4', 1)")
+        lf = json.loads(ev(_LIFT_READ))
+        assert lf["data"] == "1" and lf["elev"] == "5px" and lf["tr"] == "0px -5px", \
+            f"档位读数全在：抬的是这一对里的 a：{lf}"
+        assert lf["tp"] == "none" and lf["running"] == 0, f"关的是补间不是档位：{lf}"
+        assert lf["filter"] == "drop-shadow(rgba(4, 6, 10, 0.62) 0px 7.5px 6px)", \
+            f"影子直接落 1.5× / 1.2× 那一档：{lf}"
+        b = json.loads(ev(r"""(function(){
+          var n = document.getElementById('c-b-lf'), cs = getComputedStyle(n);
+          return JSON.stringify({data:n.getAttribute('data-lift'),
+            elev:cs.getPropertyValue('--elev'), tr:cs.translate});
+        })()"""))
+        assert b == {"data": "0", "elev": "0px", "tr": "0px"}, \
+            f"没抬的那枚还在台面上（不是半截抬升）：{b}"
+        ev("window.__jump('seg-4', 2)")
+        both = json.loads(ev(r"""(function(){
+          var o = {};['a','b'].forEach(function(k){
+            var n = document.getElementById('c-' + k + '-lf');
+            o[k] = n.getAttribute('data-lift') + '/' +
+                   getComputedStyle(n).getPropertyValue('--elev');});
+          return JSON.stringify(o);})()"""))
+        assert both == {"a": "1/5px", "b": "1/5px"}, \
+            f"契约 `a − b = 0` 在这台仪器上的形状就是两枚同高：{both}"
+
+        # ④ 导出截图页口径：reduce 之上再叠一刀（与 export_video.SNIPPET 同式）
+        ev("var s=document.createElement('style');s.textContent="
+           "'*,*::before,*::after{transition:none!important;animation:none!important}';"
+           "document.head.appendChild(s);")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-1', 3)")
+        ex = json.loads(ev(_SETTLE_STATE % ("a-str", "a-str")))
+        assert ex["scale"] == "none" and ex["running"] == 0, \
+            f"导出帧里徽标稳稳在那一格：{ex}"
+        wx = json.loads(ev(r"""(function(){
+          var a = document.getElementById('w-10-ant'), h = document.getElementById('w-10');
+          return JSON.stringify({cls:a.getAttribute('class'),
+            an:getComputedStyle(a).animationName, tr:getComputedStyle(a).translate,
+            delay:getComputedStyle(h).transitionDelay,
+            transform:h.getAttribute('transform')});
+        })()"""))
+        assert wx["an"] == "none" and wx["tr"] == "none" and wx["delay"] == "0s", \
+            f"导出帧里没有半截蓄力：{wx}"
+        assert wx["transform"] == "translate(500,84) scale(0.46)", \
+            f"这一帧就是「已经跳上去」的那一格：{wx}"
+        ev("window.__jump('seg-4', 3)")
+        lx = json.loads(ev(r"""(function(){
+          var o = {};['a','b'].forEach(function(k){
+            var n = document.getElementById('c-' + k + '-lf'), cs = getComputedStyle(n);
+            o[k] = [n.getAttribute('data-lift'), cs.getPropertyValue('--elev'),
+                    cs.translate, cs.filter];});
+          return JSON.stringify(o);})()"""))
+        assert lx["a"] == ["0", "0px", "0px", "drop-shadow(rgba(4, 6, 10, 0.62) 0px 0px 0px)"], \
+            f"成片里 a 落回台面：{lx}"
+        assert lx["b"][0] == "1" and lx["b"][2] == "0px -5px" and \
+            lx["b"][3] == "drop-shadow(rgba(4, 6, 10, 0.62) 0px 7.5px 6px)", \
+            f"成片里 b 抬起、影子跟着：`契约 a − b > 0` 那一帧说得完整：{lx}"
+    finally:
+        _kill(chrome)

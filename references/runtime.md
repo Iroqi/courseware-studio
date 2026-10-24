@@ -337,6 +337,32 @@ animation 后计算值仍是 `circle(75% at 50% 50%)`（实测取消动画逐值
 `forwards`，成片上不可能出现半排雪佛龙压在正文上，截图模式另外还有一道 `__coursewareShotMode`
 不演。`.pregate` 走离散过渡：导出注入的 `#gate,#pregate{display:none!important}` 直接把它
 摘掉——`!important` 压得住补间，而 QA 读的 `hidden` 那把真值一行都没改。
+0.23.0 三条**都不需要见旗分支**，但落法分三组，而且**都只有一格**。`.settle` 走 animation
+且 fill 只有 `backwards`：注入的 `animation:none!important` 让计算值回到元素自身的
+`scale:none`——实测导出帧与 reduce 帧都读到徽标静止盒（`a-rule` 高 30.966、屏幕下沿
+514.05 与不演时逐值相同），成片里不可能出现半截压扁判词。`.wind` 也是 animation、两端与
+静止态都是 `translate:0 0`（**事件不是状态**），切掉之后蓄力层什么都不留，位移照旧由主角
+那层的 `transform` **呈现属性**承载——实测那一帧直接落 `translate(500,84) scale(0.46)`
+（"已经跳上去"那一格），而随它挂上去的让拍（`.wind > g` 的 `transition-delay`）必须在
+reduced-motion 里**一起归零**，否则页面留着一格"等着补间"的读数（实测归零后读回 `0s`，
+不归零读回 `0.0952s`——清单为空时它不动任何东西，但读数就是证据通道）。`.lift` 走
+transition 且**清单里只有 `--elev`**：`transition:none!important` 让计算值直接落到
+`data-lift` 那一档——实测 reduce 与导出两种切法下抬起那枚都是 `--elev:5px` /
+`translate:0px -5px` / 影子 `0px 7.5px 6px`，没抬的那枚 `0px` / `0px`，成片每一帧都在说
+"这一对被拿起来比、谁在前面"，关掉的只是抬升那 .38s 的行程。
+
+**QA 取样口径**这一轮加四条：① **CSS 动画的曲线不在 `effect.getComputedTiming().easing`
+上**——它返回关键帧自己的 easing，CSS 动画那里恒为 `linear`，于是 --ease-in-out 的 `.wind`
+会被读成"没缓动"；曲线要从 `getComputedStyle().animationTimingFunction` 读（CSS 过渡相反，
+`getComputedTiming().easing` 才对，0.22.0 那条）——回归用例把两个读数都断言一遍就是在锁这个
+读法；② `getComputedStyle().translate` 在零位移时**塌成一格**（静止读 `"0px"` / `"none"`，
+有 y 分量才读 `"0px -5px"`），`split()[1]` 会 IndexError，而把 `"0px"` 当"动了 0"读又会把
+"没动"混进样本——探针要统一走一个容错解析器；③ 蓄力"看不看得见"只能沿**屏幕 y** 判：
+`getBoundingClientRect()` 逐 rAF 采（范本 s2→s3 起点 348.17，现状 dip 81.00px / 只让不蓄
+68.58px / 只蓄不让 0.00px），读动画自身的 `translate` 会把"算出了位移"当成"观众看见了"——
+④ `.settle` 的"底边不动"要按**九个冻结档位**分别读屏幕下沿（只验两三格读不出"支点在接触边"
+这句话的分量），面积守恒同理是逐档的二维读数（压扁 −4.2% / 拉长 −0.2% / 回弹 +0.9%）。
+
 **QA 取样口径**这一轮加三条：① 灯罩的覆盖要拿 `#frameClip` 折出来的**取景框窗**断言，不是
 svg 外框——`#spot` 的 `getBoundingClientRect()` 因为 bleed 比画布大得多，跟 svg 比反而看不出
 "幕沿进画"这类漏；② 洞心读的是 `--spot-x` 的**计算值**，源文件里有那行令牌不算数（本轮踩过：

@@ -208,7 +208,19 @@ renderer 逐步声明，主角在世界层的那一句不打灯；灯只加暗�
 自己身上）、**浮层离散进出**（`.pregate` 用 `@starting-style` + `transition-behavior:
 allow-discrete` 过渡 `display`，进出各演一次；`display` 必须自己进 `transition-property` 清单、
 `transition-behavior` 单独一行、整块包 `@supports`，而 `hidden` 属性仍是 QA 放行信号的唯一真值
-——`#gate` 本体不转，见 stage.md §3.4 本轮"别这么干"）。——见 stage.md §3.4。每个视觉步先过
+——`#gate` 本体不转，见 stage.md §3.4 本轮"别这么干"）。这一轮把**重量、预备与次要动作**接上：
+**挤压落位**（`.settle` 四档关键帧配 `linear`，`0%` 写 `calc(2 - var(--squash-x))` 绕 1 镜像——压扁与
+拉长是同一支旋钮的两面；支点 `transform-box:fill-box` + `transform-origin:50% 100%` 落在接触边上，
+九个冻结档位的屏幕下沿全是 514.05，原点改回默认中心就抬离接触线 1.54 设备px；走独立 `scale` 不碰徽标
+的 `transform`，只挂纯包装 `<g>` 才不抢 `.nt` 的 transition 简写，`backwards` 而不写 `forwards`——
+静止态是元素自己的 `scale:none`）、**预备后蓄**（`.wind` 在主角之外那一层用独立 `translate` 反向蓄
+`--wind-back` 个单位再回零，一去一回是对称行程所以用 `--ease-in-out`；主动作必须为它让出
+`--wind-hold` 那一拍，且让拍写在**被补间的那一层**（`.wind > g`）的 `transition-delay` 长档上——
+实测不让那一步屏幕上下沉为 0，让了才有 81.00 设备px；`translate` 走父层（世界）坐标系是白送的，
+同一串写进 `transform` 列表会被自己的 `scale(.46)` 缩掉一半）、**提牌投影**（`.lift` 只注册一个
+`--elev`，抬升与 `drop-shadow` 的偏移、模糊全由它派生，所以影子不必自己再补间一次；状态读数是呈现
+属性 `data-lift="1"`，reduced-motion 关的是补间不是档位——SVG 的 `<g>` 没有盒，`box-shadow` 那份
+计算值读得到而屏幕 0 个采样点变）。——见 stage.md §3.4。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
 
