@@ -3837,16 +3837,17 @@ def test_tuck_retracts_on_reused_node(full_lesson):
 # 注意 data-URL 里 `<percentage>` 要写成实体，否则整张 SVG 解析失败（实测 onerror）。
 _LIT_INK = r"""new Promise(function(res){
   var FLOOR = @FLOOR@, RAMP = @RAMP@, BG = @BG@, FILL = @FILL@, K = 0.5;
-  var W = 640, H = 120;
+  var W = 640, H = 120, X0 = 20, TL = 520, X1 = X0 + TL, LIT = 118 * K;
   var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H +
     '" viewBox="0 0 ' + W + ' ' + H + '">' +
     '<style>@property --lit{syntax:\'&lt;percentage&gt;\';inherits:false;initial-value:118%}' +
-    'text{font:17px system-ui;font-weight:600}' +
+    'text{font:600 17px "Noto Sans CJK SC","Noto Sans","DejaVu Sans",sans-serif}' +
     '.l{mask-image:linear-gradient(90deg,#000 0 calc(var(--lit) - ' + RAMP + '%),' +
     'rgba(0,0,0,' + FLOOR + ') var(--lit) 100%)}</style>' +
     '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>' +
-    '<text id="t" class="l" x="20" y="60" fill="' + FILL +
-    '" style="--lit:' + (118 * K) + '%">' +
+    '<text id="t" class="l" x="' + X0 + '" y="60" textLength="' + TL +
+    '" lengthAdjust="spacing" fill="' + FILL +
+    '" style="--lit:' + LIT + '%">' +
     '排序看的是字符，不是数值大小。位数不同才看得出差别。</text></svg>';
   var img = new Image();
   img.onload = function(){
@@ -3880,9 +3881,13 @@ _LIT_INK = r"""new Promise(function(res){
       return Math.round((hi + 0.05) / (lo + 0.05) * 100) / 100;
     }
     var bgp = px(((55 * W) + 600) * 4);
-    var lit = stats(20, Math.round(W * K));
-    var dim = stats(Math.round(W * K) + 30, W - 4);
+    // 采样带由 mask 的几何算出来，不靠"字体把这一行推到哪"：亮段 = 实心平台
+    //（0 ~ (LIT-RAMP)%），暗段 = 地板平台（LIT% ~ 100%）。CI 上曾经因为跑图里
+    // 没有中文字体、字形宽度变窄，暗段落在字尾之外 → 取不到墨 → cr_* 全是 null。
+    var lit = stats(X0 + 4, Math.round(X0 + (LIT - RAMP) / 100 * TL) - 4);
+    var dim = stats(Math.round(X0 + LIT / 100 * TL) + 6, X1 - 4);
     res(JSON.stringify({fill:FILL, floor:FLOOR, bg:bgp,
+      lit_n:lit.n, dim_n:dim.n,
       lit_mean:lit.mean, dim_mean:dim.mean,
       cr_lit:lit.p90 ? cr(lit.p90, bgp) : null,
       cr_dim:dim.p90 ? cr(dim.p90, bgp) : null,
@@ -3898,6 +3903,10 @@ def _ink(ev, floor, ramp, fill, bg):
           .replace("@FILL@", "'%s'" % fill).replace("@BG@", "'%s'" % bg))
     got = json.loads(ev(js, True))
     assert not got.get("err"), f"data-URL SVG 没被解出来（实体转义漏了？）：{got}"
+    assert got.get("lit_n") and got.get("dim_n"), \
+        f"{fill} on {bg}：两段采样带里取不到墨（lit_n={got.get('lit_n')} / " \
+        f"dim_n={got.get('dim_n')}）——采样带是从 mask 几何算的，取不到说明这一行的" \
+        f"字宽不再铺满 textLength，读数与字体绑定回了环境（见 _LIT_INK 注释）：{got}"
     return got
 
 
@@ -3908,13 +3917,18 @@ def test_lit_floor_passes_composite_contrast(full_lesson):
     """量**合成后**的对比度：范本那一档地板过线，两档被否决的替代品复现否决理由。
 
     阈值不写死在自己机器上：判据是 §8 那两条线（正文 4.5:1、次要文字 7:1）加一条
-    "念过 vs 未念"的墨量均值比 ≥1.08。两轮实测（probe13 / probe17）逐值一致：
-      · floor=.85 对 panel `#1c212d`：非结论 10.48 / 7.97（均值比 1.097）、结论
-        7.94 / 6.08（1.096）；对 edge `#161a23` 更好（8.46 / 6.45）；
-      · floor=.72 墨量差更大（均值比 1.20）但结论字色对 panel 只剩 **4.76:1**——
+    "念过 vs 未念"的墨量均值比 ≥1.12。0.23.1 复按（probe13b，采样带改成由 mask 几何
+    算出的两段**平台**——实心段 0~(LIT−RAMP)% 与地板段 LIT%~100%，不再把过渡带
+    混进"念过"那一侧）逐值：
+      · floor=.85 对 panel `#1c212d`：非结论 10.48 / 7.97（均值比 1.132）、结论
+        7.94 / 6.08（1.132）；对 edge `#161a23` 更好（11.34 / 8.46、8.59 / 6.45）；
+      · floor=.72 墨量差更大（均值比 1.259）但结论字色对 panel 只剩 **4.76:1**——
         贴 4.5:1 线零余量，所以否决；
-      · floor=.92 均值比掉到 **1.05**，肉眼分不出念没念过，等于没做。
+      · floor=.92 均值比掉到 **1.067**，肉眼分不出念没念过，等于没做。
     断言只走"过线 / 不过线"的方向，不锁小数：字体渲染环境换了数值会漂。
+    取样带也不许依赖字形宽度：CI 跑图里没装中文字体时，固定列区间会落在字尾之外、
+    取不到墨而返回 null（TypeError 那场就是它），现在带子从 mask 百分比算，`textLength`
+    把这一行钉成 520 单位，取不到墨直接报 lit_n / dim_n。
     """
     html = TEMPLATE_HTML.read_text(encoding="utf-8")
     m = re.search(r"--dur-tuck:\.42s; --lit-floor:([\d.]+); --lit-ramp:(\d+)%;", html)
@@ -3930,7 +3944,7 @@ def test_lit_floor_passes_composite_contrast(full_lesson):
         for (bg, fill), r in rows.items():
             assert r["cr_dim"] >= 4.5, f"{fill} on {bg}：未念段合成后 {r['cr_dim']}:1 不过正文线"
             assert r["cr_lit"] >= 4.5 and r["cr_lit"] > r["cr_dim"], r
-            assert r["ratio"] >= 1.08, f"{fill} on {bg}：念过 vs 未念均值比只有 {r['ratio']}"
+            assert r["ratio"] >= 1.12, f"{fill} on {bg}：念过 vs 未念均值比只有 {r['ratio']}"
         for bg in ("#1c212d", "#161a23"):
             r = rows[(bg, "#c9d1e0")]
             assert r["cr_dim"] >= 7.0, \
@@ -3945,7 +3959,7 @@ def test_lit_floor_passes_composite_contrast(full_lesson):
 
         # ③ 被否决的 .92：差小到分不出来
         high = _ink(ev, 0.92, ramp, "#c9d1e0", "#1c212d")
-        assert high["ratio"] < 1.07, \
+        assert high["ratio"] < 1.10, \
             f".92 那一档均值比 {high['ratio']}，与不压暗（1.00）已经分不出两件事：{high}"
     finally:
         _kill(chrome)
@@ -6019,15 +6033,17 @@ def test_settle_wind_lift_primitives_present():
 
 
 _SETTLE_STATE = r"""(function(){
-  var n = document.getElementById('%s-sq'), r = document.getElementById('%s-r');
+  var n = document.getElementById('%(id)s-sq'), r = document.getElementById('%(id)s-r');
+  var gp = document.getElementById('%(id)s-g').getBoundingClientRect();
   var cs = getComputedStyle(n), q = r.getBoundingClientRect();
   return JSON.stringify({cls:n.getAttribute('class'), an:cs.animationName,
     dur:cs.animationDuration, fill:cs.animationFillMode, ease:cs.animationTimingFunction,
     tb:cs.transformBox, org:cs.transformOrigin, scale:cs.scale,
-    running:(n.getAnimations({subtree:false})||[]).length,
+    running:(n.getAnimations({subtree:false}) || []).length,
     inner:getComputedStyle(r).animationName,
     tpItems:cs.transitionProperty.split(',').length,
-    w:+q.width.toFixed(3), h:+q.height.toFixed(3), bottom:+(q.y + q.height).toFixed(2)});
+    w:+q.width.toFixed(3), h:+q.height.toFixed(3), bottom:+(q.y + q.height).toFixed(2),
+    pb:+(gp.y + gp.height).toFixed(2)});
 })()"""
 
 # 冻结采样：重新挂上 class 起一段 settleIn，暂停后按九个档位读 scale 与屏幕盒。
@@ -6074,7 +6090,9 @@ def test_settle_lands_with_its_bottom_edge_on_the_floor(full_lesson):
         `getAnimations({subtree:false})` 为空、`animation-fill-mode` 是 `backwards`
         而不是 `forwards`——切掉 animation 的导出帧落在"稳稳在那一格"；
       · **支点**：`transform-box:fill-box` + `transform-origin:50% 100%`（计算值
-        `35px 28px` = 药丸的底边中点），九个冻结档位的屏幕下沿**一个不差全是 514.05**；
+        `35px 28px` = 药丸的底边中点），九个冻结档位的屏幕下沿**一个不差全是同一个数**
+        （本机 514.05 / CI runner 521.01——视口整体差 6.96 设备px，断言里接触线取**同一次会话**
+        的静止读数，不写死一个 y）；
         把原点改回默认的 `50% 50%` 重跑同一批档位，t=200 那格下沿落到 512.51——
         抬离接触线 **1.54 设备px**，约为该格高度损失（3.10px）的一半，那就是悬浮；
       · **体积近似守恒**（二维面积，压扁那格亏一点、弹起那格赚一点）：压扁 38% 那格
@@ -6092,7 +6110,7 @@ def test_settle_lands_with_its_bottom_edge_on_the_floor(full_lesson):
         ev("window.__jump('seg-1', 2)")
         time.sleep(1.0)                                     # 420ms 的行程自己走完
 
-        st = json.loads(ev(_SETTLE_STATE % ("a-rule", "a-rule")))
+        st = json.loads(ev(_SETTLE_STATE % {"id": "a-rule"}))
         assert st["cls"] == "nt settle" and st["an"] == "settleIn", \
             f"落位层挂的是 .settle、演的是 settleIn：{st}"
         assert st["dur"] == "0.42s" and st["ease"] == "linear", f"时长 --dur-settle、曲线 linear：{st}"
@@ -6158,7 +6176,7 @@ _WIND_READ = r"""(function(){
     heroDelay:cs.transitionDelay, heroTp:cs.transitionProperty,
     heroTd:cs.transitionDuration, heroTe:cs.transitionTimingFunction.slice(0, 32),
     back:ca.getPropertyValue('--wind-back'), hold:ca.getPropertyValue('--wind-hold'),
-    y:+q.y.toFixed(2)});
+    y:+q.y.toFixed(2), transform:h.getAttribute('transform')});
 })()"""
 
 # 冻结采样 windIn：蓄力层的行程两端都回零，34% 那格是峰值。
@@ -6226,8 +6244,12 @@ def _wind_dip(ev, override, tag):
         ev("document.getElementById('ab023').remove()")
     ys = [r[1] for r in rows]
     time.sleep(0.6)
+    # 落定之后的读数：屏幕**绝对**坐标随视口漂（本机 283.65 / CI runner 290.61），
+    # 所以"三遍不许改终态"这句话只能同会话内自己对照，不写死一个 y。
+    settle = json.loads(ev("(function(){return JSON.stringify({y:+document.getElementById("
+                           "'w-10').getBoundingClientRect().y.toFixed(2)});})()"))["y"]
     return {"tag": tag, "n": len(rows), "y0": ys[0], "max": max(ys),
-            "dip": round(max(ys) - ys[0], 2), "end": ys[-1],
+            "dip": round(max(ys) - ys[0], 2), "end": ys[-1], "settle": settle,
             "antMax": round(max(_tval(r[2]) for r in rows), 3),
             "delay0": rows[0][3], "t_peak": rows[ys.index(max(ys))][0]}
 
@@ -6247,7 +6269,7 @@ def test_wind_anticipates_by_borrowing_a_frame_from_the_move(full_lesson):
         变成 s3 的一格 `0.0952s`，而 `transitionProperty` / `transitionDuration` /
         `transitionTimingFunction` 与不蓄力的那一步**逐字符相同**（十七项）；
       · **主动作必须为它让出那一拍**（这条是量出来的，不是美学判断）：同一步走三遍，
-        每遍逐 rAF 采主角屏幕 y（起点 348.17）——范本现状最低沉到 **429.17**
+        每遍逐 rAF 采主角屏幕 y（本机起点 348.17，绝对坐标随视口漂）——范本现状最低沉到 **429.17**
         （dip 81.00 设备px，峰值在 110~126ms）；只让不蓄（`.wind{animation:none}`）
         **416.75**（dip 68.58）；只蓄不让（延迟归零）dip **0.00**——蓄力层自己确实
         算出了 8.995 的位移，可屏幕上完全没有回头，观众看不见。范本现状比"只让不蓄"
@@ -6314,8 +6336,12 @@ def test_wind_anticipates_by_borrowing_a_frame_from_the_move(full_lesson):
         C = _wind_dip(ev, ".wind > g{transition-delay:0s!important}", "wind_only")
         assert A["y0"] == B["y0"] == C["y0"], f"三步的起点同格：{A['y0']} {B['y0']} {C['y0']}"
         for v in (A, B, C):
-            assert abs(v["end"] - 283.65) < 0.5, \
-                f"三遍的终点都落在 shelf 那一格（让拍不许改终态）：{v}"
+            assert abs(v["end"] - v["settle"]) < 0.6, \
+                f"采样的最后一帧就是落定的那一格（让拍不许改终态）：{v}"
+            assert v["settle"] < v["y0"] - 40, \
+                f"终点在起点之上（shelf 那一格，本机差 64.5 设备px）：{v}"
+        assert abs(A["settle"] - B["settle"]) < 0.6 and abs(A["settle"] - C["settle"]) < 0.6, \
+            f"三遍落同一格：A {A['settle']} / B {B['settle']} / C {C['settle']}"
         assert A["dip"] > 60, f"范本现状：屏幕 y 先沉到 429 一线（实测 dip 81.00）：{A}"
         assert A["antMax"] > 8.5, f"蓄力层自己确实走满了 9 单位：{A}"
         assert B["antMax"] == 0.0 and B["dip"] > 40, \
@@ -6513,11 +6539,11 @@ def test_settle_wind_lift_reduced_motion_and_shot_terminals(full_lesson):
     """减动效与导出两刀之下：三条各落**该说的那件事**，一格内容不少（0.23.0）。
 
       · 减动效：`.settle{animation:none}` 之后徽标的 `scale` 读 `none`、屏幕盒就是
-        静止盒（`a-rule` 高 30.966、下沿仍在接触线 514.05）——落"稳稳在那一格"，
+        静止盒（`a-rule` 高 30.966、下沿仍钉在承载位移的父层那一格）——落"稳稳在那一格"，
         没有半截压扁的定格留在画面上；
       · `.wind{animation:none}` + `.wind > g{transition-delay:0s}`：蓄力层留着
-        （class 仍是 `nt wind`）但不演，主角**立刻**读回 shelf 终位 283.65（位移
-        由 `transform` 属性承载，不是蓄力层承载的），而主角的 `transitionDelay`
+        （class 仍是 `nt wind`）但不演，主角**立刻**落在 shelf 那一格（`transform` 属性
+        读数 `translate(500,84) scale(0.46)`，屏幕 y 只与上一步比——绝对坐标随视口漂），而主角的 `transitionDelay`
         必须回到 `0s`——兜底不是"先停 95.2ms 再瞬移"。这一行是承重的：把那档
         `transition-delay:var(--wind-hold)` 原样重述到媒体块**之后**，`transition-property`
         仍是 `none`（`.nt` 那行在管），而延迟读回 `0.0952s`——清单空了的时候延迟
@@ -6540,13 +6566,16 @@ def test_settle_wind_lift_reduced_motion_and_shot_terminals(full_lesson):
 
         # ① .settle：不演，但盒就是那一格的盒
         ev("window.__jump('seg-1', 2)")
-        st = json.loads(ev(_SETTLE_STATE % ("a-rule", "a-rule")))
+        st = json.loads(ev(_SETTLE_STATE % {"id": "a-rule"}))
+        w0 = json.loads(ev(_WIND_READ))
         assert st["an"] == "none" and st["scale"] == "none" and st["running"] == 0, \
             f"减动效下徽标不演挤压、也不留半截压扁：{st}"
-        assert abs(st["bottom"] - 514.05) < 0.05 and abs(st["h"] - 30.966) < 0.05, \
-            f"静止态 = 终态（下沿仍在接触线上）：{st}"
+        # 屏幕**绝对**坐标随视口漂（本机与 CI runner 差 6.96 设备px），所以接触线不写死：
+        # 底边必须落回它自己那一格——承载位移的父层 `<g>` 的底边。
+        assert abs(st["bottom"] - st["pb"]) < 0.05 and abs(st["h"] - 30.966) < 0.05, \
+            f"静止态 = 终态（下沿钉在父层那一格，且是没压扁的盒）：{st}"
         ev("window.__jump('seg-1', 3)")
-        st2 = json.loads(ev(_SETTLE_STATE % ("a-str", "a-str")))
+        st2 = json.loads(ev(_SETTLE_STATE % {"id": "a-str"}))
         assert st2["an"] == "none" and st2["scale"] == "none" and st2["running"] == 0, \
             f"换一枚徽标同样不演（class 由 renderer 现写，不是记住的）：{st2}"
 
@@ -6557,8 +6586,11 @@ def test_settle_wind_lift_reduced_motion_and_shot_terminals(full_lesson):
         assert w["antTranslate"] == "none", f"关掉之后画布上什么都不留：{w}"
         assert w["heroDelay"] == "0s", f"让拍跟着归零（不是先停 95ms 再瞬移）：{w}"
         assert w["heroTp"] == "none", f".nt 的补间整条关掉的既有口径：{w}"
-        assert abs(w["y"] - 283.65) < 0.5, \
-            f"位移照旧由 transform 属性承载，主角立刻在 shelf 那一格：{w}"
+        assert w["transform"] == "translate(500,84) scale(0.46)", \
+            f"位移照旧由 transform **属性**承载，主角立刻在 shelf 那一格：{w}"
+        assert w["y"] < w0["y"] - 40, \
+            f"不靠补间也真的上去了那一格（本机 348.17 → 283.65；绝对坐标随视口漂，" \
+            f"所以这里只量两步之差）：{w0['y']} → {w['y']}"
         ev("(function(){var s=document.createElement('style');s.id='ab23';"
            "s.textContent='.wind > g{transition-delay:var(--wind-hold)}';"
            "document.head.appendChild(s);return 1;})()")
@@ -6608,7 +6640,7 @@ def test_settle_wind_lift_reduced_motion_and_shot_terminals(full_lesson):
            "document.head.appendChild(s);")
         ev("window.__coursewareShotMode = true")
         ev("window.__jump('seg-1', 3)")
-        ex = json.loads(ev(_SETTLE_STATE % ("a-str", "a-str")))
+        ex = json.loads(ev(_SETTLE_STATE % {"id": "a-str"}))
         assert ex["scale"] == "none" and ex["running"] == 0, \
             f"导出帧里徽标稳稳在那一格：{ex}"
         wx = json.loads(ev(r"""(function(){
