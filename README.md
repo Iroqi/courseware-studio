@@ -585,6 +585,11 @@ python -m pytest tests/ -q
   （offset-distance 恰 50%、主角屏幕 y 比两端高 ≥ 30 设备px、末档回原点、时长 500ms）
   → 落定 '1' 站最左槽且无在跑补间 → sticky（收上架子不重放）+ 灯灭换位不演（off → messed
   data-go 保持 0）→ reduced-motion 落档 → 导出截图模式落档。本机全量 **421 passed / 2 skipped**；
+- 0.25.1 的修复（只动测试与文档）：CI 复按红两档（3.10 / 3.12，3.11 绿），红在同一条
+  CDP 换位用例的"采样在补间中途"——`__jump` 后固定 sleep 50ms 就采样，慢 runner 上补间
+  还没开跑读 0%。改成 `wait_swap(pred)` 轮询（50ms 一格、4s 超时）：等到
+  `0 < offset-distance < 100` 证明补间真在跑才进断言，建档 / 落定 / sticky / 灯灭四段
+  的固定 sleep 一并换成等 `runs == []` 轮询。口径同 0.23.1：等的是事实，不是毫秒数；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

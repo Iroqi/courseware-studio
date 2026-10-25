@@ -7835,10 +7835,21 @@ def test_swap_arcs_a_card_over_the_row_on_reorder(full_lesson):
     try:
         ev(_SEEK)
 
+        def wait_swap(pred, id_="w-1", timeout=4.0):
+            """轮询直到谓词成立（CI runner 比本机慢，固定 sleep 会假失败——
+            0.23.1 起的口径：等的是"补间在跑"这个事实，不是等够多少毫秒）。"""
+            last = None
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < timeout:
+                last = json.loads(ev(_SWAP_PROBE % {"id": id_}))
+                if pred(last):
+                    return last
+                time.sleep(0.05)
+            return last
+
         # ① 建档步：包装层在场但没挂档
         ev("window.__jump('seg-1', 0)")
-        time.sleep(0.6)
-        s0 = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        s0 = wait_swap(lambda p: p["runs"] == [])
         assert s0["go"] == "0" and s0["dist"] == "0%", f"s0 不该演弧凸：{s0}"
         assert s0["route"].endswith("Q 0 0 0 0')"), f"退化路径两端都是原点：{s0}"
         assert s0["op"].endswith('Q 0 0 0 0")'), f"computed offset-path 同值：{s0['op']}"
@@ -7853,15 +7864,14 @@ def test_swap_arcs_a_card_over_the_row_on_reorder(full_lesson):
         # ② 换位那一步：越过整行的 '1' 挂档（行程 400 > 250 → 峰值 140、控制 -280），
         #    让位的 '10'/'9'（行程 200 ≤ 250）路径仍退化——弧凸只给"真的越过"那张
         ev("window.__jump('seg-1', 2)")
-        time.sleep(0.05)
-        s2 = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        s2 = wait_swap(lambda p: 0 < float(p["dist"].rstrip('%')) < 100)
         assert s2["go"] == "1", f"换位那一步 data-go 必须翻 1：{s2}"
         assert s2["route"] == "path('M 0 0 Q 0 -280 0 0')", \
             f"控制点 = 峰值×2（-280），路径写进 --swap-route：{s2['route']}"
         assert "M 0 0 Q 0 -280 0 0" in s2["op"], f"computed offset-path 同值：{s2['op']}"
         assert "offset-distance" in s2["runs"], f"补间正在走：{s2['runs']}"
-        assert 0 < float(s2["dist"].replace('%', '')) < 100, \
-            f"采样在补间中途（50ms 已过）：{s2['dist']}"
+        assert 0 < float(s2["dist"].rstrip('%')) < 100, \
+            f"轮询 4s 仍未捕获到补间中途（补间没开跑就超时了）：{s2['dist']}"
         w10 = json.loads(ev(_SWAP_PROBE % {"id": "w-10"}))
         w9 = json.loads(ev(_SWAP_PROBE % {"id": "w-9"}))
         assert w10["go"] == "1" and w9["go"] == "1", f"让位卡也随档（sticky）：{w10} {w9}"
@@ -7887,10 +7897,9 @@ def test_swap_arcs_a_card_over_the_row_on_reorder(full_lesson):
 
         # ④ 重挂后落定：'1' 站在最左槽、offset 100% = 原点、没有在跑的补间
         ev("window.__jump('seg-1', 0)")
-        time.sleep(0.4)
+        s0b = wait_swap(lambda p: p["runs"] == [])
         ev("window.__jump('seg-1', 2)")
-        time.sleep(0.9)
-        done = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        done = wait_swap(lambda p: p["dist"] == "100%" and p["runs"] == [])
         assert done["go"] == "1" and done["dist"] == "100%", f"落定即换位完成：{done}"
         assert done["tr"] == "translate(300,232) scale(1)", \
             f"'1' 站在最左槽（sorted 槽位 300）：{done['tr']}"
@@ -7899,15 +7908,14 @@ def test_swap_arcs_a_card_over_the_row_on_reorder(full_lesson):
         # ⑤ sticky：s2 之后跳到 s3（收上架子），data-go 仍驻 1、无新补间；
         #    灯灭着的换位（seg-5 off → messed）data-go 保持 0，不演弧凸
         ev("window.__jump('seg-1', 3)")
-        time.sleep(0.5)
-        s3 = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        s3 = wait_swap(lambda p: p["runs"] == [])
         assert s3["go"] == "1" and s3["dist"] == "100%", \
             f"sticky：收上架子那一步不重放弧凸：{s3}"
         assert s3["runs"] == [], f"sticky 不该有新补间：{s3['runs']}"
         ev("window.__jump('seg-5', 4)")
-        time.sleep(1.0)        # 上一幕 data-go 还驻 1：这一步翻回 0 走的是退化路径
-                               # （无视觉），等那条补间落定再读
-        m4 = json.loads(ev(_SWAP_PROBE % {"id": "w-10"}))
+        m4 = wait_swap(lambda p: p["runs"] == [], id_="w-10")   # 上一幕 data-go 还驻 1：
+                                                                 # 这一步翻回 0 走的是退化
+                                                                 # 路径（无视觉），等落定再读
         assert m4["go"] == "0" and m4["dist"] == "0%", \
             f"off → messed 是灯灭着的换位，不演弧凸：{m4}"
         assert m4["route"].endswith("Q 0 0 0 0')") and m4["runs"] == [], \
