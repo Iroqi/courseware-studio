@@ -100,8 +100,10 @@
   // 无 PointerEvent 的旧环境用鼠标事件（这一路不支持触屏）。原生 DnD 那条路已删：
   // 鼠标适配器覆盖同样的环境，还多一个"点"的手势，严格更优。
   const GEST = (window.PointerEvent)
-    ? { down:'pointerdown', move:'pointermove', up:'pointerup', cancel:'pointercancel' }
-    : { down:'mousedown',   move:'mousemove',   up:'mouseup',   cancel:null };
+    ? { down:'pointerdown', move:'pointermove', up:'pointerup', cancel:'pointercancel',
+        enter:'pointerenter', leave:'pointerleave' }
+    : { down:'mousedown',   move:'mousemove',   up:'mouseup',   cancel:null,
+        enter:'mouseenter',  leave:'mouseleave' };
 
   // 元素级幂等绑定（按事件类型分别记账）：交互块重建后会重新接线，块里那些
   // **没被重建**的持久按钮（提交键、提示键）不该跟着多挂一层监听——多一层的
@@ -140,6 +142,42 @@
     node.style.setProperty('--rip-d', d.toFixed(1) + 'px');
     // 重触发三段式（remove → 读一次几何 → add），与页面侧 capLift / chFlip 同款
     node.classList.remove('rip'); void node.offsetWidth; node.classList.add('rip');
+  }
+
+  // 触点辉光（0.24.0）：指针落在哪一块、落在这一块哪儿，光就在哪儿亮着并跟着走
+  // （原语与六条边界在 template.html 的 `.hot::before`，这里只做 CSS 量不到的两件事：
+  // 把指针换算成**这一块自己盒内**的坐标，以及"指针在场与否"这个读数 data-hot）。
+  // 四条口径：
+  //   ① 坐标 clamp 进盒内再写（与 ripple 同一课：触屏上偶尔落在 border 外半个像素，
+  //      不 clamp 光心会顶在边上）；单位取 px，参考的是 getBoundingClientRect() 现量
+  //      的盒——**不用 offsetLeft/offsetTop**，条目被拖成 fixed 克隆时那两个数是错的；
+  //   ② 没有盒（display:none）就什么都不写：注册初值 50% 接住，光落在盒中心那一格，
+  //      与纪律③同一句理由——宁可落中性档，也不给一个编出来的坐标；
+  //   ③ **键盘通路不点亮**：Enter / Space 触发的是 click，没有坐标；程序化 `.click()`
+  //      （QA 与导出时间线）同理不经过这里。聚焦环（:focus-visible）本来就在报
+  //      "我在这儿"，硬编一个盒中心只会是假光（口径同涟漪边界③）；
+  //   ④ 移出与取消各归零一次，认 pointerId：多指同时按在两块上时，先抬的那根把光
+  //      关掉是 CSS :hover 也没有的粗粝处，集合空了才归零（与 makeDraggable 认
+  //      pointerId 同一条判据）。
+  function hotWire(node){
+    const ids = new Set();
+    const key = e => (e && e.pointerId !== undefined) ? e.pointerId : 'm';
+    const paint = e => {
+      if(!node.getBoundingClientRect) return;
+      const r = node.getBoundingClientRect();
+      if(!(r.width > 0) || !(r.height > 0)) return;      // 没有盒：留给注册初值那一格
+      if(!Number.isFinite(e.clientX) || !Number.isFinite(e.clientY)) return;
+      const x = Math.max(0, Math.min(r.width,  e.clientX - r.left));
+      const y = Math.max(0, Math.min(r.height, e.clientY - r.top));
+      node.style.setProperty('--hot-x', x.toFixed(1) + 'px');
+      node.style.setProperty('--hot-y', y.toFixed(1) + 'px');
+      node.dataset.hot = '1';
+    };
+    const drop = e => { ids.delete(key(e)); if(!ids.size) node.dataset.hot = '0'; };
+    once(node, GEST.enter, e => { ids.add(key(e)); paint(e); });
+    once(node, GEST.move,  e => { if(ids.has(key(e))) paint(e); });
+    once(node, GEST.leave, drop);
+    if(GEST.cancel) once(node, GEST.cancel, drop);
   }
 
   // 无障碍三件套：反馈区对读屏播报、非原生可点元素可聚焦可回车、
@@ -479,6 +517,10 @@
           finish(el,cfg.hit_text||'参考答案已给出，对照后即可继续。',{correct:true});
         });
       }
+      // 触点辉光（0.24.0）：宿主由页面标 `.hot`（选项药丸 / hotspot 圈 / 可拖条目），
+      // 这里不按题型重列一遍选择器——"谁是触点"这件事写进两处，早晚会跟 CSS 那份
+      // 分手。幂等由 once() 按事件类型记账，门禁卡片重建后重扫不会叠监听。
+      el.querySelectorAll('.hot').forEach(hotWire);
       once(el.querySelector('[data-hint-action]'),'click',()=>{
         const h=el.querySelector('.interaction-hint'); if(h)h.hidden=!h.hidden;});
   }

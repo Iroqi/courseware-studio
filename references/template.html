@@ -22,7 +22,7 @@
     --dur-in:.42s;   --dur-move:.5s;   --dur-pop:.46s;   --dur-draw:.55s;
     --dur-fast:.13s; --dur-gate:.3s;   --dur-pulse:2.4s; --dur-breathe:2.8s;
     --dur-fill:.25s; --dur-cap:.22s;   --dur-fb:.32s;
-    --dur-hover:.16s; --dur-cam:.6s;   --dur-veil:.32s; --dur-el:.38s;
+    --dur-hover:.16s; --dur-veil:.32s; --dur-el:.38s;
     --dur-ch:.22s; --dur-blur:.42s;
     /* 生长与揭示（0.15.0）：--dur-grow 图元几何生长、--dur-reveal 擦除揭示、
        --dur-acc 侧栏折叠面板开合（0↔auto 高度） */
@@ -80,7 +80,8 @@
     --halo-bg:#1a2029;
     /* 退场与跟读（0.19.0）：--dur-tuck 收拢退场的行程时长。它比揭示（--dur-reveal .5s）
        短一档：**读过的东西让位**要比"刚刚长出来"更快，慢了会挡住下一句的注意力；
-       也与运镜（--dur-cam .6s）错开，收拢不与推拉抢时长。
+       也与运镜错开（运镜 0.24.0 起按行程定拍，地板 .5s——收拢 .42s 仍比最快的镜头短），
+       收拢不与推拉抢时长。
        --lit-floor 是未念部分的遮罩灰阶地板（写成 stop-opacity，不是颜色），取 .85。
        这个数是按 §8「半透明按合成后的颜色算对比度」逐档合成的，不是看截图像素平均：
        非结论字色 #c9d1e0 合成后对 panel #1c212d / edge #161a23 = **7.97:1 / 8.53:1**，
@@ -96,7 +97,8 @@
     /* 当面与抵达（0.20.0）：三个新原语各按时长一档，档位是跟已有词汇**对齐或错开**
        选的，不是各拍一个数：
          · --dur-flip .6s：翻面演的是"当面对质"——判决换了个说法摊在你眼前，比揭示
-           （--dur-reveal .5s）长一档才读得清换了什么，并与运镜（--dur-cam .6s）同档，
+           （--dur-reveal .5s）长一档才读得清换了什么，并与运镜同档（0.24.0 起运镜按
+           行程定拍，.6s 正落在 .5~.78 这一带的中段），
            所以镜头推进与符号换面落在同一秒里。**可见性交接的半程是从这个数除出来的**
            （`calc(var(--dur-flip) / 2)`，见 CSS「翻面」③），改时长不用回头改第二处；
          · --dur-ride .8s：沿线抵达走的是**真实距离**，时长该按行程给，不当入场压短。
@@ -136,7 +138,11 @@
     /* 落点与过场（0.22.0）：三条原语，两条是新时长档、一条是复用旧档。
          · --dur-spot .5s：移动聚光的行程。与位移（--dur-move .5s）**同档**——洞从
            上一格飞到下一格，和"常驻图元让位"是同一类事：都在改变置，不改形状。
-           比运镜（--dur-cam .6s）短一档，洞要领先于镜头落位，否则观众不知道看哪儿；
+           洞不许落在镜头后面——0.23.0 之前运镜恒为 .6s，这条是"短一档、领先 .1s"；
+           0.24.0 起镜头时长改成按行程定拍（见下面随动层那条），地板取的就是这一档
+           .5s，于是**短程那几趟洞与镜头同时落位、大运镜那几趟洞仍然领先**（最多领先
+           .271s）：口径从"总领先 .1s"收窄成"绝不落后"，32 次切换里 5 次领先 / 27 次
+           同步，逐句读数见 stage.md §3.4；
          · --spot-k .15 / --spot-ink / --spot-soft 78px：洞外那层暗幕的浓度、墨色与
            软边宽度。**--spot-k 是反推出来的，不是挑出来的**：洞外留着的是要当参照
            读的正文，按 §8「半透明按合成后的颜色算对比度」逐档合成——主色 #f5a623
@@ -199,6 +205,49 @@
     --dur-settle:.42s; --squash-x:1.14; --squash-y:.84;
     --dur-wind:.28s; --wind-back:9; --wind-hold:calc(var(--dur-wind) * .34);
     --dur-lift:.38s; --lift-hi:5px; --lift-ink:rgba(4,6,10,.62);
+    /* 随动层（0.24.0）：前三轮补的是"演一次"的词汇（入场 / 揭示 / 落位），这一轮三条
+       都不演一次——它们**跟着一个连续量走**：镜头跟着这一步真的走了多少、辉光跟着
+       指针落在哪儿、色温跟着这一段在课程的哪一档。前沿动效体系把这件事叫
+       "motion as a function of state"（弹簧之所以取代固定曲线，正是因为它接的是当前
+       值与速度而不是"从头播一遍"）。 */
+    /* ① 位移定拍：镜头时长不再是一个恒定的 .6s，而是由行程推出来的。两个**读数**由
+       JS 写（`--cam-pan` = 平移行程，viewBox 单位；`--cam-zoom` = 相对倍率变化，无量纲），
+       两个**权重**与两端封顶只在 CSS 一处——几何归代码、时间归令牌，两边都不留第二个数。
+       档位是量出来的（推导与逐档读数见 stage.md §3.4）：
+         · --dur-cam-min .5s：与落点灯（--dur-spot）**同档**——地板不能低于灯的这一档，
+           否则小行程时镜头会抢在洞前面落位（0.22.0 那条口径，收窄后的说法见上面
+           --dur-spot 那条）；擦洗与导出截图模式下 JS 写 0/0，落到的也正是这一档；
+         · --dur-cam-max .78s：短于沿线抵达（--dur-ride .8s），那是画面里最长的一趟；
+         · --dur-cam-pan .0014s / --dur-cam-zoom .35s：范本八场 33 句实测，32 次镜头切换
+           里 15 次真的动了——平移行程 27 → 450 单位、倍率相对变化 0 → .69，折出来的
+           时长落在 **.500 → .771s**。其中 **27 次落在 .5s 地板上**（旧写法是恒速 .6s，
+           这些趟从此快了 .1s），只有 5 次大运镜被行程接住（.508 / .513 / .700 / .716 /
+           .771）。"屏幕速度"（单位/秒）的离散度从 16.5× 收到 12.5×：**抹不平是有意的**，
+           短程那几趟的下限由灯（.5s）钉住，再压就要比灯快了（逐句推导表见 stage.md §3.4）。
+       **--cam-pan / --cam-zoom 故意不注册**：它们是常量替换、进 calc，不该被补间
+       （与 --spot-k / --squash-x 同一条口径）。--dur-cam 这一档就此消失，两个消费者
+       （#cam / #depth）一起改读派生值 --cam-dur。 */
+    --dur-cam-min:.5s; --dur-cam-max:.78s;
+    --dur-cam-pan:.0014s; --dur-cam-zoom:.35s;
+    --cam-pan:0; --cam-zoom:0;
+    --cam-dur:clamp(var(--dur-cam-min),
+                    calc(var(--cam-pan) * var(--dur-cam-pan)
+                       + var(--cam-zoom) * var(--dur-cam-zoom)),
+                    var(--dur-cam-max));
+    /* ② 触点辉光：--dur-hot 借按压那一档（--dur-hover .16s）的读数，不新立一档——
+       光跟着手的速度和"按下去了"是同一件事。--hot-r 是光的半径（本地盒单位，跟着
+       按钮自己的尺寸走，见 .hot），--hot-ink 是光的墨色：主色一档压到 .22，比涟漪
+       （--rip-ink .26）还轻，因为这一层**不停留**（指针在的时候一直在）。 */
+    --dur-hot:.16s; --hot-r:64px; --hot-ink:rgba(245,166,35,.22);
+    /* ③ 色温定调：三档 mood 的**相对亮度差只有 2.9%**，所以这层能压在内容底下——
+       但"只换色相不换亮度"这句话要按 §8 的合成口径才成立：柔光（--tint-wash .28）
+       合成到舞台三档底色上，六支墨色 × 三支底色 = 54 格，三档之间对比度最大偏移
+       1.90%（推导与逐格读数见 .mood 那组边界 ①②）。
+       --dur-mood 1.2s 是全仓库最长的一档：气氛不该比一次运镜（≤.78s）更抢眼。
+       --tint-wash .28 是柔光层的合成比例，这个数直接决定亮度移动的幅度，改动必须
+       按 §8 重算对比度。 */
+    --dur-mood:1.2s; --tint-wash:.28;
+    --tint-calm:#0e1f4b; --tint-turn:#341b0b; --tint-key:#08261f;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -263,6 +312,41 @@
      会让每个子图元各算一次 drop-shadow）。名字先全仓 grep 过，不与 --dim /
      --elevated 之类的既有令牌撞。 */
   @property --elev{syntax:'<length>';inherits:false;initial-value:0px}
+  /* 触点辉光的两个驱动变量（0.24.0）：光心的 x / y 注册成 `<length-percentage>`。
+     这一层装在**被点元素自己的盒子**里（border-box），JS 用 getBoundingClientRect()
+     现量后换算成盒内 `px` 直接写数；与 0.22.0 --spot-x 那次"用 `<length>` 省掉一次
+     除法"的理由不同，这里的兜底必须落回**盒中心**这个跟着尺寸走的格子（display:none
+     时 JS 拿不到盒、不写坐标，注册初值就是最后一道读数），所以初值取 `50%`——
+     `<length-percentage>` 这一族两种都收，px 写进去照常补间，50% 留着当静止态。
+     注册的理由与 --spot-x 同一条：不注册就没有补间，指针快速划过时光会整档跳。
+     **必须 inherits:true**——这一条是本轮实测纠正的：注册成 `inherits:false` 时
+     写在宿主上的数**根本进不了伪元素**（伪元素在继承树里是宿主的子节点），实测
+     `getComputedStyle(o,'::before').getPropertyValue('--hot-x')` 一直是初值 `50%`，
+     计算出来的背景是 `radial-gradient(64px, …)`（连 `at` 都被省掉），光"跟着走"
+     整条没跑——**数据写在 host、画在 child，中间那一段非得继承不可**。改成 true
+     之后同一处读数才落到那一层上：`radial-gradient(64px at 21.1px 21.7px, …)`，
+     补间逐帧值 21.1 → 44.35 → 67.6px。"只让这一块看见"靠的是选择器（全仓只有
+     `.hot::before` 读这两个名字），不是靠继承开关；嵌套的 .hot 各自有行内值，
+     子树读到的是自己那一层写的数，不会串。名字先全仓 grep 过，不与既有的
+     --hot-r / --hot-ink 撞。 */
+  @property --hot-x{syntax:'<length-percentage>';inherits:true;initial-value:50%}
+  @property --hot-y{syntax:'<length-percentage>';inherits:true;initial-value:50%}
+  /* 色温定调的驱动变量（0.24.0）：注册成 `<color>` 才能被 transition 逐帧补间——
+     未注册时 --tint 只是令牌替换，换档那一瞬间两层氛围（画布柔光、页面光晕）会
+     一起跳色，1.2s 的"气氛"就没了。这里**必须**注册成 `<color>` 而不是自己插值
+     三个通道：前沿做法（Material 3 的 dynamic color、Vercel/Linear 的主题过渡）
+     都是"颜色当一等公民的属性走"，浏览器给的补间才是逐通道线性的。
+     `inherits:true` 是这一条能"一处写、多处读"的前提：JS 只在 documentElement 上
+     换档，#depth 里的柔光矩形与 body::before 各自继承同一个值——实测注册的
+     `<color>` 会把**补间中的值**继续传进 SVG `<defs>` 内部（`<pattern>` 里的
+     circle 也吃到），所以不需要给每个消费者各写一条 transition。
+     initial-value 取 **--tint-calm 那个数**（#0e1f4b，最平的一档）：不播、不能播、
+     被导出注入 `transition:none`、JS 还没写过档，四种"读数没跑"的情形都落在
+     "氛围最中性"那一格，纪律③在这里的形态是"**静止即 calm**"。
+     两处不能合并成一处是有理由的：`initial-value` 里不许写 `var()`（注册期就要
+     一个自足的静态值），所以调色板令牌与这条初值是两个持有者——测试按字符串把
+     它们钉在一起，改一处不改另一处就红。 */
+  @property --tint{syntax:'<color>';inherits:true;initial-value:#0e1f4b}
   /* color-mix 的覆盖档：认得它的浏览器用现调的浅色，换主色时底色跟着走。
      写成 @supports 而不是"同名两行"——自定义属性解析期什么都收，第二行照样
      成立，坏的是替换后的那条 background（非法计算值 → 属性 unset → 背景透明）。 */
@@ -276,11 +360,16 @@
   *{box-sizing:border-box}
   /* 背景光晕**不用 background-attachment:fixed**：iOS Safari 对它的支持是坏的
      （键盘弹起/滚动时整层抖动或空白）。改成一条 position:fixed 的伪元素层，
-     观感一致：底色铺底，光晕钉在视口顶部。 */
+     观感一致：底色铺底，光晕钉在视口顶部。
+     0.24.0 起这圈光的**颜色**是色温定调的消费者之一（`var(--tint)`，见 §③ 的
+     `data-mood`）：三档等亮度，所以这层跟着换的是色温不是强弱——旧值 #151a26
+     的相对亮度 .01038，三档分别是 .01581 / .01538 / .01537（比旧值亮半档，
+     三档之间最大差 2.9%）；这层没有文字压在上面（正文都在 stage 与卡片里），
+     实测最弱那档墨色 --dim2 #6b748a 落在光晕中心仍有 3.41:1（旧值 3.72:1）。 */
   body{margin:0;color:var(--fg);background:var(--bg);
        font:15px/1.7 -apple-system,"Segoe UI",system-ui,"Microsoft YaHei",sans-serif}
   body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
-       background:radial-gradient(1100px 640px at 50% -8%,#151a26 0%,transparent 62%)}
+       background:radial-gradient(1100px 640px at 50% -8%,var(--tint) 0%,transparent 62%)}
   ::selection{background:rgba(245,166,35,.28);color:#fff}
   /* 键盘焦点必须看得见：交互项一半是运行时动态生成的，全局一条比逐处补更可靠 */
   :focus-visible{outline:2px solid var(--key);outline-offset:2px}
@@ -479,7 +568,7 @@
        ② 入场用 animation 且 **fill-mode 用 backwards / 不写**——`both`/`forwards`
           会把终态钉在 CSS 上，之后 setAttribute 的 opacity/transform 全被压住；
        ③ 循环动效的 0% 必须等于静息态（导出切掉后落在属性上，不是随机相位）。 */
-  #cam{transition:transform var(--dur-cam) var(--ease-out)}
+  #cam{transition:transform var(--cam-dur) var(--ease-out)}
   /* 运镜运动模糊（0.13.0，"速度决定模糊"的前沿做法）：镜头**真的动了**才糊一下——
      推拉摇移时画面短暂失焦、落定即清晰，这是真实摄影机的物理感，也是"观众该在哪
      一步重新找重心"的暗示。三条边界：
@@ -993,7 +1082,7 @@
      两层速度差才说明"画布是有深度的空间"。#depth 与 #cam 是兄弟节点、同一个坐标
      空间，位移量因此就是世界坐标；不放进 #cam 是因为那里已经有一层 transform
      属性值，再叠 CSS transform 会互相顶掉。背景是纯装饰（不进 contentBox，不承载信息）。 */
-  #depth{transition:transform var(--dur-cam) var(--ease-out)}
+  #depth{transition:transform var(--cam-dur) var(--ease-out)}
 
   /* ── 落点与过场（0.22.0）：移动聚光 / 快进掠擦 / 浮层离散进出 ─────────────
      三条都在回答"下一步该看哪儿、刚才到这儿来路变了没有、这块浮层正在进出"，
@@ -1233,6 +1322,108 @@
         transition:--elev var(--dur-lift) var(--ease-out)}
   .lift[data-lift="1"]{--elev:var(--lift-hi)}
 
+  /* ── 随动层（0.24.0）：三条都跟着一个连续量走 ─────────────────────────
+     上面几组补的都是"演一次"的词汇（入场 / 揭示 / 落位 / 重量与预备），这一组
+     三条都**没有"演完"这一说**：镜头跟着这一步真的走了多少（①位移定拍——消费者
+     是上面那两行 #cam / #depth，它们共读派生值 --cam-dur）、辉光跟着指针落在
+     哪儿（②触点辉光）、色温跟着这一段在课程的哪一档（③色温定调）。
+     三条共用的口径：终态不是关键，**读数才是关键**，所以驱动量要么注册（能被
+     逐帧补间）、要么挂在呈现属性上（能被测试与导出读到），没有一条靠 JS 排时长。 */
+
+  /* 触点辉光（`.hot`，0.24.0，pointer-following highlight 的盒内版）：指针落在哪一块、
+     落在这一块哪儿，光就在哪儿亮起来，并且**跟着指针走**——不是跟到那一下为止。
+     与 0.22.0 的 #spot 是两套轴、可以同场：那条说的是"观众该看画面哪儿"（导演的
+     手，罩在整个画布上、裁一个洞），这条说的是"你的手在这儿"（手的回话，只长在
+     这一块自己盒里）。六条边界（读数见 stage.md §3.4）：
+       ① 光心走**注册属性** --hot-x / --hot-y，不走 left/top：改 left/top 是每来一个
+          pointermove 就重排一次（门禁卡里全是流内条目），改注册属性只重绘；这一层
+          同时拿到补间——不注册的话指针快速划过时光是**整档跳**，不是跟（与 --spot-x
+          0.22.0 那条同一个理由）；
+       ② 位置用 **px（盒内坐标）**而初值兜在 `50%`：`<length-percentage>` 两种都收，
+          JS 有盒就写 px、没有盒（display:none）什么都不写，光落在盒中心这个
+          "跟着尺寸走的中性格子"上——静止、不能播、被导出切掉 transition 三格同落点；
+       ③ 半径 `--hot-r` **不随块尺寸走**（64px 常数）：这是"手大的那一圈"，比选项药丸
+          （高 29px）大一圈、比排序条目（高 41px）也大一圈，读起来是"光从指下漫出来"
+          而不是"整块被刷亮"（刷亮是 :hover 那条 border-color 已经在做的事，不重复）；
+          真要跟着尺寸走就把 `--hot-r` 换成百分比——百分比在 radial-gradient 里是
+          **靠边求值**的（0.21.0 `.gather` 那条 fill-box 教训反过来用会别扭），
+          本轮实测否决，见 stage.md 那一节；
+       ④ **不用 `:hover` 写这一层**：媒体查询与 headless 这两处都赌不起——实测 Chrome
+          152 headless 里 `hover:hover`、`pointer:fine`、`any-hover:hover` 三个全报
+          false（触屏上同样为 false），`:hover` 原语在这套 QA 里永远读成"没跑通"；
+          写成 JS 的呈现属性 `data-hot` 之后，它与 --hot-x/y 一起构成"指针在场与否 +
+          在场哪儿"的读数，测试摸得到、导出截图摸得到（导出时没有指针 → 不亮）。
+          代价也说清楚：`:hover` 那条 CSS 自有的"移出即灭"这里要 JS 补（leave / cancel
+          各写一次），多指触屏上先抬的那根手指会把另一根的手指下的光关掉，这是这一条
+          已知的粗糙处，本轮不解；
+       ⑤ `pointer-events:none` + `border-radius:inherit`：这一层不抢命中（洞压在热区上
+          照常可点，与 #spot / 涟漪 同一课），圆角跟着宿主走所以**不需要 overflow:hidden**
+          ——background 本来就被自己的圆角裁住，宿主那层裁不裁都无所谓（`.hs` 是 50%、
+          `.opt` 是 999px，两种都落在盒内）；
+       ⑥ **注册成 `inherits:true` 才有这一层**（本轮实测纠正的一条）：数据写在宿主、
+          画在宿主的伪元素，而伪元素在继承树里是宿主的**子节点**——注册时写成
+          `inherits:false`，宿主上那个数根本进不去，`getComputedStyle(o,'::before')
+          .getPropertyValue('--hot-x')` 永远读回初值 `50%`，计算出来的背景是
+          `radial-gradient(64px, …)`（连 `at` 都被省掉），"光跟着走"整条没跑，而页面
+          看上去是"亮了"的。改成 true 之后逐帧读数是 21.1 → 44.35 → 67.6px。
+          "只让这一块看见"靠的是 `.hot::before` 这个**选择器**，不是靠继承开关——
+          两者搞混过一次，记在这里。 */
+  .hot{position:relative}
+  .hot::before{content:"";position:absolute;inset:0;border-radius:inherit;
+        background:radial-gradient(var(--hot-r) at var(--hot-x) var(--hot-y),
+                                   var(--hot-ink), transparent 70%);
+        opacity:0;pointer-events:none;
+        transition:opacity var(--dur-hot) var(--ease-out),
+                   --hot-x var(--dur-hot) linear,
+                   --hot-y var(--dur-hot) linear}
+  .hot[data-hot="1"]:not(:disabled)::before{opacity:1}
+  /* 放行之后光要按灭：`data-locked="1"` 之后条目还会被指针划过，但这时候"这儿有个
+     可以点的东西"已经过期了——辉光说的是"手可以在这儿做事"，放行之后就不该再说。
+     这一条写在上面那条**之后**：两边特异度同为 (0,3,0)，靠源序压过去（0.15.0 折叠
+     面板那一族同一课：兜住不住不看长相，看写在哪儿）。 */
+  [data-interaction][data-locked="1"] .hot[data-hot="1"]::before{opacity:0}
+
+  /* 色温定调（`data-mood`，0.24.0）：整段气氛跟着"这一段在课程的哪一档"走——
+     不是给内容加颜色（对错有 --ok / --bad、重心有灯），是**只换氛围层的色温**：
+     页面顶部那圈光晕与画布底上一层柔光，两处都不承载信息。三档几乎只换色相、不换
+     亮度（"几乎"两个字是边界 ①② 量出来的），这是这一条能压在内容全部底下的理由。
+     四条边界（推导与逐档读数见 stage.md）：
+       ① 三档 --tint 的**相对亮度实测几乎相等**（calm .015813 / turn .015381 / key
+          .015368，最大差 2.9%）：所以换档动的是色温不是明暗。按 §8 的口径在 python
+          里合成后逐档算（不是看截图平均亮度），三支底色（#1c212d / --panel / #161a23）
+          × 六支墨色共 54 格里，**对比度在三档之间最大偏移 1.90%**；最险的那格是判词红
+          #ef4d4d 对最深一档 #161a23——不加柔光 4.841，压上三档分别 4.749 / 4.772 /
+          4.754，全在 4.5 线以上；
+       ② `--tint` 注册成 `<color>` 且 **inherits:true**：JS 只在 documentElement 换一次档，
+          柔光矩形与页面光晕各自继承同一个值——实测注册的 `<color>` 会把**补间中的
+          逐帧值**继续传进 SVG（`<defs>` / `<pattern>` 里的图元同样吃到），所以
+          消费者不必各写一条 transition（一个数只补间一次）。补间走的是 **sRGB 逐通道
+          线性 × 页面 --ease-out**：把 #0e1f4b → #08261f 钉在 300 / 600 / 900ms 上读回
+          rgb(9, 36, 41) / rgb(8, 38, 33) / rgb(8, 38, 31)，与"按 cubic-bezier(.22,1,.36,1)
+          求出进度、再逐通道插值"的预测**逐格相同**；Oklab 路径在同三格差 40+ 个通道
+          单位，本轮实测排除。路径中点那一格的**相对亮度可以比两端低 10%**（.01501
+          vs .015813 / .015368——sRGB 直线在深色对的中段本来会暗一下），但这一层只有
+          .28 不透明度、又压在最深的底色上，合成后 54 格里没有一格的对比度跑出两端
+          所夹的区间超过 0.06%："只换色相不换亮度"能成立靠的是这两条叠在一起，
+          不是三档 L 相等单独能证的；
+       ③ `--dur-mood` 1.2s 是全仓库最长的一档：比最长的运镜（.78s）还长，气氛不该
+          比一次推拉抢眼；也正因为它长，中途换档**不会跳**——注册属性在补间中改目标值，
+          浏览器从当前值重新起算（擦洗时来回拖过章节线，色温来回游而不是闪），这条
+          是"随动"二字在这轮的另一半含义；
+       ④ 档表**没登记的段落继承上一档**，不回落 calm：气氛是连续量不是事件，把它当
+          "每步必须声明"来清掉，就会在段间空档里白演一次 1.2s 的变色（与 #spot 那种
+          每步归零的层正好相反——那层归零是因为"这一步没指东西"是可读的，
+          "这一段没有气氛"不可读）。 */
+  :root{transition:--tint var(--dur-mood) var(--ease-out)}
+  :root[data-mood="calm"]{--tint:var(--tint-calm)}
+  :root[data-mood="turn"]{--tint:var(--tint-turn)}
+  :root[data-mood="key"]{--tint:var(--tint-key)}
+  /* 画布那一层柔光：铺在**视差层里**（#depth 内、点阵之上），所以它跟着远景一起漂、
+     被取景框裁着，永远不进内容层；四边各多出 900 单位与点阵同宽，镜头推拉时露不出
+     边。`pointer-events:none`：这一层本来就盖在内容**下面**、按道理抢不到命中，
+     仍然明写——与 #spot / 涟漪 同一口径，装饰层一律不许当事件对象。 */
+  #depth .wash{fill:var(--tint);opacity:var(--tint-wash);pointer-events:none}
+
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
      关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
@@ -1400,6 +1591,21 @@
     .wind{animation:none}
     .wind > g{transition-delay:0s}
     .lift{transition:none}
+    /* 随动层（0.24.0）三条同口径，关的都是**补间**不是读数：
+         · 位移定拍**不用另写一行**——#cam 那行 `#cam,.nt,.bar-fill{transition:none}`
+           与 #depth 自己那行早就把它们收掉了；换成派生时长 --cam-dur 之后这一族
+           兜底一个字都不用改，因为关的是整条 transition 简写，与时长从哪儿求的值
+           无关（实测两条的计算值都落 `all 0s ease 0s` / property 为 none）；
+         · 触点辉光关 **transition**、不关光：`data-hot` 与 --hot-x / --hot-y 是
+           "指针在场与否、在场哪儿"的读数，减少动效下光仍然亮在指针底下，只是不
+           追着走（与 #spot / .tilt / .ride 同一判断：位置信息不许连档位一起关）；
+         · 色温定调关在 **:root** 上而不是消费者上：`.wash` 与 `body::before` 读的是
+           **继承来的补间值**、自己没有任何 transition，关它们等于关空气；补间只在
+           换档的那个元素上，所以兜底也必须写在那儿（实测关后 --tint 一步落档）。
+           这一行只动 documentElement 自己——`transition` 不继承，子元素各自的
+           补间不受影响。 */
+    :root{transition:none}
+    .hot::before{transition:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -1956,9 +2162,12 @@
           <!-- 视差远景层：与 #cam 同级、同一个世界坐标系。矩形四周各多出 900：
                镜头平移量 = (500 − k·窗心)，窗心偏一侧且倍率钳到 1.8 时可达上千
                单位，远景按系数跟走也有几百——留边不足会在画面边缘露出"点阵到头
-               了"的接缝。宁可多铺（反正被取景框裁着），不留这种缝。 -->
+               了"的接缝。宁可多铺（反正被取景框裁着），不留这种缝。
+               第二层 .wash 是色温定调（0.24.0）的画布柔光：与点阵同宽同裁，
+               浓度只由 --tint-wash 一处定（见 §③）。 -->
           <g id="depth"><rect x="-900" y="-900" width="2800" height="2260"
-               fill="url(#farDots)" opacity=".5"/></g>
+               fill="url(#farDots)" opacity=".5"/><rect class="wash"
+               x="-900" y="-900" width="2800" height="2260"/></g>
           <g id="cam">
             <!-- 箭头只有一枚：弧线 / 连线指方向用。颜色固定，不随描边变——
                  marker 里的 fill 继承不到被标注的图元，模板就不假装能。 -->
@@ -2120,11 +2329,11 @@
                   </svg>
                   <!-- 圈里不写字，可点区的名字交给 aria-label——屏幕阅读器要能报出
                        "这是哪一步"，只写"第一步"等于没写 -->
-                  <button class="hs" type="button" data-hotspot-id="step1" aria-label="① 逐位比：两边都有这一位时比大小"
+                  <button class="hs hot" type="button" data-hotspot-id="step1" aria-label="① 逐位比：两边都有这一位时比大小"
                           style="left:17.9%;top:47.4%;width:58px;height:58px"></button>
-                  <button class="hs" type="button" data-hotspot-id="step2" aria-label="② 往后一位：都相同就继续比下一位"
+                  <button class="hs hot" type="button" data-hotspot-id="step2" aria-label="② 往后一位：都相同就继续比下一位"
                           style="left:50%;top:47.4%;width:58px;height:58px"></button>
-                  <button class="hs" type="button" data-hotspot-id="step3" aria-label="③ 短的算小：该位缺失的一方定胜负"
+                  <button class="hs hot" type="button" data-hotspot-id="step3" aria-label="③ 短的算小：该位缺失的一方定胜负"
                           style="left:82.1%;top:47.4%;width:58px;height:58px"></button>
                 </div>
                 <div class="interaction-feedback" id="hot-fb" hidden></div>
@@ -2561,14 +2770,48 @@
     p.setAttribute('transform',
       'translate(' + (now.tx * f).toFixed(1) + ',' + (now.ty * f).toFixed(1) + ')');
   }
-  function camTo(f){
+  function camCalc(f){
     var k = Math.max(0.85, Math.min(VIEW.w / f[2], VIEW.h / f[3], 1.8));
     // 平移量算一次、回传一次：视差层要用的就是这个数，让它在 depthShift 里
     // 重算第五版钳位公式，早晚和实际画面不一致（同上面那条注释的理由）。
-    var tx = 500 - k * (f[0] + f[2] / 2), ty = 202 - k * (f[1] + f[3] / 2);
+    var cx = f[0] + f[2] / 2, cy = f[1] + f[3] / 2;
+    return {cx:cx, cy:cy, k:k, tx:500 - k * cx, ty:202 - k * cy};
+  }
+  /** 位移定拍（0.24.0）：一趟镜头的时长**由这一趟真的走了多少推出来**，不再是恒定的
+   *  .6s。JS 只写两个读数——`--cam-pan`（平移行程，viewBox 单位）与 `--cam-zoom`
+   *  （倍率的相对变化，无量纲）；权重、地板、封顶全在 CSS 那一处 clamp()（见 :root
+   *  的 --cam-dur），几何归代码、时间归令牌，两边都不留第二个数。五条边界：
+   *    ① **先写读数、后写 transform，顺序是原语的一部分**：#cam 的 transition-duration
+   *       读的是 --cam-dur，而它只在样式重新计算时才求值。反过来写（先 transform、
+   *       中间夹一次强制布局——下面重触发运镜模糊用的 getBoundingClientRect 正是
+   *       一次强制布局）时，浏览器会用**上一趟那一步**求出的时长来补这一趟，实测
+   *       读数是"transform 已经新了、跑动中的动画时长还是旧的"（见 stage.md §3.4
+   *       那条"看着跑通了、读数其实是错的"）；
+   *    ② 读数写在 **documentElement** 上而不是 #cam 上：--cam-pan / --cam-zoom 是
+   *       未注册的常量替换，写在谁身上都只会被自己读；写根上是为了让 #cam 与 #depth
+   *       **两个消费者共读同一个派生值**（写在 #cam 上，视差层就得再算一遍第五版
+   *       钳位公式——正是 depthShift 上面那条注释要避免的事）；
+   *    ③ 冷启动（`camAt` 为 null，没有"上一状态"）写 0 / 0，落到的就是地板那一档，
+   *       与擦洗 / 导出截图模式同一格——导出的每一帧都是一次冷启动，直接 seek 到
+   *       那一秒，靠"上一趟的时长"就是靠历史（纪律：状态必须是 (scene, step) 的
+   *       纯函数）；
+   *    ④ 擦洗与导出截图模式下也写 0 / 0：手指在进度条上跑时画面本来就在连续跳，
+   *       按行程定拍只会让镜头永远在追（运镜模糊与方向感换场同一判据、同一行守卫）；
+   *    ⑤ **--cam-pan / --cam-zoom 故意不注册**：它们是"这一趟走了多少"的读数，
+   *       不该被补间——补间一个行程数会得到"时长自己也在爬"的第二套动画（与
+   *       --spot-k / --squash-x 同一条口径）。 */
+  function camRun(prev, now){
+    var root = document.documentElement;
+    var pan = 0, zoom = 0;
+    if (prev && !scrubbing && !window.__coursewareShotMode){
+      pan = Math.hypot(now.tx - prev.tx, now.ty - prev.ty);
+      zoom = Math.abs(now.k / prev.k - 1);
+    }
+    root.style.setProperty('--cam-pan', pan.toFixed(1));
+    root.style.setProperty('--cam-zoom', zoom.toFixed(3));
     el('cam').setAttribute('transform',
-      'translate(' + tx.toFixed(1) + ',' + ty.toFixed(1) + ') scale(' + k.toFixed(3) + ')');
-    return {cx:f[0] + f[2] / 2, cy:f[1] + f[3] / 2, k:k, tx:tx, ty:ty};
+      'translate(' + now.tx.toFixed(1) + ',' + now.ty.toFixed(1) + ') scale(' + now.k.toFixed(3) + ')');
+    return now;
   }
   /** 运动模糊的判据：镜头**动了多少**才糊（不是每步都糊）。位移按世界坐标算，
      倍率按相对变化算——推拉 22% 以上、或平移 180 单位以上才算"一次运镜"。
@@ -2651,11 +2894,12 @@
     var now;
     if (!declared && compact()){
       var b = contentBox();
-      now = camTo(b ? [b.x, b.y, b.w, b.h] : FULL);
+      now = camCalc(b || FULL);
     } else {
-      now = camTo(declared || FULL);
+      now = camCalc(declared || FULL);
     }
-    depthShift(now);            // 远景跟着漂一小段（视差），与镜头同一个坐标系
+    camRun(camAt, now);           // 先写行程读数再写 transform：见 camRun 边界 ①
+    depthShift(now);              // 远景跟着漂一小段（视差），与镜头同一个坐标系
     // 运镜模糊：只在**真的发生一次大幅运镜**时重触发（判据见 camBlurOK）。
     // 重触发口径与字幕翻句同款：remove → 读一次几何 → add；不达标的这一步必须
     // 主动 remove——否则上一次模糊的 class 还挂着，下一步小移动会再跑一遍动画。
@@ -2665,6 +2909,32 @@
       cam.classList.add('blurpass');
     } else cam.classList.remove('blurpass');
     camAt = now;
+  }
+
+  /* 色温定调的档表（0.24.0）：气氛跟着"这一段在讲什么"走。三档各说一件事——
+     calm 是陈述规则（平），turn 是翻案 / 埋反例（暖一档），key 是契约与结论
+     （冷绿一档）。档位按 content.title 那句话的**语气**分，不按场景号取模也不按
+     时长分（那种分法换个课程就失效）。没登记的段落继承上一档，见 CSS
+     「色温定调」边界 ④。 */
+  var MOOD = {
+    'opening':'turn',    // 先抛一个"你以为的答案"是错的
+    'seg-1':'turn',      // 结果摊开：翻案
+    'seg-2':'calm',      // 逐位比较，讲规则
+    'seg-3':'calm',      // 位数相同才碰巧一致
+    'seg-4':'key',       // 比较函数的契约
+    'seg-5':'turn',      // 常见错误：返回了布尔值
+    'seg-6':'calm',      // 稳定性，一个补充性质
+    'closing':'key'      // 回到开头那句：结论
+  };
+  /** 换档只在**换节**时写一次（调用点在 tick 的换节分支，与章节翻场同一判据——
+   *  挂在换句分支上就成了每句都游一次色）。写在 documentElement 而不是 #stage：
+   *  --tint 注册成 inherits:true，两个消费者里有一个在 stage **之外**
+   *  （body::before 那圈光晕），写 #stage 就漏了它；补间也只在换档的那个元素上
+   *  声明一处（:root 那一行），消费者一条都不写。 */
+  function moodSet(sid){
+    var m = MOOD[sid];
+    if (!m) return;                     // 没登记 ≠ 关掉：什么都不写，气氛保持连续
+    document.documentElement.dataset.mood = m;
   }
 
   /** 舞台 A：三个数字块（4 句）——主角归**世界层**，这一幕只画"旁白正在指的那件事"
@@ -3459,7 +3729,7 @@
     clear(gateOpts);
     g.opts.forEach(function(o){
       var b = document.createElement('button');
-      b.type = 'button'; b.className = 'opt'; b.textContent = o.t; b.dataset.choiceId = o.id;
+      b.type = 'button'; b.className = 'opt hot'; b.textContent = o.t; b.dataset.choiceId = o.id;
       gateOpts.appendChild(b);
     });
   }
@@ -3487,7 +3757,7 @@
     clear(bkTray); clear(el('bk-same')); clear(el('bk-diff'));    // 重开时洗回待放区
     (g.items || []).forEach(function(it){
       var li = document.createElement('li');
-      li.className = 'bucket-item'; li.dataset.bucketItem = it.id; li.textContent = it.t;
+      li.className = 'bucket-item hot'; li.dataset.bucketItem = it.id; li.textContent = it.t;
       bkTray.appendChild(li);
     });
   }
@@ -3500,7 +3770,7 @@
     clear(seqList);
     (cfg.items || []).forEach(function(it, n){
       var li = document.createElement('li');
-      li.className = 'sequence-item'; li.dataset.sequenceId = it.id;
+      li.className = 'sequence-item hot'; li.dataset.sequenceId = it.id;
       var handle=document.createElement('span'); handle.className='s-handle'; handle.textContent='⠿';
       var idx=document.createElement('span'); idx.className='s-idx'; idx.textContent=String(n+1);
       var text=document.createElement('span'); text.textContent=it.t || '';
@@ -3761,6 +4031,7 @@
         if (lastSceneIdx !== idx){
           var fwd = lastSceneIdx < 0 ? 0 : (idx > lastSceneIdx ? 1 : -1);
           lastSceneIdx = idx;
+          moodSet(hit.scene.step_id);   // 气氛跟着**这一段**换档（1.2s 游过去，不闪）
           var ch = el('chapter');
           ch.classList.remove('chFlip'); void ch.getBoundingClientRect();
           ch.classList.add('chFlip');

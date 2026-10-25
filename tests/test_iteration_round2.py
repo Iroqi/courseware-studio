@@ -741,7 +741,7 @@ def test_focus_dim_press_feel_and_camera_blur_present():
     """
     html = TEMPLATE_HTML.read_text(encoding="utf-8")
     # 新令牌：悬浮 / 运镜 / 幕布 / 元素 / 翻场 / 模糊时长 + 弱化强度
-    assert "--dur-hover:.16s; --dur-cam:.6s;   --dur-veil:.32s; --dur-el:.38s;" in html
+    assert "--dur-hover:.16s; --dur-veil:.32s; --dur-el:.38s;" in html
     assert "--dur-ch:.22s; --dur-blur:.42s;" in html
     assert "--dim-focus:.62; --dur-dim:.45s;" in html
     # 焦点弱化：注册变量（名字避开调色板的 --dim 色值）+ 纯 filter + 走 .nt 的 transition
@@ -771,7 +771,7 @@ def test_focus_dim_press_feel_and_camera_blur_present():
     assert ("@keyframes camBlur{0%{filter:blur(0)}38%{filter:blur(2.2px)}"
             "100%{filter:blur(0)}}") in html
     assert "#cam.blurpass{animation:camBlur var(--dur-blur) var(--ease-in-out)}" in html
-    assert "#cam{transition:transform var(--dur-cam) var(--ease-out)}" in html
+    assert "#cam{transition:transform var(--cam-dur) var(--ease-out)}" in html
     assert "var camAt = null;" in html and "function camBlurOK(prev, now){" in html
     assert ("return Math.sqrt(dx * dx + dy * dy) > 180 "
             "|| Math.abs(now.k / prev.k - 1) > 0.22;") in html
@@ -1172,7 +1172,7 @@ def test_parallax_transition_and_highlight_present():
     """模板结构契约：0.14.0 三项动效原语必须长在范本里（无浏览器也可锁）。
 
     锁的是"口径"而不是像素：视差层必须与 #cam 同级同坐标系（放进 #cam 里会被
-    那层 transform 属性顶掉）、系数只从令牌读一处、位移取 camTo 回传的 tx/ty
+    那层 transform 属性顶掉）、系数只从令牌读一处、位移取 camCalc 回传的 tx/ty
     （钳位公式只允许存在一份）；换场必须只对"换节"触发且擦洗/截图双抑制
     （挂在换句分支上就成每句抖）；划重点的几何必须从字幕 bbox 现量（字号有
     桌面/小屏两套档位，写常数必错位），且非结论句归零。
@@ -1185,9 +1185,9 @@ def test_parallax_transition_and_highlight_present():
     assert '<g id="depth"><rect' in html
     depth_at = html.index('<g id="depth">')
     assert html.index('<g clip-path="url(#frameClip)">') < depth_at < html.index('<g id="cam">')
-    assert "#depth{transition:transform var(--dur-cam) var(--ease-out)}" in html
-    # 位移量取自 camTo 的回传值：钳位公式不留第二套
-    assert "return {cx:f[0] + f[2] / 2, cy:f[1] + f[3] / 2, k:k, tx:tx, ty:ty};" in html
+    assert "#depth{transition:transform var(--cam-dur) var(--ease-out)}" in html
+    # 位移量取自 camCalc 的回传值：钳位公式不留第二套
+    assert "return {cx:cx, cy:cy, k:k, tx:500 - k * cx, ty:202 - k * cy};" in html
     assert "function depthShift(now){" in html
     assert "getPropertyValue('--par-far')" in html and "if (!isFinite(f)) f = .45;" in html
     assert "now.tx * f" in html and "now.ty * f" in html
@@ -1274,7 +1274,7 @@ def test_parallax_depth_moves_less_than_camera(full_lesson):
         assert not _motion(ev, "#depth"), "远景走补间（transition），不该有动画在跑"
 
         # 位移不进几何：把 #depth 推到极端，世界层局部 bbox 一格不动。
-        # 先等一切落定（--dur-cam .6s / .nt .5s 还在跑时 bbox 本来就在变，
+        # 先等一切落定（运镜 .5~.78s / .nt .5s 还在跑时 bbox 本来就在变，
         # 那会被误读成"视差改变了几何"）。
         time.sleep(1.0)
         base = state()["wbox"]
@@ -1630,7 +1630,7 @@ def test_wipe_reveal_sweeps_and_settles(full_lesson):
             三处非显然的手法，都是被实测教出来的：
               · 必须**在页面里等两帧**才拿得到动画对象：`put` 刚建好档的节点，动画要
                 到下一次样式重算才登记（同步 read 是空数组，暂停无从下手）；
-              · **先把擦除 pause() 再去等镜头**：换场时 `#cam` 还在补间（--dur-cam .6s），
+              · **先把擦除 pause() 再去等镜头**：换场时 `#cam` 还在补间（--cam-dur .5~.78s），
                 一边是 clip-path 的百分比、一边是不断挪动的 `getScreenCTM()`，两个
                 时间线搅在一起，命中测试就成随机数（实测：镜头没停时同一条动画
                 采出的命中全错）。暂停的对象只有擦除自己，取样期间它不会动。
@@ -4244,7 +4244,12 @@ def test_flip_turns_the_verdict_in_front_of_the_learner(full_lesson):
             f"落定 = 背面在场：{probe}"
         assert probe["hit"] == "b-0-vs-b", \
             f"命中的是在场那一面，不留幽灵面：{probe}"
-        assert probe["bbox"] == box_open, f"翻页不改包围盒：{probe['bbox']} vs {box_open}"
+        # 包围盒按 ±0.05px 比：这一条锁的是"翻页不改盒"，不是"两次读数逐位相同"——
+        # 亚像素那一档在补间刚落定时会抖（同一页实测到过 461.29 与 461.30 两个读数，
+        # 口径同 0.23.1「浏览器用例别再拿屏幕绝对坐标当契约」）。
+        assert len(probe["bbox"]) == len(box_open) and \
+            all(abs(a - b) <= 0.05 for a, b in zip(probe["bbox"], box_open)), \
+            f"翻页不改包围盒：{probe['bbox']} vs {box_open}"
 
         # 第二行按自己的节拍翻：s3 时它还是正面，s4 才翻
         probe1 = json.loads(ev(_FLIP_PROBE.replace("FLIP", "b-1-vs-w")
@@ -5012,7 +5017,7 @@ def test_ripple_grows_from_the_touch_point_and_vanishes(full_lesson):
 
         st0 = json.loads(ev(_RIP_STATE % 0))
         x, y, w, h = st0["rect"]
-        assert st0["cls"] == "opt" and st0["cont"] == "none", \
+        assert st0["cls"] == "opt hot" and st0["cont"] == "none", \
             f"没按过的选项**根本没有这一层**（::after 不生成盒子）：{st0}"
         assert st0["sw"] == st0["cw"] and st0["sh"] == st0["ch"], \
             f"overflow:hidden 裁不到字（{st0['sw']}/{st0['cw']}）：{st0}"
@@ -5032,7 +5037,7 @@ def test_ripple_grows_from_the_touch_point_and_vanishes(full_lesson):
                       math.hypot(want_rx, h - want_ry), math.hypot(w - want_rx, h - want_ry))
         assert abs(float(st["d"][:-2]) - 2 * corners) <= 1.0, \
             f"直径 = 最远角距离 ×2（期望 {2 * corners:.1f}px）：{st}"
-        assert st["cls"] == "opt rip" and st["pef"] == "none", st
+        assert st["cls"] == "opt hot rip" and st["pef"] == "none", st
 
         hit = json.loads(ev("""(function(){var o=document.querySelectorAll('#gate-block .opt')[0];
           var r=o.getBoundingClientRect();var n=document.elementFromPoint(
@@ -6674,5 +6679,1072 @@ def test_settle_wind_lift_reduced_motion_and_shot_terminals(full_lesson):
         assert lx["b"][0] == "1" and lx["b"][2] == "0px -5px" and \
             lx["b"][3] == "drop-shadow(rgba(4, 6, 10, 0.62) 0px 7.5px 6px)", \
             f"成片里 b 抬起、影子跟着：`契约 a − b > 0` 那一帧说得完整：{lx}"
+    finally:
+        _kill(chrome)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 0.24.0 随动层：位移定拍 / 触点辉光 / 色温定调
+#
+# 这一族三条都没有"演完"那一说：镜头跟着这一步真的走了多少、光跟着指针落在哪儿、
+# 色温跟着这一段在课程的哪一档。所以用例读的全是**读数**——跑动中的补间时长、
+# 伪元素上的注册属性、继承进 SVG 的颜色——而不是截图平均亮度。
+# ══════════════════════════════════════════════════════════════════════
+
+_CAM_READ = r"""(function(){
+  var cam = document.getElementById('cam'), dep = document.getElementById('depth');
+  var root = document.documentElement, rst = getComputedStyle(root);
+  /* 先读一次计算值：transition 在样式重新计算的那一刻才建档，晚一步就采不到 */
+  var cd = getComputedStyle(cam).transitionDuration;
+  var dd = getComputedStyle(dep).transitionDuration;
+  function runs(node){
+    return (node.getAnimations() || [])
+      .filter(function(a){ return a.transitionProperty === 'transform'; })
+      .map(function(a){ return +a.effect.getTiming().duration.toFixed(2); });
+  }
+  return JSON.stringify({
+    pan: root.style.getPropertyValue('--cam-pan'),
+    zoom: root.style.getPropertyValue('--cam-zoom'),
+    durVar: rst.getPropertyValue('--cam-dur'),
+    camDur: cd, depthDur: dd, anims: runs(cam), depthAnims: runs(dep),
+    min: parseFloat(rst.getPropertyValue('--dur-cam-min')),
+    max: parseFloat(rst.getPropertyValue('--dur-cam-max')),
+    wp: parseFloat(rst.getPropertyValue('--dur-cam-pan')),
+    wz: parseFloat(rst.getPropertyValue('--dur-cam-zoom')),
+    spot: parseFloat(rst.getPropertyValue('--dur-spot')),
+    transform: cam.getAttribute('transform')
+  });})()"""
+
+
+_CAM_RUNNING = ("(function(){var c=document.getElementById('cam');"
+                "return (c.getAnimations()||[]).filter(function(a){"
+                "return a.transitionProperty==='transform';}).length;})()")
+
+
+def _cam_expect_ms(st):
+    """按**页面自己的令牌**把这一趟的时长重算一遍：读数 × 权重 → clamp。
+
+    断言里不许出现第二个 .0014 / .35——那等于把 CSS 那一处抄进测试，改档位时
+    测试跟着一起改，就再也测不出"两处不同步"了（口径同 --wind-hold / --par-far）。
+    """
+    raw = float(st["pan"]) * st["wp"] + float(st["zoom"]) * st["wz"]
+    return min(st["max"], max(st["min"], raw)) * 1000.0
+
+
+def _ms(text):
+    """computed transition-duration（"0.77154s" / "0.5s"）→ 毫秒。"""
+    assert text.endswith("s") and not text.endswith("ms"), text
+    return float(text[:-1]) * 1000.0
+
+
+_HOT_STATE = r"""(function(sel){
+  var o = document.querySelector(sel);
+  if (!o) return JSON.stringify({missing:sel});
+  var cs = getComputedStyle(o, '::before'), r = o.getBoundingClientRect();
+  var bl = o.closest('[data-interaction]');
+  var runs = (o.getAnimations({subtree:true}) || [])
+      .filter(function(a){ return a.transitionProperty; })
+      .map(function(a){ return [a.transitionProperty,
+              +a.effect.getTiming().duration.toFixed(1), a.playState]; });
+  return JSON.stringify({cls:o.className,
+    hot:o.getAttribute('data-hot') || '',
+    hx:cs.getPropertyValue('--hot-x'), hy:cs.getPropertyValue('--hot-y'),
+    hostHx:getComputedStyle(o).getPropertyValue('--hot-x'),
+    op:cs.opacity, cont:cs.content, pef:cs.pointerEvents,
+    br:cs.borderTopLeftRadius, tp:cs.transitionProperty, td:cs.transitionDuration,
+    bg:cs.backgroundImage.slice(0, 150),
+    hostPos:getComputedStyle(o).position,
+    rect:[+r.left.toFixed(1), +r.top.toFixed(1),
+          +r.width.toFixed(1), +r.height.toFixed(1)],
+    hover:o.matches(':hover'), disabled:!!o.disabled,
+    locked:(bl && bl.dataset.locked) || '', runs:runs});})('%s')"""
+
+# 一次往返里把同一条补间钉在若干档上逐格读：CDP 一趟 ~30ms，160ms 的淡入追帧必输
+_HOT_SWEEP = r"""(function(sel, prop, times){
+  var o = document.querySelector(sel);
+  void getComputedStyle(o, '::before').opacity;          // 逼一次样式重算，补间才建档
+  var a = (o.getAnimations({subtree:true}) || []).filter(function(x){
+      return x.transitionProperty === prop;})[0];
+  if (!a) return JSON.stringify({gone:prop});
+  a.pause(); var out = [];
+  times.forEach(function(t){ a.currentTime = t;
+    var cs = getComputedStyle(o, '::before');
+    out.push([t, cs.getPropertyValue(prop), cs.opacity, a.playState]); });
+  a.finish();                     // finish（不是 play）：留在终态，不会从头再演一遍
+  return JSON.stringify({prop:prop, at:out, state:a.playState});})('%s','%s',%s)"""
+
+_MOOD_READ = r"""(function(){
+  var root = document.documentElement, rst = getComputedStyle(root);
+  var wash = document.querySelector('#depth .wash'), wcs = getComputedStyle(wash);
+  var dots = document.querySelector('#farDots circle');
+  var glow = getComputedStyle(document.body, '::before');
+  var runs = (root.getAnimations() || [])
+      .filter(function(a){ return a.transitionProperty === '--tint'; })
+      .map(function(a){ return [a.effect.getKeyframes().map(function(k){
+              return k['--tint']; }), +a.effect.getTiming().duration.toFixed(1),
+              a.playState]; });
+  var wr = wash.getBoundingClientRect();
+  var dr = document.querySelector('#depth rect').getBoundingClientRect();
+  return JSON.stringify({mood:root.getAttribute('data-mood') || '',
+    tint:rst.getPropertyValue('--tint'), rootTp:rst.transitionProperty,
+    fill:wcs.fill, wop:wcs.opacity, wpe:wcs.pointerEvents,
+    glow:glow.backgroundImage.slice(0, 150),
+    dots:getComputedStyle(dots).fill,
+    wash:[+wr.width.toFixed(1), +wr.height.toFixed(1)],
+    dotsRect:[+dr.width.toFixed(1), +dr.height.toFixed(1)],
+    runs:runs});})()"""
+
+_MOOD_SWEEP = r"""(function(times){
+  var root = document.documentElement;
+  var a = (root.getAnimations() || []).filter(function(x){
+      return x.transitionProperty === '--tint';})[0];
+  if (!a) return JSON.stringify({gone:'--tint'});
+  a.pause(); var out = [];
+  times.forEach(function(t){ a.currentTime = t;
+    out.push([t, getComputedStyle(root).getPropertyValue('--tint'),
+              getComputedStyle(document.querySelector('#depth .wash')).fill,
+              getComputedStyle(document.body, '::before').backgroundImage.slice(0, 78),
+              a.playState]); });
+  a.finish(); return JSON.stringify({at:out, state:a.playState});})(%s)"""
+
+# 门禁开卡：at:'end' 的两道（hotspot / bucket）要落在**末句播完后的空档**里才弹
+_OPEN_GAP = r"""(function(){
+  window.__gap = function(sid){
+    var tl = window.__tl;
+    for (var i = 0; i < tl.scenes.length; i++){
+      var sc = tl.scenes[i];
+      if (sc.step_id !== sid) continue;
+      var ns = sc.runtime.narration, last = ns[ns.length - 1];
+      window.__t = last.start + last.duration + 0.05;
+      document.getElementById('main-audio').dispatchEvent(new Event('timeupdate'));
+      return window.__t;
+    }
+    throw new Error('时间轴里没有这一场：' + sid);
+  };
+  return 1;
+})()"""
+
+# 逐型别把当前这张卡答对（与 test_pipeline_smoke 的 driveGate 同一套钩子名）
+_ANSWER = r"""(function(kind){
+  var card = document.querySelector('#gate [data-interaction]:not([hidden])');
+  if (!card) return 'no card';
+  var cfg = JSON.parse(card.getAttribute('data-interaction') || '{}');
+  if (kind === 'choice'){
+    var right = (cfg.options || []).filter(function(o){ return o.correct === true; })[0];
+    card.querySelector('[data-choice-id="' + right.id + '"]').click();
+  } else if (kind === 'hotspot'){
+    var sp = (cfg.options || cfg.spots || []).filter(function(o){
+        return o.correct === true; })[0];
+    card.querySelector('[data-hotspot-id="' + sp.id + '"]').click();
+  } else if (kind === 'sequence'){
+    var list = card.querySelector('.sequence-list'), map = {};
+    Array.prototype.forEach.call(list.children, function(li){
+      map[li.dataset.sequenceId] = li; });
+    (cfg.correct_order || cfg.answer || []).forEach(function(id){
+      if (map[String(id)]) list.appendChild(map[String(id)]); });
+    card.querySelector('[data-sequence-submit]').click();
+  } else if (kind === 'bucket'){
+    var ans = cfg.answer || {};
+    Object.keys(ans).forEach(function(id){
+      var item = card.querySelector('.bucket-item[data-bucket-item="' + id + '"]');
+      var box = card.querySelector('[data-drop][data-bucket-id="' + ans[id] + '"]');
+      if (item && box){
+        var r = item.getBoundingClientRect();
+        var o = {bubbles:true, cancelable:true, pointerId:41, isPrimary:true,
+                 clientX:r.left + r.width / 2, clientY:r.top + r.height / 2,
+                 button:0, pointerType:'mouse'};
+        item.dispatchEvent(new PointerEvent('pointerdown', o));
+        item.dispatchEvent(new PointerEvent('pointerup', o));
+        box.click();
+      }});
+    card.querySelector('[data-bucket-submit]').click();
+  }
+  return 'asked';})('%s')"""
+
+
+def _gate_open(ev, sel, timeout=8.0):
+    """等这一块宿主真的**有盒**：门禁卡没揭开时元素在场但尺寸是 0，量不到触点。"""
+    probe = ("(function(){var o=document.querySelector('%s');"
+             "if(!o) return false;"
+             "var r=o.getBoundingClientRect();return !o.hidden && r.width > 0;})()") % sel
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if ev(probe):
+            return True
+        time.sleep(0.1)
+    raise AssertionError("门禁宿主一直没揭开：%s" % sel)
+
+
+def _gate_close(ev, timeout=8.0):
+    """答完的卡要按「继续」才收得掉：不收，下一道的浮层还压着上一道。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if ev("!document.getElementById('gate-go').disabled"):
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("「继续」一直没放行")
+    ev("document.getElementById('gate-go').click()")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if ev("document.getElementById('gate').hidden"):
+            return True
+        time.sleep(0.1)
+    raise AssertionError("门禁浮层一直没收起")
+
+
+def _metric(metrics, name):
+    return {m["name"]: m["value"] for m in metrics}.get(name, 0.0)
+
+
+def _mouse(send, x, y):
+    send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y,
+                                      "button": "none", "buttons": 0, "clickCount": 1})
+
+
+def _box(st):
+    return st["rect"][0], st["rect"][1], st["rect"][2], st["rect"][3]
+
+
+def _px(text):
+    """落定后的 --hot-x / --hot-y：计算值一律序列化成 px（写进去的 `13.0px`
+    会被折成 `13px`），中间趟则是 `calc(...)`——那种值不许走到这里。"""
+    assert text.endswith("px"), text
+    return float(text[:-2])
+
+
+def _bezier_progress(t_ms, dur_ms, p1, p2, p3, p4):
+    """CSS cubic-bezier(p1,p2,p3,p4)：把时间轴上的 t 解成输出进度（二分求参数 u）。"""
+    u = t_ms / float(dur_ms)
+    lo, hi = 0.0, 1.0
+    for _ in range(60):
+        m = (lo + hi) / 2.0
+        x = 3 * (1 - m) ** 2 * m * p1 + 3 * (1 - m) * m * m * p3 + m ** 3
+        if x < u:
+            lo = m
+        else:
+            hi = m
+    v = (lo + hi) / 2.0
+    return 3 * (1 - v) ** 2 * v * p2 + 3 * (1 - v) * v * v * p4 + v ** 3
+
+
+# ── 静态锁：三条原语长在范本与运行时里 ─────────────────────────────────
+
+def test_follow_layer_primitives_present():
+    """模板结构契约：0.24.0 三条"随动"原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮量出来"为什么只能这么写"的边界：
+      · **旧的恒定档 --dur-cam 必须整个消失**（令牌行、#cam、#depth 三处都不许再有），
+        两个消费者一起改读派生值 --cam-dur——留着一条"没人读的 .6s"比删掉更糟，
+        下一个人会以为改它还能影响镜头；
+      · 时间与几何**各只有一处**：JS 只写两个读数（--cam-pan / --cam-zoom），
+        权重、地板、封顶只在 :root 的 clamp() 里；断言里也不许出现第二个权重数
+        （用 _cam_expect_ms 现算）；--cam-pan / --cam-zoom **故意不注册**，
+        注册了就去补间一个"行程"，得到时长自己也在爬的第二套动画；
+      · 地板与落点灯同档（.5s == --dur-spot）、封顶短于沿线抵达（.78s < .8s）；
+      · `camCalc` 是纯函数、`camRun` 只写；**读数写在 transform 之前**（顺序锁用
+        字符串位置钉死，"跑动中的时长 == 计算值"那条实测在 CDP 用例里）；
+      · 擦洗与导出截图模式写 0/0（一行守卫，与运镜模糊/方向感换场同一判据）；
+      · 辉光：--hot-x / --hot-y 注册成 `<length-percentage>` 且 **inherits:true**
+        （本轮实测纠正：inherits:false 时写在宿主上的数根本进不了 ::before），
+        初值 50% = 盒中心那一格；宿主标 `.hot`（选项 / hotspot 圈 / 两类条目），
+        运行时按 `.hot` 扫宿主、**不按题型重列选择器**；状态写 `data-hot`，
+        **不许出现 `:hover` 驱动这一层**（媒体查询在触屏与 headless 两处都 false）；
+        放行那条 `[data-locked]` 必须写在 `:not(:disabled)` 那条**之后**；
+      · 色温：`--tint` 注册成 `<color>` 且 inherits:true，initial 与 --tint-calm
+        取同一个数（两处持有者由字符串钉在一起，改一处不改另一处就红）；
+        补间只写在 :root 一处，两个消费者（`#depth .wash` / `body::before`）
+        都不写 transition；柔光矩形必须**在点阵之后**（盖在纹理上）、与点阵同宽；
+      · reduced-motion 两行新兜底（`:root` / `.hot::before`），关的都是补间不是读数。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    js = (REPO / "scripts/interactive_runtime.js").read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    root = re.search(r":root\{([\s\S]*?)\n  \}", css).group(1)
+
+    # ⓪ 注释配对 + 新令牌必须真在 :root 的解析结果里
+    assert _css_comment_problems(html) == [], _css_comment_problems(html)
+    for tok in ("--dur-cam-min", "--dur-cam-max", "--dur-cam-pan", "--dur-cam-zoom",
+                "--cam-pan", "--cam-zoom", "--cam-dur", "--dur-hot", "--hot-r",
+                "--hot-ink", "--dur-mood", "--tint-wash", "--tint-calm",
+                "--tint-turn", "--tint-key"):
+        assert re.search(re.escape(tok) + r"\s*:", root), \
+            f"{tok} 没长在 :root 里（被注释语法吃掉过一次，见 _css_comment_problems）"
+
+    # ① 恒定档就此消失：令牌行、两个消费者都不许再读它
+    assert "--dur-cam:" not in css and "var(--dur-cam)" not in css, \
+        "留一条没人读的 --dur-cam 比删掉更糟：下一个人会以为改它还能影响镜头"
+    assert "--dur-hover:.16s; --dur-veil:.32s; --dur-el:.38s;" in html
+    assert "#cam{transition:transform var(--cam-dur) var(--ease-out)}" in html
+    assert "#depth{transition:transform var(--cam-dur) var(--ease-out)}" in html
+
+    # ② 时长只由 clamp() 一处推出，两端与权重各有出处
+    assert "--dur-cam-min:.5s; --dur-cam-max:.78s;" in html, \
+        "地板 == --dur-spot（灯不落在镜头后面），封顶 < --dur-ride .8s（画面里最长的一趟）"
+    assert "--dur-cam-pan:.0014s; --dur-cam-zoom:.35s;" in html
+    assert "--cam-pan:0; --cam-zoom:0;" in html, \
+        "静态终值即初值：没跑 / 不能跑 / 导出切掉时落到的正是地板那一档"
+    assert ("--cam-dur:clamp(var(--dur-cam-min),\n"
+            "                    calc(var(--cam-pan) * var(--dur-cam-pan)\n"
+            "                       + var(--cam-zoom) * var(--dur-cam-zoom)),\n"
+            "                    var(--dur-cam-max));") in html
+    assert "--dur-hot:.16s; --hot-r:64px; --hot-ink:rgba(245,166,35,.22);" in html, \
+        "--dur-hot 借按压那一档的读数，不新立一档；墨色比涟漪 --rip-ink .26 还轻"
+    assert "--dur-mood:1.2s; --tint-wash:.28;" in html, \
+        "--dur-mood 是全仓库最长的一档：气氛不该比一次运镜抢眼"
+
+    # ③ 注册：只注册真正要补间的那三个，行程读数故意不注册
+    assert ("@property --hot-x{syntax:'<length-percentage>';inherits:true;initial-value:50%}"
+            in html), "辉光必须注册成可补间，且 inherits:true（消费者是宿主的伪元素）"
+    assert ("@property --hot-y{syntax:'<length-percentage>';inherits:true;initial-value:50%}"
+            in html)
+    assert "@property --tint{syntax:'<color>';inherits:true;initial-value:#0e1f4b}" in html, \
+        "initial 取 calm 那个数：静止即最平的一档（纪律③）"
+    m = re.search(r"--tint-calm:(#\w{6})", root)
+    assert m and ("@property --tint{syntax:'<color>';inherits:true;initial-value:%s}"
+                  % m.group(1)) in html, \
+        "--tint 的初值与 --tint-calm 是两个持有者（注册期不许写 var()），必须钉成同一个数"
+    for nope in ("--cam-pan", "--cam-zoom", "--spot-k", "--squash-x"):
+        assert "@property " + nope not in html, \
+            f"{nope} 是常量替换、进 calc，注册了就去补间它（第二轮就踩过这一课）"
+
+    # ④ 辉光那一层：宿主、终态、放行三条
+    assert ".hot{position:relative}" in css, \
+        "条目类宿主本来就是静态盒，position 只在这里补——.hs 的 absolute 由 (0,2,0) 保住"
+    assert ("background:radial-gradient(var(--hot-r) at var(--hot-x) var(--hot-y),\n"
+            "                                   var(--hot-ink), transparent 70%);") in css
+    assert ("transition:opacity var(--dur-hot) var(--ease-out),\n"
+            "                   --hot-x var(--dur-hot) linear,\n"
+            "                   --hot-y var(--dur-hot) linear}") in css, \
+        "位置走 linear 不走 --ease-out：指针停了光就停，ease-out 会在每次小停后拖一段尾巴"
+    assert "opacity:0;pointer-events:none" in css and "border-radius:inherit" in css, \
+        "静止态这一层在场但看不见；圆角跟着宿主走，所以不需要 overflow:hidden"
+    glow_on = '.hot[data-hot="1"]:not(:disabled)::before{opacity:1}'
+    glow_off = '[data-interaction][data-locked="1"] .hot[data-hot="1"]::before{opacity:0}'
+    assert glow_on in css and glow_off in css
+    assert css.index(glow_on) < css.index(glow_off), \
+        "两条同为 (0,3,0)，放行那条必须靠源序压过去（0.15.0 折叠那一族同一课）"
+    assert ".hot:hover" not in css and ".hot:active" not in css, \
+        "这一层不许由 :hover 驱动：触屏上 hover 不成立、headless 里 hover 媒体查询全 false"
+
+    # ⑤ 色温：一处补间、两处消费，柔光盖在点阵之上
+    assert ":root{transition:--tint var(--dur-mood) var(--ease-out)}" in css
+    for k in ("calm", "turn", "key"):
+        assert ':root[data-mood="%s"]{--tint:var(--tint-%s)}' % (k, k) in css
+    assert "#depth .wash{fill:var(--tint);opacity:var(--tint-wash);pointer-events:none}" in css
+    assert "radial-gradient(1100px 640px at 50% -8%,var(--tint) 0%,transparent 62%)" in css, \
+        "页面光晕是第二个消费者：一处换档、两处跟着，别在消费者上各写一条 transition"
+    assert "#151a26" not in css, "旧那圈固定的光斑颜色必须整个交回 --tint"
+    assert 'fill="url(#farDots)" opacity=".5"/><rect class="wash"' in html, \
+        "柔光矩形在点阵**之后**（盖在纹理上），且与点阵同宽同裁"
+
+    # ⑥ 消费者各就各位：JS 只写读数与档，不留第二个时长
+    assert "function camCalc(f){" in html and "function camRun(prev, now){" in html
+    assert "function camTo(" not in html, "旧的读、写混在一处的那个函数已经不在了"
+    assert "return {cx:cx, cy:cy, k:k, tx:500 - k * cx, ty:202 - k * cy};" in html
+    assert "if (prev && !scrubbing && !window.__coursewareShotMode){" in html, \
+        "擦洗与导出截图模式一律写 0/0：那两处的行程不是用户能感知的连续运镜"
+    pan_at = html.index("root.style.setProperty('--cam-pan'")
+    tf_at = html.index("el('cam').setAttribute('transform'")
+    assert pan_at < tf_at, \
+        "先写读数再写 transform：反过来就夹进一次强制布局，跑动中的补间会用上一趟的时长"
+    assert "camRun(camAt, now);" in html and "depthShift(now);" in html
+    assert html.index("camRun(camAt, now);") < html.index("depthShift(now);"), \
+        "视差层的位移也读同一趟：读数没写进去之前不许有人去量盒"
+    assert "var MOOD = {" in html and "function moodSet(sid){" in html
+    table = html.split("var MOOD = {")[1].split("};")[0]
+    for sid in ("opening", "seg-1", "seg-2", "seg-3", "seg-4", "seg-5", "seg-6", "closing"):
+        assert "'%s':" % sid in table, "档表覆盖范本全部八场：漏一场就是那一整段没有气氛"
+    assert "if (!m) return;" in html and "document.documentElement.dataset.mood = m;" in html
+    assert "moodSet(hit.scene.step_id);" in html
+    assert html.index("lastSceneIdx = idx;") < html.index("moodSet(hit.scene.step_id);") \
+        < html.index("var ch = el('chapter');"), \
+        "换档挂在**换节**分支上：挂在换句上就成了每句游一次 1.2s 的颜色"
+
+    # ⑦ 运行时：宿主由页面标 .hot，运行时只按 .hot 扫
+    assert ("{ down:'pointerdown', move:'pointermove', up:'pointerup', "
+            "cancel:'pointercancel',\n        enter:'pointerenter', leave:'pointerleave' }") in js
+    assert "function hotWire(node){" in js
+    assert "el.querySelectorAll('.hot').forEach(hotWire);" in js, \
+        "「谁是触点」只许写一处：按题型重列一遍，早晚会跟 CSS 那份分手"
+    assert "const x = Math.max(0, Math.min(r.width,  e.clientX - r.left));" in js
+    assert "if(!(r.width > 0) || !(r.height > 0)) return;" in js, \
+        "没有盒就什么都不写，落回注册初值那一格（纪律③）"
+    assert "node.dataset.hot = '1';" in js and "if(!ids.size) node.dataset.hot = '0';" in js
+    assert "Number.isFinite(e.clientX)" in js, \
+        "键盘那条路（click / keydown）没有坐标：不点亮，绝不硬编一个假光心"
+    for sel in ("'opt hot'", "'bucket-item hot'", "'sequence-item hot'", 'class="hs hot"'):
+        assert sel in html, f"宿主没标 .hot：{sel}"
+
+    # ⑧ reduced-motion：关补间不关读数，两处新兜底都不需要抬特异度
+    rm = css.split("@media (prefers-reduced-motion: reduce){")[1]
+    assert ":root{transition:none}" in rm and ".hot::before{transition:none}" in rm
+    assert rm.index(":root{transition:none}") < rm.index(".hot::before{transition:none}")
+    assert "#cam,.nt,.bar-fill{transition:none}" in rm and "#depth{transition:none}" in rm, \
+        "位移定拍不新增兜底行：关的是整条 transition 简写，与时长从哪儿求的值无关"
+    assert "var(--dur-mood)" not in rm and "var(--dur-hot)" not in rm, \
+        "兜底里不许出现「补一个更短的时长」——那是在演一次更快的动效，不是不演"
+
+
+def test_mood_tints_are_luminance_preserving():
+    """三档色温**只换色相不换亮度**——这一条能压在内容底下，全靠这件事成立。
+
+    按 §8「半透明按合成后的颜色算对比度」在 python 里算，不看截图平均亮度：
+      · 三档自己的相对亮度最大差 2.9%（calm .015813 / turn .015381 / key .015368）；
+      · 画布柔光（--tint-wash .28）合成到舞台渐变的三档底色上，六支墨色 × 三支底色
+        = 54 格，在三档之间**最大偏移 1.90%**；且**没有一支本来在 4.5 线上的墨色
+        被柔光压到线以下**（判词红 #ef4d4d 对最深一档 #161a23：4.841 → 4.749 /
+        4.772 / 4.754，对 --panel 是 4.741 → 4.676~4.698，都还在线上）；
+      · 非结论字 --dim2 #6b748a 落在光晕中心 3.411:1（旧值 #151a26 是 3.718:1）——
+        这一档本来就不在正文线上（3:1 那一档），换色温没有把它推出这一档；
+      · 补间路径：钉在 25% / 50% / 75% 三格上，色值走的是 **sRGB 逐通道线性 ×
+        --ease-out**（实测逐格与预测相同，Oklab 路径差 40+ 通道单位，本轮排除）；
+        中点那一格的**相对亮度可以比两端低 10.5%**（sRGB 直线在深色对的中段本来会
+        暗一下），但合成之后没有一格的对比度跑出两端所夹区间超过 0.06%——
+        "只换色相不换亮度"靠的是这两条叠在一起，不是三档 L 相等单独能证的。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    root = re.search(r":root\{([\s\S]*?)\n  \}", css).group(1)
+
+    def _tok(name):
+        return re.search(re.escape(name) + r":([^;]+);", root).group(1).strip()
+
+    def _rgb(text):
+        h = text.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    def _lin(c):
+        c /= 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    def _lum(rgb_):
+        r, g, b = (_lin(c) for c in rgb_)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    def _cr(a, b):
+        hi, lo = max(a, b), min(a, b)
+        return (hi + 0.05) / (lo + 0.05)
+
+    def _over(fg, alpha, bg):
+        return tuple(f * alpha + b * (1 - alpha) for f, b in zip(fg, bg))
+
+    tints = {k: _rgb(_tok("--tint-" + k)) for k in ("calm", "turn", "key")}
+    wash = float(_tok("--tint-wash"))
+    assert len({v for v in tints.values()}) == 3, "三档必须是三个不同的色相，不是同一个数抄三遍"
+    ls = {k: _lum(v) for k, v in tints.items()}
+    spread = (max(ls.values()) - min(ls.values())) / min(ls.values())
+    assert spread <= 0.03, f"三档亮度差 ≤3%（实测 2.9%）：现在 {spread:.2%}"
+
+    inks = {"fg": _rgb(_tok("--fg")), "dim": _rgb(_tok("--dim")), "key": _rgb(_tok("--key")),
+            "ok": _rgb(_tok("--ok")), "bad": _rgb(_tok("--bad")), "dim2": _rgb(_tok("--dim2"))}
+    stage = re.search(r"\.stage\{[^}]*background:linear-gradient\(180deg,(#\w{6}) 0%,"
+                      r"var\(--panel\) 55%,(#\w{6}) 100%\)", css)
+    assert stage, "舞台渐变读不到：这一条要求从 CSS 现取底色，不许在测试里抄 hex"
+    bases = {"top": _rgb(stage.group(1)), "panel": _rgb(_tok("--panel")),
+             "bottom": _rgb(stage.group(2))}
+    cells, worst = [], 0.0
+    for bn, base in bases.items():
+        plain = {k: _cr(_lum(c), _lum(base)) for k, c in inks.items()}
+        for mood, tint in tints.items():
+            bg_l = _lum(_over(tint, wash, base))
+            for ink, col in inks.items():
+                got = _cr(_lum(col), bg_l)
+                drift = abs(got - plain[ink]) / plain[ink]
+                worst = max(worst, drift)
+                cells.append((drift, mood, bn, ink, got, plain[ink]))
+                # 本来在线上的，不许被柔光压到线以下（本轮只挪色温，不挪可读性）
+                assert got >= 4.5 or plain[ink] < 4.5, \
+                    f"{mood} 柔光把 {ink} 对 {bn} 压到线下：{got:.4f}（不柔光是 {plain[ink]:.4f}）"
+    assert worst <= 0.02, f"三档之间对比度最大偏移 ≤2%（实测 1.90%）：{max(cells)}"
+    on_line = [c for c in cells if c[5] >= 4.5 and c[3] != "dim2"]
+    assert len(on_line) > 30 and min(c[4] for c in on_line) >= 4.5, \
+        "判词/正色那一族逐格核过：最低 " + str(round(min(c[4] for c in on_line), 4))
+
+    # 页面光晕：三档等亮度 ⇒ 换档时这圈光的强弱不动，只动色温
+    bg = _rgb(_tok("--bg"))
+    assert _lum(tints["calm"]) > _lum(bg), "光晕必须比底色亮，否则那一圈变成一块洞"
+    dim2_cr = _cr(_lum(inks["dim2"]), _lum(tints["calm"]))
+    assert 3.0 <= dim2_cr, f"非结论字落在光晕中心仍要过 3:1（实测 3.411）：{dim2_cr:.3f}"
+
+    # 补间路径：合成后不许越出两端所夹的区间（sRGB 逐通道 + --ease-out）
+    eb = re.search(r"--ease-out:cubic-bezier\(([\d.]+),([\d.]+),([\d.]+),([\d.]+)\)", css)
+    assert eb, "--ease-out 读不到贝塞尔参数：路径预测就不成立"
+    bez = tuple(float(x) for x in eb.groups())
+    deep = bases["bottom"]
+    outside = 0.0
+    worst_cell = None
+    for a, b in (("calm", "turn"), ("turn", "key"), ("calm", "key")):
+        pa, pb = tints[a], tints[b]
+        ends = {k: tuple(_cr(_lum(c), _lum(_over(p, wash, deep))) for p in (pa, pb))
+                for k, c in inks.items()}
+        for frac in (0.25, 0.5, 0.75):
+            p = _bezier_progress(frac * 1200, 1200, *bez)
+            mid = tuple(x + (y - x) * p for x, y in zip(pa, pb))
+            assert min(ls[a], ls[b]) * 0.88 <= _lum(mid), \
+                f"{a}→{b} 路径中点亮度掉得太多（sRGB 直线允许 ≤12%）：{_lum(mid):.5f}"
+            for ink, col in inks.items():
+                got = _cr(_lum(col), _lum(_over(mid, wash, deep)))
+                lo, hi = min(ends[ink]), max(ends[ink])
+                if got < lo or got > hi:
+                    over = min(abs(got - lo), abs(got - hi)) / lo
+                    if over > outside:
+                        outside = over
+                        worst_cell = (a, b, frac, ink, round(got, 4),
+                                      tuple(round(x, 4) for x in ends[ink]))
+    assert outside <= 0.001, \
+        f"中途那一格的合成对比度越出两端区间 {outside:.4%}（实测 ≤0.06%）" \
+        f"——1.2s 里会看见忽暗：{worst_cell}"
+
+
+# ── CDP：①位移定拍 ────────────────────────────────────────────────────
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_camera_run_duration_follows_the_travel(full_lesson):
+    """真实浏览器：镜头时长**由这一趟真的走了多少**推出来（0.24.0 位移定拍）。
+
+    下面每一个数都是从成品页上读出来的（走法：每一趟**等补间落定**再跳下一趟，
+    理由见边界 ⑧），断言只用两种出处——页面自己写的读数、页面自己的令牌算出的值。
+
+      ① 冷启动没有"上一状态" → 行程读数 0.0 / 0.000、时长落地板（与落点灯同档）；
+      ② 大运镜（opening s0 → seg-2 s1）：读数 378.6 / 0.690 → 按令牌 771.54ms，
+        `getAnimations()` 里**正在跑的那条补间**的时长逐位等于它，也逐位等于
+        #cam 此刻的 computed transitionDuration（这一条就是顺序锁）；
+      ③ 小行程（seg-2 s1 → s2，79.2 / 0.065 折出 .133s）与**大平移零缩放**
+        （s2 → s4，335.9 / 0.028 折出 .480s）都被地板接住 → 500ms：旧写法这两趟
+        恒定 600ms，短的那趟从此快 100ms——这是本轮实测到的口径变化，不是回归；
+      ④ 中段还有别的档：s4 → s5（450.2 / 0.200）**700.28ms**、closing s0 → seg-1 s1
+        （243.5 / 0.477）**507.85ms**——地板与封顶之间真的在插值，不是"要么 500 要么 780"；
+      ⑤ #cam 与 #depth **共读同一个派生值**：每一趟两条 computed 时长逐字符相同；
+      ⑥ 全程 500 ≤ 时长 ≤ 780ms 且 ≥ `--dur-spot`：灯永远不落在镜头后面；
+      ⑦ 两种"不该有补间"的情形各验一次：
+        · 同一句再跳一次 → tick 没有重画画面，`camRun` 根本不跑，`getAnimations()`
+          里没有 transform 那条（不是"补间时长为 0"，是压根没建）；
+        · 回到全幅且行程为 0（seg-6 s0 → closing s0）→ 读数写 0.0/0.000、时长落地板，
+          但 transform 没变，所以同样没有新补间；
+      ⑧ **本轮实测到的一个读数陷阱**：上一趟没落定就跳下一趟时，Chrome 会把新补间
+        按剩余距离**改写时长**（实测中途被打断那一趟读到 298.75ms，比地板 500 还短，
+        比这一趟该拿的 500 也短）。这个数不是页面的口径，是浏览器对"半途换向"的补偿，
+        所以用例必须逐趟等落定——否则测的是浏览器的补偿逻辑而不是 clamp()；
+      ⑨ 导出截图模式：行程读数一律 0.0/0.000、时长落地板（那一档的"行程"不是用户
+        能感知的连续运镜）。
+    """
+    chrome, ev, send = _cdp(full_lesson, "camdur")
+    try:
+        ev(_SEEK)
+
+        def walk(sid, k):
+            """跳过去、**当场**读（补间刚建档），再等它落定，返回这一趟的读数。"""
+            ev("window.__jump('%s', %d)" % (sid, k))
+            st = json.loads(ev(_CAM_READ))
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                if not ev(_CAM_RUNNING):
+                    break
+                time.sleep(0.05)
+            return st
+
+        # ① 冷启动：没有上一状态
+        st = walk("opening", 0)
+        assert float(st["pan"]) == 0.0 and float(st["zoom"]) == 0.0, \
+            f"冷启动没有上一状态：{st}"
+        assert st["camDur"] == st["depthDur"] == "0.5s", f"冷启动落地板：{st}"
+
+        # ② 大运镜：时长 = 按令牌重算，且动画时长与计算值逐位相同
+        st = walk("seg-2", 1)
+        assert abs(float(st["pan"]) - 378.6) <= 0.6 and \
+            abs(float(st["zoom"]) - 0.690) <= 0.003, f"行程读数：{st}"
+        want = _cam_expect_ms(st)
+        assert abs(want - 771.54) <= 1.0, f"这一趟按令牌该走 {want:.2f}ms（实测 771.54）"
+        assert st["anims"] == [round(want, 2)], \
+            f"跑动中的补间时长 == 按令牌重算（期望 {want:.2f}ms）：{st}"
+        assert st["depthAnims"] == st["anims"], f"两个消费者共读同一个派生值：{st}"
+        assert abs(_ms(st["camDur"]) - want) <= 1.0, \
+            f"顺序锁——动画时长与计算值不许分手：{st}"
+        assert want >= st["spot"] * 1000.0 - 0.5, f"镜头不能快过落点灯：{st}"
+
+        # ③④⑤⑥ 逐趟走一遍，每趟都过同样的四道锁
+        plan = [("seg-2", 2), ("seg-2", 4), ("seg-2", 5), ("seg-3", 0), ("seg-4", 1),
+                ("seg-5", 0), ("seg-5", 4), ("seg-6", 0), ("closing", 0), ("seg-1", 1),
+                ("seg-1", 3), ("seg-2", 1)]
+        got = {}
+        for sid, k in plan:
+            st = walk(sid, k)
+            ms = _cam_expect_ms(st)
+            got["%s s%d" % (sid, k)] = (round(float(st["pan"]), 1),
+                                        round(float(st["zoom"]), 3), round(ms, 2))
+            assert st["min"] * 1000.0 - 0.6 <= ms <= st["max"] * 1000.0 + 0.6, \
+                f"{sid} s{k} 落在一端之外：{st}"
+            assert ms >= st["spot"] * 1000.0 - 0.6, f"{sid} s{k} 抢在灯前面：{st}"
+            assert abs(_ms(st["camDur"]) - ms) <= 1.0, f"{sid} s{k}：{st}"
+            assert st["depthDur"] == st["camDur"], f"{sid} s{k} 两个消费者分手了：{st}"
+            if st["anims"]:                      # 落定才有"这一趟的时长"可断言
+                assert st["anims"] == [round(ms, 2)], \
+                    f"{sid} s{k} 建档时长与计算值分手（中途被打断会被浏览器改写）：{st}"
+
+        # ③ 地板真的在接住短行程（旧口径这里恒定 600ms）
+        assert got["seg-2 s2"] == (79.2, 0.065, 500.0), f"小行程落地板：{got['seg-2 s2']}"
+        assert got["seg-2 s4"] == (335.9, 0.028, 500.0), \
+            f"大平移零缩放也落地板——倍率没变就不该有第二套时长：{got['seg-2 s4']}"
+        # ④ 中段档：不是"要么地板要么封顶"
+        assert got["seg-2 s5"] == (450.2, 0.200, 700.28), f"第二档行程：{got['seg-2 s5']}"
+        assert got["seg-1 s1"] == (243.5, 0.477, 507.85), f"第三档行程：{got['seg-1 s1']}"
+        assert len(set(v[2] for v in got.values())) >= 3, \
+            f"一趟走下来至少三个不同的时长（否则等于还在用恒定档）：{got}"
+
+        # ⑦ 两种"不该有补间"
+        st = walk("seg-1", 3)
+        again = walk("seg-1", 3)                 # 同一句再跳一次：画面没重画
+        assert again["anims"] == [], f"同一句重复跳不许重建补间：{again}"
+        assert again["camDur"] == st["camDur"], f"重复跳不许改时长：{st} → {again}"
+        st = walk("seg-6", 0)
+        z = walk("closing", 0)                  # 回到全幅、行程 0
+        assert float(z["pan"]) == 0.0 and float(z["zoom"]) == 0.0, \
+            f"两处取景相同 ⇒ 行程读数写 0：{z}"
+        assert z["anims"] == [] and z["camDur"] == "0.5s", \
+            f"transform 没变就不该有补间，而时长仍落在地板那一格：{z}"
+
+        # ⑨ 导出截图模式：不派时长
+        walk("seg-1", 1)
+        ev("window.__coursewareShotMode = true")
+        st = walk("seg-2", 1)
+        assert float(st["pan"]) == 0.0 and float(st["zoom"]) == 0.0, \
+            f"导出模式下的行程读数一律 0/0：{st}"
+        assert st["camDur"] == "0.5s", f"导出模式落到地板那一档：{st}"
+        ev("delete window.__coursewareShotMode")
+    finally:
+        _kill(chrome)
+
+
+# ── CDP：②触点辉光 ────────────────────────────────────────────────────
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_glow_follows_the_pointer_and_goes_out_when_hands_leave(full_lesson):
+    """真实浏览器：光跟着指针落在哪、并且跟着走；手走了、题做完了，光就灭（0.24.0）。
+
+      ① 静止态这一层**在场但看不见**（::before 有盒子、opacity 0、光心在 50% 那一格），
+        `data-hot` 根本不存在——没有指针就没有读数，不编一个"中心"出来；
+      ② 落上来：`data-hot="1"`，opacity 走 `--dur-hot` 淡入（160ms 那条补间在跑），
+        钉在 0 / 80 / 160ms 上逐格读 0 → .961383 → 1；
+      ③ **跟手**：光心 == 触点换算成盒内坐标（±1px），换一处时 --hot-x 逐帧补间——
+        从 `50%` 起步那一趟中间值是 `calc(37.5% + 5.275px)` 这种**混合长度**（注册成
+        `<length-percentage>` 才有的事，没注册就整档跳）；px → px 那一趟走 linear，
+        半程正好落在两点正中（实测 21.1 → 44.35 → 67.6px）；
+      ④ 不抢命中：`elementFromPoint` 仍落回那颗按钮；`pointer-events:none`；
+      ⑤ 划过若干次**不重排**（LayoutCount 不涨、RecalcStyleCount 涨——改的是注册属性
+        不是 left/top），实测 6 次小位移：layout 0 / recalc 28 / paint 0；
+      ⑥ 手走了光灭（`data-hot="0"` + 淡出 1 → .0386175 → 0），但**读数留在最后一格**
+        （--hot-x 不重置：这一层已经看不见，重置只会多演一趟没人在看的补间）；
+      ⑦ 放行之后光按灭，而且是在**两类宿主**上各验一次：选项药丸是 disabled 的按钮
+        （`:not(:disabled)` 那一路），筐条目是不 disabled 的 `<li>`（只有
+        `[data-locked]` 那一条按得住它，实测 `data-hot` 还在线上、opacity 已经落 0）；
+      ⑧ 键盘那条路（focus + click()）**不点亮**：没有坐标就绝不硬编一个假光心；
+      ⑨ `:hover` 在合成鼠标事件下确实置位，但媒体查询三档全 false——本轮读数用
+        `data-hot`，`@media (hover:hover)` 在这套 QA 里永远读成"没跑通"。
+    """
+    chrome, ev, send = _cdp(full_lesson, "hotglow")
+    try:
+        ev(_SEEK)
+        ev(_OPEN_GAP)
+        sel = "#gate-block .opt"
+        ev("window.__jump('seg-3', 0)")
+        _gate_open(ev, sel)
+        time.sleep(0.4)                       # 门禁卡入场动画走完，盒子才停得住
+
+        st0 = json.loads(ev(_HOT_STATE % sel))
+        x, y, w, h = _box(st0)
+        assert st0["cont"] == '""' and st0["op"] == "0" and st0["hx"] == "50%", \
+            f"静止态在场但看不见、光心在盒中心那一格：{st0}"
+        assert st0["hot"] == "" and st0["runs"] == [], f"没有指针就没有读数：{st0}"
+        assert st0["hostPos"] == "relative" and st0["pef"] == "none", st0
+        assert st0["br"] == "999px", f"圆角跟着宿主走（border-radius:inherit）：{st0}"
+        assert st0["tp"] == "opacity, --hot-x, --hot-y" and \
+            st0["td"] == "0.16s, 0.16s, 0.16s", f"三层共用 --dur-hot：{st0}"
+        assert " at " not in st0["bg"], f"50% 那一格是梯度默认位置：{st0['bg']}"
+
+        # ② 落上来
+        fx, fy = x + w * 0.25, y + h * 0.70
+        _mouse(send, fx, fy)
+        st = json.loads(ev(_HOT_STATE % sel))
+        assert st["hot"] == "1", f"落上来即在场（不靠 :hover）：{st}"
+        assert st["hover"] is True, "合成鼠标事件下 :hover 本身是置位的（媒体查询不是）"
+        runs = dict((r[0], (r[1], r[2])) for r in st["runs"])
+        for p in ("opacity", "--hot-x", "--hot-y"):
+            assert p in runs and runs[p][0] == 160.0, f"{p} 该有一条 160ms 的补间：{st['runs']}"
+        assert json.loads(ev("JSON.stringify([matchMedia('(hover:hover)').matches,"
+                             "matchMedia('(pointer:fine)').matches,"
+                             "matchMedia('(any-hover:hover)').matches])")) \
+            == [False, False, False], "headless 里三档媒体查询全 false：读数不能挂在那上面"
+
+        fade = json.loads(ev(_HOT_SWEEP % (sel, "opacity", "[0, 80, 160]")))
+        ops = [a[2] for a in fade["at"]]
+        assert fade["state"] == "finished" and fade["at"][2][3] == "paused", fade
+        assert float(ops[0]) == 0.0 and abs(float(ops[1]) - 0.961383) <= 0.02 \
+            and float(ops[2]) == 1.0, f"淡入行程（--ease-out）：{fade}"
+
+        # ③ 首趟位置补间：50% → px 靠 calc() 连续插值
+        sweep = json.loads(ev(_HOT_SWEEP % (sel, "--hot-x", "[0, 40, 80, 120, 160]")))
+        vals = [a[1] for a in sweep["at"]]
+        assert vals[0] == "50%", f"起点是注册初值那一格：{sweep}"
+        assert abs(_px(vals[-1]) - w * 0.25) <= 0.6, \
+            f"终点精确落在触点：{vals[-1]} vs {w * .25:.1f}"
+        assert all("calc(" in v for v in vals[1:-1]), \
+            f"中间值必须是 %→px 的混合长度（注册才补得出这种值）：{vals}"
+
+        time.sleep(0.3)
+        lit = json.loads(ev(_HOT_STATE % sel))
+        assert lit["op"] == "1", f"落定之后光亮着：{lit}"
+        assert abs(_px(lit["hx"]) - w * 0.25) <= 1.0 and \
+            abs(_px(lit["hy"]) - h * 0.70) <= 1.0, f"光心 == 盒内触点坐标：{lit}"
+        assert "at %s %s" % (lit["hx"], lit["hy"]) in lit["bg"], \
+            f"梯度按 var() 求值成功：{lit['bg']}"
+        assert lit["hostHx"] == lit["hx"], f"宿主写的数与伪元素读到的是同一个：{lit}"
+
+        # ③ 第二趟：px → px，走 linear，半程在正中
+        _mouse(send, x + w * 0.80, y + h * 0.20)
+        sw2 = json.loads(ev(_HOT_SWEEP % (sel, "--hot-x", "[0, 80, 160]")))
+        v2 = [_px(a[1]) for a in sw2["at"]]
+        assert abs(v2[0] - w * 0.25) <= 1.0 and abs(v2[2] - w * 0.80) <= 1.0, sw2
+        assert abs(v2[1] - (v2[0] + v2[2]) / 2.0) <= 0.2, \
+            f"位置走 linear：半程该在两点正中（实测 {v2}）"
+
+        # ⑤ 不重排：落定之后连续小位移（同一条补间不再重建）
+        _mouse(send, x + w * 0.30, y + h * 0.50)
+        time.sleep(0.35)
+        send("Performance.enable")
+        m0 = send("Performance.getMetrics")["metrics"]
+        for fx2, fy2 in ((0.32, 0.52), (0.34, 0.50), (0.36, 0.48),
+                         (0.38, 0.46), (0.40, 0.44), (0.42, 0.42)):
+            _mouse(send, x + w * fx2, y + h * fy2)
+            time.sleep(0.03)
+        time.sleep(0.35)
+        m1 = send("Performance.getMetrics")["metrics"]
+        lay = _metric(m1, "LayoutCount") - _metric(m0, "LayoutCount")
+        rec = _metric(m1, "RecalcStyleCount") - _metric(m0, "RecalcStyleCount")
+        assert lay == 0, f"划过六次不该重排一次（走注册属性不是 left/top）：{lay}"
+        assert rec > 0, f"样式确实重新计算过（否则上面那些 0 是没跑）：{rec}"
+
+        # ④ 不抢命中
+        hit = json.loads(ev("""(function(){var o=document.querySelector('#gate-block .opt');
+          var r=o.getBoundingClientRect();
+          var n=document.elementFromPoint(r.left + r.width * .5, r.top + r.height * .5);
+          return JSON.stringify([n ? (n.className || n.tagName) : null]);})()"""))
+        assert "opt" in str(hit[0]), f"辉光层不抢命中：{hit}"
+
+        # ⑥ 手走了光灭、读数留着
+        _mouse(send, x - 600, y - 600)
+        off = json.loads(ev(_HOT_SWEEP % (sel, "opacity", "[0, 80, 160]")))
+        o2 = [float(a[2]) for a in off["at"]]
+        assert o2[0] == 1.0 and abs(o2[1] - 0.0386175) <= 0.02 and o2[2] == 0.0, \
+            f"淡出行程同一条曲线倒着走：{off}"
+        gone = json.loads(ev(_HOT_STATE % sel))
+        assert gone["hot"] == "0" and gone["op"] == "0", f"手走了光必须灭：{gone}"
+        # 读数**留在最后一格**（= 上面六次划过最后那一格）：这一层已经看不见了，
+        # 重置 --hot-x 只会多演一趟没人在看的补间。
+        assert abs(_px(gone["hx"]) - w * fx2) <= 0.6 and \
+            abs(_px(gone["hy"]) - h * fy2) <= 0.6, \
+            f"读数留在最后一格、不重置（期望 {w * fx2:.1f}px / {h * fy2:.1f}px）：{gone}"
+        assert "at %s %s" % (gone["hx"], gone["hy"]) in gone["bg"], \
+            f"灭着的那一层梯度仍按留存的读数求值：{gone['bg']}"
+
+        # ⑧ 键盘那条路不点亮（另开一次判定，不碰鼠标）
+        ev("window.__jump('seg-3', 0)")
+        _gate_open(ev, "#gate-block [data-choice-id=\"b\"]")
+        ev("document.querySelector('#gate-block [data-choice-id=\"b\"]').focus();"
+           "document.querySelector('#gate-block [data-choice-id=\"b\"]').click();")
+        time.sleep(0.6)
+        kb = json.loads(ev(_HOT_STATE % "#gate-block [data-choice-id=\"b\"]"))
+        assert kb["hot"] == "" and kb["hx"] == "50%" and kb["op"] == "0", \
+            f"没有坐标就绝不硬编一个假光心：{kb}"
+        assert kb["locked"] == "1", f"判定照走（键盘这条路不是没生效）：{kb}"
+
+        # ⑦ 两类宿主各验一次放行：disabled 那一路（上面刚验的选项）与 data-locked 那一路
+        assert kb["disabled"] is True, f"选项放行之后按钮 disabled：{kb}"
+        assert kb["op"] == "0", f"disabled 那一路光不亮：{kb}"
+        _gate_close(ev)                      # 不收上一道，下一道的浮层还压着它
+        ev("window.__gap('seg-5')")
+        sel2 = "#gate-bucket .bucket-item"
+        _gate_open(ev, sel2)
+        time.sleep(0.4)
+        item = json.loads(ev(_HOT_STATE % sel2))
+        ix, iy, iw, ih = _box(item)
+        assert item["hostPos"] == "relative" and item["br"] == "8px", \
+            f"条目类宿主靠 .hot 补 position、圆角继承自己那 8px：{item}"
+        _mouse(send, ix + iw * 0.3, iy + ih * 0.5)
+        time.sleep(0.3)
+        lit2 = json.loads(ev(_HOT_STATE % sel2))
+        assert lit2["hot"] == "1" and lit2["op"] == "1", f"条目也长得住这一层：{lit2}"
+        ev(_ANSWER % "bucket")
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            if json.loads(ev(_HOT_STATE % sel2))["locked"] == "1":
+                break
+            time.sleep(0.1)
+        time.sleep(0.5)
+        done = json.loads(ev(_HOT_STATE % sel2))
+        assert done["locked"] == "1" and done["disabled"] is False, \
+            f"筐条目不 disabled——只有 [data-locked] 那一条按得住它：{done}"
+        assert done["hot"] == "1" and done["op"] == "0", \
+            f"放行之后 data-hot 还在线上（说的是「手还在这儿」），光必须已经灭：{done}"
+        _gate_close(ev)
+    finally:
+        _kill(chrome)
+
+
+# ── CDP：③色温定调 ────────────────────────────────────────────────────
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_mood_tint_moves_the_hue_not_the_brightness(full_lesson):
+    """真实浏览器：气氛跟着**这一段**换档，一处写、两处读，全程只动色温（0.24.0）。
+
+      ① 八场逐场核对 `data-mood` 与档表一致（opening/seg-1 turn、seg-2/3 calm、
+        seg-4 key、seg-5 turn、seg-6 calm、closing key），每档落点精确等于 token 的
+        rgb（calm rgb(14, 31, 75) / turn rgb(52, 27, 11) / key rgb(8, 38, 31)）；
+      ② 补间只在 documentElement 上：时长 1200ms（全仓库最长的一档），`--tint` 的
+        **补间值继承进 SVG**——同一次采样里 `#depth .wash` 的 `fill` 与根上的 `--tint`
+        逐字符相同（这就是 inherits:true 买到的那件事，消费者一条 transition 都不写）；
+      ③ 路径连续：钉在 0 / 300 / 600 / 900 / 1200ms 上读，实测 rgb(14,31,75) →
+        (9,36,41) → (8,38,33) → (8,38,31) → (8,38,31)——与"sRGB 逐通道线性 ×
+        --ease-out cubic-bezier(.22,1,.36,1)"的预测**逐格相同**（Oklab 路径在同格差
+        40+ 通道单位，本轮实测排除），中点既不等于端点也不越界；
+      ④ 页面光晕（body::before）读的是同一个数——两个消费者、一条补间；远景点阵
+        颜色不跟着走（实测恒为 rgb(43, 50, 63)：把点阵当消费者会让纹理被洗平，见 stage.md）；
+      ⑤ 换句不换档：同场内换步**不重建补间**（跑完之后 `getAnimations()` 里没有
+        --tint 那一条，颜色不动）——气氛是段落级的连续量，不是每句一个事件；
+      ⑥ 柔光矩形与点阵同宽同裁、`pointer-events:none`，命中测试仍落不到它身上。
+    """
+    chrome, ev, send = _cdp(full_lesson, "moodtint")
+    try:
+        ev(_SEEK)
+        toks = json.loads(ev(r"""(function(){
+          var cs = getComputedStyle(document.documentElement), o = {};
+          ['--tint-calm','--tint-turn','--tint-key','--dur-mood','--tint-wash']
+            .forEach(function(k){ o[k] = cs.getPropertyValue(k).trim(); });
+          return JSON.stringify(o);})()"""))
+        assert toks["--dur-mood"] == "1.2s" and toks["--tint-wash"] == ".28", toks
+
+        want = {"opening": "turn", "seg-1": "turn", "seg-2": "calm", "seg-3": "calm",
+                "seg-4": "key", "seg-5": "turn", "seg-6": "calm", "closing": "key"}
+        seen = {}
+        for sid, mood in want.items():
+            ev("window.__jump('%s', 0)" % sid)
+            time.sleep(1.45)                      # --dur-mood 1.2s 走完
+            st = json.loads(ev(_MOOD_READ))
+            assert st["mood"] == mood, f"{sid} 该落 {mood} 档：{st}"
+            assert st["rootTp"] == "--tint", f"补间只写在根上：{st}"
+            assert st["runs"] == [], f"跑完的补间必须已经离开 getAnimations()：{st}"
+            target = {"calm": "rgb(14, 31, 75)", "turn": "rgb(52, 27, 11)",
+                      "key": "rgb(8, 38, 31)"}[mood]
+            hex_tok = {"calm": "#0e1f4b", "turn": "#341b0b", "key": "#08261f"}[mood]
+            assert st["tint"] == st["fill"], f"SVG 里的 fill 与根上的 --tint 逐字符相同：{st}"
+            assert st["tint"] == target, f"{sid} 落点必须精确是该档 token：{st}"
+            assert toks["--tint-" + mood] == hex_tok, f"令牌表自己先对上：{toks}"
+            assert target in st["glow"], f"页面光晕读同一个数：{st}"
+            assert st["dots"] == "rgb(43, 50, 63)", f"点阵不当消费者（洗上去就看不见）：{st}"
+            assert st["wop"] == "0.28" and st["wpe"] == "none", st
+            assert st["wash"] == st["dotsRect"], f"柔光与点阵同宽同裁：{st}"
+            seen[mood] = st["tint"]
+        assert len(set(seen.values())) == 3, f"三档得是三个不同的色：{seen}"
+
+        # ⑤ 换句不换档
+        ev("window.__jump('seg-4', 0)")
+        time.sleep(1.45)
+        before = json.loads(ev(_MOOD_READ))
+        ev("window.__jump('seg-4', 1)")
+        mid = json.loads(ev(_MOOD_READ))
+        assert mid["runs"] == [] and mid["tint"] == before["tint"], \
+            f"同场换步不该重起一次 1.2s 的变色：{before['tint']} → {mid}"
+
+        # ③ 路径：换档那一趟钉在四档上读
+        ev("window.__jump('seg-2', 0)")           # calm
+        time.sleep(1.45)
+        assert json.loads(ev(_MOOD_READ))["tint"] == "rgb(14, 31, 75)"
+        ev("window.__jump('closing', 0)")         # key
+        pin = json.loads(ev(_MOOD_SWEEP % "[0, 300, 600, 900, 1200]"))
+        got = [a[1] for a in pin["at"]]
+        assert got[0] == "rgb(14, 31, 75)" and got[-1] == "rgb(8, 38, 31)", pin
+        assert got[1] != got[0] != got[2], f"中间那一格采得到（注册 <color> 才补间）：{got}"
+        for a in pin["at"]:
+            assert a[2] == a[1], f"补间中的逐帧值也在往 SVG 里传：{a}"
+        bez = (0.22, 1.0, 0.36, 1.0)
+        ends = ((14, 31, 75), (8, 38, 31))
+        for t, txt in zip((0, 300, 600, 900, 1200), got):
+            p = _bezier_progress(t, 1200, *bez)
+            pred = tuple(int(round(a + (b - a) * p)) for a, b in zip(*ends))
+            m = re.match(r"rgb\((\d+), (\d+), (\d+)\)", txt)
+            assert m, txt
+            assert max(abs(int(m.group(i)) - pred[i - 1]) for i in (1, 2, 3)) <= 1, \
+                f"{t}ms 实测 {txt} 与「sRGB 逐通道 × --ease-out」预测 {pred} 不符——" \
+                f"补间空间换了（Oklab 在这一格会读到 rgb(48, 35, 41) 那一族）"
+
+        # ⑥ 命中测试：柔光层不许当事件对象
+        hit = json.loads(ev(r"""(function(){
+          var vp = document.getElementById('veilplay');
+          if (vp) vp.style.display = 'none';
+          var w = document.querySelector('#depth .wash'), r = w.getBoundingClientRect();
+          var n = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return JSON.stringify({hit:n ? (n.getAttribute('class') || n.tagName) : null,
+                                 same:n === w});})()"""))
+        assert hit["same"] is False and "wash" not in str(hit["hit"]), \
+            f"装饰层一律不许是事件对象：{hit}"
+    finally:
+        _kill(chrome)
+
+
+# ── CDP：reduced-motion 与导出截图模式（随动层的两格兜底）──────────────
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_follow_layer_reduced_motion_and_shot_mode(full_lesson):
+    """减少动效与导出截图：三条一起**关补间、不关读数**（0.24.0 的可及性口径）。
+
+      ① reduced-motion：`:root` / `#cam` / `#depth` / `.hot::before` 四处的
+        computed transitionProperty 全部 `none`——位移定拍**不用另写一行**兜底
+        （关的是整条简写，与时长从哪儿求的值无关）；
+      ② 色温一步落档：换档之后 `--tint` 直接是该档的数（实测 key 档 rgb(8, 38, 31)），
+        `#depth .wash` 的 fill 同步，根上没有在跑的 --tint 补间；
+      ③ 辉光**照旧亮**且**照旧跟到那一格**：`data-hot="1"`、opacity 直接 1、
+        --hot-x 就是触点那一格（实测 17.4px），没有补间——位置信息不许连档位一起关
+        （与 #spot / .tilt / .ride 同一判断）；
+      ④ 导出截图模式：行程读数一律 0/0（`--cam-dur` 那串 clamp() 里代进去的是 0.0 与
+        0.000——未注册的派生值 computed 出来就是替换后的原文），而
+        `#cam`/`#depth`/`:root` 三处 computed 时长是 **0s**（导出注入的一刀切掉了补间，
+        不是页面算了个更短的时长），色温同样一步落档、两处消费者同值；
+      ⑤ 导出页里**不会有指针**：`syncGate` 在导出模式直接 return（不弹新卡），CSS 那把
+        刀把 `#gate` 压成 `display:none`；全页带 `data-hot` 的元素恰好一个（上面点亮过
+        的那个 `.hs`），值为 '0'、没有盒——这一层不需要任何导出兜底；
+      ⑥ 已经点亮之后再来一刀（压掉浮层）：浏览器重算命中测试，`pointerleave` 到了，
+        于是光灭、位置读数停在最后一格（实测 17.4px / 29px）——**位置是读数、亮不亮是
+        状态**，那一刀拿走的是状态；reduced-motion 下同理，光关不掉、补间关得上。
+    """
+    chrome, ev, send = _cdp(full_lesson, "followrm")
+    try:
+        ev(_SEEK)
+        ev(_OPEN_GAP)
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+
+        ev("window.__jump('seg-2', 0)")
+        time.sleep(0.4)
+        rm = json.loads(ev(r"""(function(){
+          var root = document.documentElement;
+          var cam = document.getElementById('cam'), dep = document.getElementById('depth');
+          return JSON.stringify({
+            rootTp:getComputedStyle(root).transitionProperty,
+            camTp:getComputedStyle(cam).transitionProperty,
+            depthTp:getComputedStyle(dep).transitionProperty,
+            tint:getComputedStyle(root).getPropertyValue('--tint'),
+            fill:getComputedStyle(document.querySelector('#depth .wash')).fill,
+            mood:root.getAttribute('data-mood') || '',
+            running:(document.getAnimations() || []).filter(function(a){
+              return a.transitionProperty;}).length});})()"""))
+        for k in ("rootTp", "camTp", "depthTp"):
+            assert rm[k] == "none", f"减少动效下 {k} 必须整个关掉（实测位移定拍不用新兜底）：{rm}"
+        assert rm["tint"] == rm["fill"] == "rgb(14, 31, 75)", f"色温一步落 calm 档：{rm}"
+        assert rm["running"] == 0, f"没有任何在跑的补间：{rm}"
+
+        ev("window.__jump('seg-4', 0)")
+        time.sleep(0.25)
+        jumped = json.loads(ev("JSON.stringify([getComputedStyle(document.documentElement)"
+                               ".getPropertyValue('--tint'), document.documentElement"
+                               ".dataset.mood])"))
+        assert jumped == ["rgb(8, 38, 31)", "key"], f"换档即时落档、不游：{jumped}"
+
+        sel = "#gate-hot .hs"
+        ev("window.__gap('seg-4')")
+        _gate_open(ev, sel)
+        time.sleep(0.3)
+        st = json.loads(ev(_HOT_STATE % sel))
+        x, y, w, h = _box(st)
+        assert st["tp"] == "none", f"这一层的补间同关：{st}"
+        _mouse(send, x + w * 0.3, y + h * 0.5)
+        time.sleep(0.08)
+        lit = json.loads(ev(_HOT_STATE % sel))
+        assert lit["hot"] == "1" and lit["op"] == "1", f"光仍然亮（关的是补间不是光）：{lit}"
+        assert abs(_px(lit["hx"]) - w * 0.3) <= 1.0, \
+            f"光心直接落触点那一格（实测 17.4px）：{lit}"
+        assert lit["runs"] == [], f"没有跟手的补间：{lit['runs']}"
+
+        # ④⑤⑥ 导出截图模式：注入与 export_video.py 同源的那两刀（一刀切补间，
+        # 一刀把 #gate/#pregate 整个 display:none 掉）
+        # 一条 JS 字符串写完两把刀：相邻字面量换行会被 ASI 拆成两句（实测第二句
+        # 成了无副作用的表达式语句，#gate 那把刀根本没注入）。
+        ev("(function(){var s = document.createElement('style'); s.id = 'shotcut';"
+           " s.textContent = '*,*::before,*::after{transition:none!important;"
+           "animation:none!important}#gate,#pregate{display:none!important}';"
+           " document.head.appendChild(s);})()")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-2', 0)")
+        ev("window.__jump('seg-4', 1)")
+        time.sleep(0.4)
+        shot = json.loads(ev(_CAM_READ))
+        assert float(shot["pan"]) == 0.0 and float(shot["zoom"]) == 0.0, \
+            f"导出页每帧都是冷启动：行程读数一律 0/0：{shot}"
+        # `--cam-dur` 是**未注册**的派生值：computed 出来就是那串 clamp() 原文，里面
+        # 的 `--cam-pan` / `--cam-zoom` 已被常量替换成 0.0 / 0.000（这一条同时锁住
+        # "JS 只写读数、时长由 CSS 现求"与"读数故意不注册"两件事）。
+        sub = re.search(r"calc\(([\d.]+) \* [\d.]+s\s*\+\s*([\d.]+) \* [\d.]+s\)",
+                        shot["durVar"])
+        assert sub and float(sub.group(1)) == 0.0 and float(sub.group(2)) == 0.0, \
+            f"导出页的 clamp() 里代进去的行程必须是 0/0：{shot['durVar']}"
+        assert shot["camDur"] == shot["depthDur"] == "0s", \
+            f"导出页那条注入的一刀切掉补间（与不派时长同一格）：{shot}"
+        assert shot["anims"] == [] and shot["depthAnims"] == [], f"没有正在跑的镜头补间：{shot}"
+        cut = json.loads(ev(r"""JSON.stringify({
+          camTp:getComputedStyle(document.getElementById('cam')).transitionProperty,
+          depthTp:getComputedStyle(document.getElementById('depth')).transitionProperty,
+          rootTp:getComputedStyle(document.documentElement).transitionProperty,
+          tint:getComputedStyle(document.documentElement).getPropertyValue('--tint'),
+          fill:getComputedStyle(document.querySelector('#depth .wash')).fill,
+          mood:document.documentElement.dataset.mood || '',
+          running:(document.getAnimations() || []).filter(function(a){
+            return a.transitionProperty;}).length})"""))
+        assert cut["camTp"] == cut["depthTp"] == cut["rootTp"] == "none", cut
+        assert cut["tint"] == cut["fill"] == "rgb(8, 38, 31)", f"导出定格上色温同样同值：{cut}"
+        assert cut["running"] == 0, f"一刀切掉之后不许有在跑的补间：{cut}"
+
+        # 已经点亮之后再来一刀（把浮层压掉）：**浏览器重算命中测试，pointerleave 真的
+        # 发了**——读数归 '0'、这一层回到 opacity 0，位置读数仍停在最后一格。
+        # "压掉浮层"等于"手真的走了"，所以导出的定格里这一层天然灭着。
+        lit2 = json.loads(ev(_HOT_STATE % sel))
+        assert lit2["hot"] == "0" and lit2["op"] == "0", \
+            f"浮层被压掉后这一层必须灭（pointerleave 到得了）：{lit2}"
+        assert lit2["runs"] == [] and lit2["rect"][2] == 0.0, \
+            f"没有盒、也没有在跑的补间：{lit2}"
+        assert abs(_px(lit2["hx"]) - w * 0.3) <= 1.0 and \
+            abs(_px(lit2["hy"]) - h * 0.5) <= 1.0, \
+            f"读数没被抹掉（实测 17.4px / 29px）：{lit2}"
+
+        ev("window.__jump('seg-3', 0)")
+        ev("window.__gap('seg-5')")
+        time.sleep(0.6)
+        # 浮层被 CSS 整个压掉（JS 侧 syncGate 在导出模式下直接 return，不再弹新卡）
+        assert ev("getComputedStyle(document.getElementById('gate')).display") == "none", \
+            "导出模式那把 CSS 刀必须真的把门禁浮层压掉"
+        # 实测：全页带 data-hot 的元素恰好**一个**（就是上面点亮过的 .hs），且它的值是
+        # '0'——浮层被压掉时 pointerleave 到了，"亮着"这一档不留进定格。
+        hot = json.loads(ev(r"""(function(){
+          var n = document.querySelectorAll('[data-hot]'), o = [];
+          Array.prototype.forEach.call(n, function(x){
+            var r = x.getBoundingClientRect();
+            o.push([x.className, x.dataset.hot, +r.width.toFixed(1),
+                    getComputedStyle(x, '::before').opacity]);});
+          return JSON.stringify(o);})()"""))
+        assert len(hot) == 1 and "hs" in hot[0][0], \
+            f"导出页里没有新的指针读数（只许留着一个已不在场的 .hs）：{hot}"
+        assert hot[0][1] == "0" and hot[0][3] == "0" and hot[0][2] == 0.0, \
+            f"压掉浮层那一刀之后这一层灭着、且没有盒：{hot}"
+        assert ev("(function(){var n=document.querySelectorAll('[data-hot]'),c=0;"
+                  "Array.prototype.forEach.call(n,function(x){"
+                  "if(x.dataset.hot==='1')c++});return c;})()") == 0, \
+            f"导出定格里不许有任何亮着的触点：{hot}"
     finally:
         _kill(chrome)
