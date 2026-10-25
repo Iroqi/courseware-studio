@@ -125,7 +125,12 @@ false），而 `:hover` 原语在合成鼠标事件下**却**置位——判据�
 `test_mood_tint_moves_the_hue_not_the_brightness`、
 `test_follow_layer_reduced_motion_and_shot_mode`），10 条旧断言随口径改动（`--dur-cam`
 消失、光晕颜色交回 `--tint`）；文档同批改 stage.md §3.4 / §9、SKILL.md §5、README。
-本机全量 **420 passed / 2 skipped**（0.23.1 是 414）。
+本机全量 **420 passed / 2 skipped**（0.23.1 是 414）。CI 以这次推送复按：run #32 三档
+Python（3.10 / 3.11 / 3.12）全部 `completed success`，runner 读数同为 **420 passed /
+2 skipped**。本轮这批钉死值（运镜 500 / 700.28 / 771.54ms、辉光 21.1 → 44.35 → 67.6px、
+色温路径 300/600/900ms 三格）能跨到 runner 的 Chrome 155.0.8059.39（本机 152）逐值不变，
+理由与 0.23.1 那条口径一致：量的都是**属性上的读数**（`--cam-dur` 的替换文本、
+`data-hot`、注册属性的逐帧值），不是屏幕绝对坐标——所以这一类锁本来就不该随浏览器换版漂。
 
 ## [0.23.1] - 2026-10-24
 
