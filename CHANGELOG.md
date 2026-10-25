@@ -143,7 +143,9 @@ Python（3.10 / 3.11 / 3.12）全部 `completed success`，runner 读数同为 *
 事实，不是等够多少毫秒"）：改成**轮询**——`wait_swap(pred)` 每 50ms 重读一次探针，等到
 "0 < offset-distance < 100"（补间真在跑）才进断言，超时 4s 才判失败；建档 / 落定 /
 sticky / 灯灭四段里原来靠固定 sleep 等的"无补间在跑"也一并换成等 `runs == []` 轮询
-（1.0s 那段 seg-5 落定同样收编）。本机复跑 **1 passed**；CI 以这次推送复按。
+（1.0s 那段 seg-5 落定同样收编）。本机复跑 **1 passed**；CI 复按三档 Python 全部
+`completed success`，runner 读数同为 **421 passed / 2 skipped**（红的那条 3.10 档
+修后逐用例核对一致）。
 
 ## [0.25.0] - 2026-10-26
 
