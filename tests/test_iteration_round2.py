@@ -6020,13 +6020,31 @@ def test_settle_wind_lift_primitives_present():
     assert re.search(r"var wind = name === 'shelf';", html), \
         "蓄不蓄由姿势推导（纪律 1）：导出每帧一次冷启动，记住建上跳会漏演"
     assert "g + '-ant', {class: wind ? 'wind' : null}" in html
-    i_ant = html.index("var A = put('world', 'g', g + '-ant'")
+    i_ant = html.index("var A = put(S, 'g', g + '-ant'")
     i_hero = html.index("put(A, 'g', g, {transform:'translate('")
     assert i_ant < i_hero, "蓄力层必须在主角之外、且是主角的父层"
-    assert html.index("function poseWorld(name){") < i_ant < html.index("function renderA(step){"), \
+    assert html.index("function poseWorld(name, fired){") < i_ant < html.index("function renderA(step){"), \
         "让拍与蓄力都在 poseWorld 里就地声明（renderer 只写这一步蓄不蓄）"
     assert "{class:'lift', 'data-lift': lift ? '1' : '0'}" in html, \
         "投影层是纯包装：位置归外层 c-a/c-b，描边归内层 rect"
+
+    # ⑥b 换位弧凸（0.25.0）：消费者、包装层、判据三处各写一处，不排程不计帧
+    swap = " ".join(re.search(r"\.swap\{[^}]*\}", css).group(0).split())
+    assert "offset-path:var(--swap-route)" in swap and "offset-distance:0%" in swap, \
+        "弧凸路径是数据（--swap-route，与 .ride 同口径），档位初值 0% = 原点 = 不演"
+    assert "offset-rotate:0deg" in swap, "offset-rotate 默认 auto：竖直路径会把卡转成 90°"
+    assert "transition:offset-distance var(--dur-move) var(--ease-in-out)" in swap, \
+        "一去一回是对称行程，曲线必须对称（与 .flip 同一理由）；时长与位移同一拍"
+    assert '.swap[data-go="1"]{offset-distance:100%}' in css, \
+        "档位挂在呈现属性上：不支持 @property 也照样能抬能落（纪律③）"
+    assert "var S = put('world', 'g', g + '-swp'" in html, \
+        "弧凸层是纯包装：位置归内层 transform / 蓄力层，路线只写在这层（与 .lift 同一课）"
+    assert re.search(r"'data-go': fired \? '1' : '0'", html), \
+        "换位判据由 (scene, step) 推导（纪律 1）：导出每帧一次冷启动，记住建上跳会漏演"
+    assert re.search(r"if \(q\.op > 0\)", html) and re.search(r"o !== base\) fired = true", html), \
+        "判据是'第一个可见姿势之后出现不同序'：灯灭着的换位（off→messed）不演弧凸"
+    assert "--swap-k:.35; --swap-rise:140; --swap-min:250;" in css, \
+        "三枚令牌只定几何不定时序：斜率 / 封顶 / 不演阈值一处收口"
 
     # ⑦ reduced-motion：四条齐全，且关掉的是补间与事件、不是档位读数
     rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", html, re.S).group(1)
@@ -6035,7 +6053,10 @@ def test_settle_wind_lift_primitives_present():
     assert ".wind > g{transition-delay:0s}" in rm_code, \
         "让拍要跟着归零：兜底不该是「先停 95ms 再瞬移」（实测不归零会读回 0.0952s）"
     assert ".lift{transition:none}" in rm_code, "关的是补间不是档位：data-lift 与 --elev 终值仍读得到"
-    for dead in ("--elev", "data-lift", "--squash-x", "--wind-back", "--lift-hi"):
+    assert ".swap{transition:none}" in rm_code, \
+        "弧凸关的是补间不是档位：data-go 与 --swap-route 终值仍读得到（与 .ride 同一判断）"
+    for dead in ("--elev", "data-lift", "--squash-x", "--wind-back", "--lift-hi",
+                 "--swap-k", "--swap-rise", "--swap-min", "data-go"):
         assert dead not in rm_code, f"reduce 里不许出现 {dead}：那是把状态读数一起关掉（纪律③）"
     assert "transition-delay:var(--wind-hold)" not in rm_code
 
@@ -7746,5 +7767,181 @@ def test_follow_layer_reduced_motion_and_shot_mode(full_lesson):
                   "Array.prototype.forEach.call(n,function(x){"
                   "if(x.dataset.hot==='1')c++});return c;})()") == 0, \
             f"导出定格里不许有任何亮着的触点：{hot}"
+    finally:
+        _kill(chrome)
+
+
+_SWAP_PROBE = r"""(function(){
+  var n = document.getElementById('%(id)s-swp'), h = document.getElementById('%(id)s');
+  var cs = getComputedStyle(n);
+  return JSON.stringify({go:n.getAttribute('data-go'),
+    route:n.style.getPropertyValue('--swap-route'),
+    op:cs.offsetPath, dist:cs.offsetDistance, rot:cs.offsetRotate,
+    tp:cs.transitionProperty, tdur:cs.transitionDuration, te:cs.transitionTimingFunction,
+    runs:(n.getAnimations()||[]).map(function(a){
+      return a.transitionProperty || a.animationName;}),
+    tr:h.getAttribute('transform'),
+    y:+h.getBoundingClientRect().y.toFixed(2)});
+})()"""
+
+# 冻结采样 offset-distance 那条补间：换位弧凸是"位移的垂直分量"，卡框的屏幕 y
+# 只由它决定（transform 的 y 分量在换位那一步恒为 232），所以逐档读 dist 与 y。
+# 与 _RIDE_SWEEP 同一手法：pause + currentTime 逐档采样，采完 cancel（测试再重挂）。
+_SWAP_SWEEP = r"""(function(){
+  var n = document.getElementById('w-1-swp'), h = document.getElementById('w-1');
+  var list = (n.getAnimations()||[]).filter(function(a){
+    return a.transitionProperty === 'offset-distance';});
+  if (list.length !== 1){
+    return JSON.stringify({err:'offset-distance 补间不在场', an:(n.getAnimations()||[]).map(
+      function(a){ return a.transitionProperty || a.animationName; })});
+  }
+  var out = {dur:list[0].effect.getComputedTiming().duration,
+             ease:list[0].effect.getTiming().easing, frames:[]};
+  [0, 125, 250, 375, 499].forEach(function(ms){
+    list[0].pause(); list[0].currentTime = ms;
+    var cs = getComputedStyle(n), bb = h.getBoundingClientRect();
+    out.frames.push({ms:ms, dist:parseFloat(cs.offsetDistance), y:+bb.y.toFixed(2)});
+  });
+  list[0].cancel();
+  return JSON.stringify(out);
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_swap_arcs_a_card_over_the_row_on_reorder(full_lesson):
+    """真实浏览器：换位不是瞬移，也不是钻洞（0.25.0「换位弧凸」）。
+
+    范本 seg-1 s2 把世界层从 `bay`（[10,9,1]）排成 `sorted`（[1,10,9]）：'1' 要从
+    x=700 一路穿到 x=300，直线穿行会从另两张卡中间"隧道式"穿过，读不出"换了位置"。
+    本轮给越过整行的那张卡（行程 400 > --swap-min 250）叠加一条垂直抛物线
+    （offset-path，控制点 = 峰值×2 = -280，两端都回原点），'10'/'9' 让位 200 单位、
+    短于阈值，直行。六条口径必须一起成立：
+      · 建档步不演：data-go 0、路径退化到原点（`Q 0 0 0 0`）、offset-distance 0%，
+        包装层只补 offset-distance（.swap 简写源序在 .nt 之后，整串顶掉它）；
+      · 换位那一步挂档：data-go 翻 1，`--swap-route` 写成 `M 0 0 Q 0 -280 0 0`，
+        computed offset-path 同值，offset-distance 由补间从 0% 走 100%；
+      · 曲线与时长：.5s（--dur-move，与位移同一拍）+ --ease-in-out（一去一回对称，
+        与 .flip 同一理由）；f=0.5 档 offset-distance 恰好 50%，主角屏幕 y 比两端
+        高 ≥ 30 设备px（140 单位 × 相机倍率 ≥ .85），f 末档落回与起点同一 y；
+      · 落定即"换位完成"那一格：offset-distance 100% = 原点、'1' 站在最左槽
+        （translate(300,232) scale(1)），且没有在跑的补间；
+      · sticky + 可见性判据：s2 之后跳 s3（收上架子）data-go 仍驻 1、无新补间；
+        灯灭着的换位（seg-5 off → messed）data-go 保持 0，不演弧凸；
+      · reduced-motion / 导出：transition 一刀切掉，offset-distance 直接落 100%，
+        一格信息不少（与 .ride / .tilt 同一判断）。"""
+    chrome, ev, send = _cdp(full_lesson, "swap25")
+    try:
+        ev(_SEEK)
+
+        # ① 建档步：包装层在场但没挂档
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.6)
+        s0 = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        assert s0["go"] == "0" and s0["dist"] == "0%", f"s0 不该演弧凸：{s0}"
+        assert s0["route"].endswith("Q 0 0 0 0')"), f"退化路径两端都是原点：{s0}"
+        assert s0["op"].endswith('Q 0 0 0 0")'), f"computed offset-path 同值：{s0['op']}"
+        assert s0["rot"] == "0deg", f"offset-rotate 必须 0deg（默认 auto 会把卡转成 90°）：{s0}"
+        assert s0["tp"] == "offset-distance" and s0["tdur"] == "0.5s", \
+            f"包装层只补 offset-distance、时长与位移同一拍：{s0}"
+        assert s0["te"] == "cubic-bezier(0.65, 0, 0.35, 1)", \
+            f"一去一回是对称行程，曲线必须对称（与 .flip 同一理由）：{s0}"
+        assert s0["runs"] == [], f"建档步没有补间在跑：{s0}"
+        assert s0["tr"].startswith("translate(700"), f"s0 还站在 bay 那一格：{s0['tr']}"
+
+        # ② 换位那一步：越过整行的 '1' 挂档（行程 400 > 250 → 峰值 140、控制 -280），
+        #    让位的 '10'/'9'（行程 200 ≤ 250）路径仍退化——弧凸只给"真的越过"那张
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.05)
+        s2 = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        assert s2["go"] == "1", f"换位那一步 data-go 必须翻 1：{s2}"
+        assert s2["route"] == "path('M 0 0 Q 0 -280 0 0')", \
+            f"控制点 = 峰值×2（-280），路径写进 --swap-route：{s2['route']}"
+        assert "M 0 0 Q 0 -280 0 0" in s2["op"], f"computed offset-path 同值：{s2['op']}"
+        assert "offset-distance" in s2["runs"], f"补间正在走：{s2['runs']}"
+        assert 0 < float(s2["dist"].replace('%', '')) < 100, \
+            f"采样在补间中途（50ms 已过）：{s2['dist']}"
+        w10 = json.loads(ev(_SWAP_PROBE % {"id": "w-10"}))
+        w9 = json.loads(ev(_SWAP_PROBE % {"id": "w-9"}))
+        assert w10["go"] == "1" and w9["go"] == "1", f"让位卡也随档（sticky）：{w10} {w9}"
+        assert w10["route"].endswith("Q 0 0 0 0')") and w9["route"].endswith("Q 0 0 0 0')"), \
+            f"行程 200 ≤ 250：让位直行，不演弧凸：{w10['route']} {w9['route']}"
+
+        # ③ 冻结采样：抛物线在 50% 处到峰（offset-distance 恰好 50%），主角屏幕 y
+        #    比两端高 ≥ 30 设备px；末档落回与起点同一 y（两端都回原点）
+        sweep = json.loads(ev(_SWAP_SWEEP))
+        assert "err" not in sweep, sweep
+        fr = sweep["frames"]
+        assert fr[0]["dist"] == 0 and fr[2]["dist"] == 50, \
+            f"对称曲线过中点 f=0.5 → 50%（in-out）：{fr}"
+        assert fr[1]["dist"] < fr[2]["dist"] < fr[3]["dist"] and fr[4]["dist"] > 99, \
+            f"单调上行、末档回原点（换位完成）：{fr}"
+        assert abs(fr[1]["dist"] + fr[3]["dist"] - 100) <= 1.0, \
+            f"对称曲线在时间轴上成对互补（实测 7.08 + 92.92）：{fr}"
+        assert fr[2]["y"] < fr[0]["y"] - 30, \
+            f"50% 那格主角要拱起来（140 单位 × 倍率 ≥ .85 → ≥ 119 设备px）：{fr}"
+        assert abs(fr[4]["y"] - fr[0]["y"]) <= 2.0, \
+            f"末档回原点 = 换位完成那一格，y 必须回到起点：{fr}"
+        assert float(sweep["dur"]) == 500.0, f"时长 = --dur-move .5s：{sweep['dur']}"
+
+        # ④ 重挂后落定：'1' 站在最左槽、offset 100% = 原点、没有在跑的补间
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.4)
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.9)
+        done = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        assert done["go"] == "1" and done["dist"] == "100%", f"落定即换位完成：{done}"
+        assert done["tr"] == "translate(300,232) scale(1)", \
+            f"'1' 站在最左槽（sorted 槽位 300）：{done['tr']}"
+        assert done["runs"] == [], f"落定后不该有在跑的补间：{done['runs']}"
+
+        # ⑤ sticky：s2 之后跳到 s3（收上架子），data-go 仍驻 1、无新补间；
+        #    灯灭着的换位（seg-5 off → messed）data-go 保持 0，不演弧凸
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.5)
+        s3 = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        assert s3["go"] == "1" and s3["dist"] == "100%", \
+            f"sticky：收上架子那一步不重放弧凸：{s3}"
+        assert s3["runs"] == [], f"sticky 不该有新补间：{s3['runs']}"
+        ev("window.__jump('seg-5', 4)")
+        time.sleep(1.0)        # 上一幕 data-go 还驻 1：这一步翻回 0 走的是退化路径
+                               # （无视觉），等那条补间落定再读
+        m4 = json.loads(ev(_SWAP_PROBE % {"id": "w-10"}))
+        assert m4["go"] == "0" and m4["dist"] == "0%", \
+            f"off → messed 是灯灭着的换位，不演弧凸：{m4}"
+        assert m4["route"].endswith("Q 0 0 0 0')") and m4["runs"] == [], \
+            f"退化路径 + 无在跑补间：{m4}"
+
+        # ⑥ reduced-motion：关的是补间不是档位——data-go 与 --swap-route 终值仍读得到
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.4)
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.3)
+        rm = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        assert rm["tp"] == "none", f"弧凸补间被收掉：{rm['tp']}"
+        assert rm["go"] == "1" and rm["dist"] == "100%", \
+            f"档位仍在：换位完成那一格一格信息不少：{rm}"
+        assert rm["tr"] == "translate(300,232) scale(1)" and rm["runs"] == [], \
+            f"关掉动效也不许挪错槽：{rm}"
+
+        # ⑦ 导出截图模式：与 export_video.py 同源的那一刀切掉补间——同样直接落
+        #    "换位完成"那一格（与 reduced-motion 同一张定格）
+        send("Emulation.setEmulatedMedia", {"features": []})
+        ev("(function(){var s = document.createElement('style'); s.id = 'shotcut';"
+           " s.textContent = '*,*::before,*::after{transition:none!important;"
+           "animation:none!important}'; document.head.appendChild(s);})()")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.3)
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.3)
+        shot = json.loads(ev(_SWAP_PROBE % {"id": "w-1"}))
+        assert shot["go"] == "1" and shot["dist"] == "100%", \
+            f"导出定格直接落换位完成：{shot}"
+        assert shot["tr"] == "translate(300,232) scale(1)" and shot["runs"] == [], \
+            f"导出定格上 '1' 站在最左槽、无在跑补间：{shot}"
     finally:
         _kill(chrome)

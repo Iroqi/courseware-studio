@@ -180,6 +180,7 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 | `.settle`（0.23.0） | 挤压落位（独立 `scale` 关键帧，两端由 `--squash-x/y` 绕 1 镜像，支点取 `fill-box` 底边中点） | 判词**落下来**了：徽标第一次建档那一下有质量（事件不是状态，静止态 `scale:none`） |
 | `.wind`（0.23.0） | 预备后蓄（独立 `translate` 关键帧 `0 → --wind-back → 0` + `--ease-in-out`），同时让主角那层的 `transition-delay` 让出 `--wind-hold` 那一拍 | 主角**要自己跳上**架子：先沉一下再起来，直接走就读作"被系统搬走了" |
 | `.lift` + `--elev`（0.23.0） | 提牌投影（`@property --elev` 单值补间，`translate` 与 `drop-shadow` 都从它派生） | 这一对被**拿起来比**：谁排在前面谁离开台面——与位移、颜色、灯正交的那条轴 |
+| `.swap` + `--swap-route`（0.25.0） | 换位弧凸（`offset-path` 垂直抛物线叠在 `.nt` 直线位移上，`offset-distance` 0↔100% 补间，`offset-rotate:0deg` 保持正立；峰值 = 行程 × `--swap-k`、封顶 `--swap-rise`、短于 `--swap-min` 的平移直行） | 世界层**换了位置**那一步：重排成序时越过整行的卡沿弧线跨过让位者——读作"换了位置"，不是"从别人身体里钻过去"（list-reorder 的弧线交叉，2026 前沿动效同款） |
 
 建档即入场，所以**要动的东西在它该动的那一步才建档**：早一步建好压着
 `opacity:0`，动画会在没人看见的那一步跑完，轮到时只剩淡入。
@@ -1170,6 +1171,47 @@ Staging（`#spot` / `[data-dim]`）、Exaggeration（弹簧过冲）都已经有
 "没动"），要留在终格得用 `a.finish()`；同一句重复跳时画面没重画、`camRun` 根本不跑，
 "没有补间"与"补间时长为 0"是两种不同的读数，别混。
 
+**换位弧凸（`.swap`，0.25.0 一组一件）**：list-reorder 的"换了位置"读法——排序课三张卡
+重排成序那一步（seg-1 s2，[10,9,1] → [1,10,9]），'1' 要从 x=700 直穿到 x=300，直线穿行
+会从另两张卡中间"隧道式"穿过，读不出"换了位置"（现代列表重排动画专门避开这条直线交叉：
+overlap 那一拍必须有个"越过"可看）。这一族把直线位移（照旧走 `.nt` 的 transform）与一条
+**垂直抛物线**（`offset-path`，两端都回原点）叠在两层上：抛物线只在换位那一步演，
+"越过 / 让位"一目了然。五条边界：
+  ① **包装层 `w-<v>-swp` 挂在蓄力层之外**（`w-<v>-swp` → `w-<v>-ant` → `w-<v>`）：
+     offset-path / offset-distance 是独立呈现属性，不与内层 transform（槽位）或
+     animation（.in）抢位——同节点两条 transition 简写互相顶掉（.lift 老账），分开成层
+     各演各的。包装层只有 `.swap` 自己的 transition 简写（computed transition-property
+     只剩 `offset-distance` 一项，实测）；
+  ② **档位挂在呈现属性上**：`data-go` 翻 1 才演，弧凸路径写进 `--swap-route`（路线是数据，
+     与 `.ride` 同一条口径）——`M 0 0 Q 0 -2·rise 0 0`，控制点 = 峰值 × 2（二次贝塞尔
+     50% 处到峰，两端都在原点 = 换位完成 = 无偏移）；`offset-rotate` 必须写 `0deg`：
+     不写默认 `auto`，卡会顺着竖直路径的切线被转成 90°；
+  ③ **峰值由行程现算**（poseWorld 读三枚令牌，口径同 --par-far）：新老槽位距离 ×
+     `--swap-k`、封顶 `--swap-rise`、短于 `--swap-min` 的平移不演（位移短 = 平移，不算
+     换位）。[10,9,1] → [1,10,9] 这一步：'1' 行程 400 → 峰值 140（控制 -280），'10'/'9'
+     行程 200 ≤ 250 → 直行——弧凸只给"真的越过整行"的那张；
+  ④ **换位判据写在 worldFor、由 (scene, step) 就地推导**（纪律 1，导出每帧冷启动照演）：
+     "本幕内第一个可见姿势（op>0）之后出现不同序"扫到就算数（sticky）——"排好了 → 收上
+     架子"那一步不重放；开头灯灭着的 off（op=0）不立基准，看不见位置的换位（off →
+     messed）不演弧凸。判据与行程**分两处**：fired 决定 data-go、prevPose 决定峰值，所以
+     向后擦洗回 s2 时换位照常、只是行程按"上一步姿势"现算；
+  ⑤ **reduced-motion 与导出关的是 transition、不关档位**：data-go 与 --swap-route 的终值
+     都在呈现属性上，一刀切掉直接落"换位完成"那一格，一格信息不少（与 .ride / .tilt /
+     #spot 同一判断）；`.swap{transition:none}` 在媒体块里、基础规则在 §③ 之前，同特异度
+     源序后者胜，不需要抬。兜底清单里不许出现 --swap-k / --swap-rise / --swap-min /
+     data-go（纪律③：关的是补间不是状态读数）。
+
+**别这么干（0.25.0 实测否决）**：① **给让位卡也按比例配弧凸**——行程短于 --swap-min 的那
+两张实测 200 单位，若也配 70 的弧凸，会把"一个越过、两个让位"读成"整排一起弹"，越过者与
+让位者的关系糊掉；阈值把"平移"与"换位"分开，是这条读法成立的前提。② **data-go 非 sticky
+的写法**（每一步都重写 0/1）——实测在"排好了 → 收上架子"那一步 1→0 会把弧凸**倒着再演一
+遍**（抛物线从 100% 走到 0% = 向下多沉一记），sticky 扫到就算数才不重放；同一幕若出现第二
+次可见换序（范本没有），data-go 已驻 1、弧凸不重演，直线位移照常，不撒谎。③ **把换位判据
+建立在"记住上一步姿势"上**——导出每帧一次冷启动、seek 直落 s2 时 poseNow 还是 off，判据
+漏演；fired 必须从 WORLD 表就地回推（与 0.12.0 世界层沿用同一个理由）。④ **峰值两处共写**
+（JS 写 --swap-route、CSS 再写一遍 --swap-rise）——令牌只在 :root 一处，JS 用
+getComputedStyle 读（口径同 --par-far），数值在代码里只出现一次。
+
 **别这么干（0.23.0 实测否决）**：① **`box-shadow` 用在 SVG 图元上**——上面那条对拍是这一族的
 通用陷阱：计算值读得到不代表画得出来（`backdrop-filter` 0.22.0 同课，但 box-shadow 更阴，因为它
 连"没生效"都不肯告诉你）。② **`perspective()` + `translateZ()` 抬 SVG**——`getScreenCTM()` 的
@@ -1431,6 +1473,7 @@ rect / bbox 的影响其实相同（都不会让 `getClientRects().length` 变 0
 - [ ] 用了挤压落位（`.settle`）的：拉伸档由 `calc(2 - --squash-x/y)` **镜像**出来（不另立一档）、支点取 `transform-box:fill-box` + `transform-origin:50% 100%`（接触边：九档冻结读数下沿必须同一个数，退回中心实测抬离 1.54px）、只走独立 `scale` 不写 `transform`、只挂纯包装 `<g>` 且同节点不再挂第二条 `animation`（淡入留给内层图元）、曲线 `linear`（换 ease-out 实测把压扁格提前到行程 25%）、`backwards` 不写 `forwards`；**第一次落位才演**——复用同一 key 换位置是补间不是又一次落地；
 - [ ] 用了预备后蓄（`.wind`）的：蓄力层在主角**之外**且**从建档那一步就在**（重新入树没有 before-change style，那一次位移会当场落成终态）、走独立 `translate`、曲线 `--ease-in-out`、两端与静止态都回零；主动作必须为它让出 `--wind-hold`（= `--dur-wind` × .34，实测不让 dip 0.00px、让了 81.00px），让拍走 `transition-delay` **长档**写在被补间的那一层上（`.wind > g`，简写会顶掉 `.nt` 十七项清单），reduced-motion 里让拍要**一起归零**（否则页面留一个"等着补间"的读数）；
 - [ ] 用了提牌投影（`.lift` + `--elev`）的：`@property{syntax:'<length>';initial-value:0px}`（零档 = 还在台面上）、补间清单**只有 `--elev` 一项**（`filter` 与 `translate` 都由它派生，列进去就是第二套补间）、系数 1.5 / 1.2 说的是影子比抬升走得远、档位写呈现属性 `data-lift`（reduce 关补间不关档位）、只挂纯包装 `<g>`（与 `.nt` 同节点互相顶掉）、投影不裁命中测试所以**别加 `pointer-events:none`**（也不需要），且**不许改用 `box-shadow`**（SVG 上计算值读得到而屏幕 0 个像素变）；
+- [ ] 用了换位弧凸（`.swap` + `--swap-route`）的：包装层在蓄力层**之外**（`w-<v>-swp` → `w-<v>-ant` → `w-<v>`）、只挂 `.swap` 自己的 transition 简写（同节点两条简写互相顶掉，computed 只剩 `offset-distance` 一项）、路径写进呈现属性 `--swap-route`（路线是数据，与 `.ride` 同口径）且 `offset-rotate:0deg` 显式写（默认 auto 会把卡转成 90°）、峰值由行程现算（`--swap-k`/`--swap-rise`/`--swap-min` 只在 :root 一处，JS 用 getComputedStyle 读）、判据由 (scene, step) 就地推导且 **sticky**（不可"记住上一步姿势"；灯灭着的换位不演）、reduced-motion 兜底只关 transition 不关 `data-go`/`--swap-route` 终值；
 - [ ] 用了位移定拍（`--cam-dur` 派生长度）的：JS 只写 `--cam-pan` / `--cam-zoom` 两个读数、
        权重与两端只在 `:root` 的 `clamp()` 一处（测试也不许出现第二个权重数，按令牌现算）、
        这两个读数**故意不注册**（注册了就去补间行程本身）、**读数写在 `transform` 之前**

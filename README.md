@@ -572,6 +572,19 @@ python -m pytest tests/ -q
   时长 298.75ms、`a.play()` 会把钉到终点的补间倒回去重演）；本机全量 **420 passed / 2 skipped**，
   CI 复按三档 Python 全绿、runner（Chrome 155，本机 152）同数——本轮钉的都是属性上的读数
   而非屏幕坐标，跨版本逐值不变正是 0.23.1 那条口径要的；
+- 0.25.0 的回归：`test_settle_wind_lift_primitives_present` 的 ⑥b / ⑦ 段锁换位弧凸的静态
+  口径——`.swap` 只有 `offset-distance` 一条补间（简写源序在 `.nt` 之后整串顶掉它）、
+  `offset-rotate:0deg` 显式写、档位 `data-go` 挂呈现属性、路线 `--swap-route` 是数据
+  （`M 0 0 Q 0 -2·rise 0 0`，控制点 = 峰值 ×2）、判据由 worldFor 就地推导且 sticky
+  （`if (q.op > 0)` 立基准 + `o !== base` 置 fired）、三枚令牌只在 :root 一处、
+  reduced-motion 兜底只有 `.swap{transition:none}` 而清单里不许出现 `--swap-k` /
+  `--swap-rise` / `--swap-min` / `data-go`（关的是补间不是状态读数）。一条 CDP 用例
+  `test_swap_arcs_a_card_over_the_row_on_reorder` 七段共 30+ 断言：建档步不演
+  （data-go 0、路径退化到原点、无补间在跑）→ 换位挂档（'1' 行程 400 > 250 挂
+  `M 0 0 Q 0 -280 0 0`、'10'/'9' 行程 200 ≤ 250 直行）→ 冻结采样抛物线在 50% 处到峰
+  （offset-distance 恰 50%、主角屏幕 y 比两端高 ≥ 30 设备px、末档回原点、时长 500ms）
+  → 落定 '1' 站最左槽且无在跑补间 → sticky（收上架子不重放）+ 灯灭换位不演（off → messed
+  data-go 保持 0）→ reduced-motion 落档 → 导出截图模式落档。本机全量 **421 passed / 2 skipped**；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

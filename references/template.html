@@ -205,6 +205,12 @@
     --dur-settle:.42s; --squash-x:1.14; --squash-y:.84;
     --dur-wind:.28s; --wind-back:9; --wind-hold:calc(var(--dur-wind) * .34);
     --dur-lift:.38s; --lift-hi:5px; --lift-ink:rgba(4,6,10,.62);
+    /* 换位弧凸（0.25.0）：list-reorder 的"换了位置"读法——排序课两张卡换位时，
+       直线穿行读作"从别人身体里钻过去"，叠加一条垂直弧凸才读作"越过 / 让位"。
+       三枚令牌只定几何、不定时序（时序走 --dur-move，与位移同一拍，不新开档）：
+       --swap-k 行程→峰值的斜率、--swap-rise 峰值封顶、--swap-min 不演弧凸的行程
+       下限（位移短于它 = 平移，直行即可）。峰值为正 = 向上越。 */
+    --swap-k:.35; --swap-rise:140; --swap-min:250;
     /* 随动层（0.24.0）：前三轮补的是"演一次"的词汇（入场 / 揭示 / 落位），这一轮三条
        都不演一次——它们**跟着一个连续量走**：镜头跟着这一步真的走了多少、辉光跟着
        指针落在哪儿、色温跟着这一段在课程的哪一档。前沿动效体系把这件事叫
@@ -739,7 +745,8 @@
           刀口上（全程没有一帧两面同显）。换成仓库默认的 `--ease-out`(.22,1,.36,1)
           再测一遍：θ 在 60.5ms 就已过 78.9°、约 65ms 侧立，交接却仍按半程等到 300ms
           ——**背面要在观众眼前倒着走 235ms**，那是穿帮不是翻页。所以这里破例不用
-          --ease-out：翻面是这一族里唯一要求"角度对时间居中"的原语。模板里那枚 vs
+          --ease-out：翻面是这一族里第一枚要求"角度对时间居中"的原语（0.25.0 的 `.swap`
+          换位弧凸是第二枚——垂直抛物线一去一回同样要求对称，见 §③）。模板里那枚 vs
           标签实测三个补间一起冻在 t=0/150/300/450/599ms：θ = 0 / 12.7 / 90.0 /
           167.3 / 180°，两面在场情况 v,h → v,h → h,v → h,v → h,v——交接就钉在
           侧立那一采上；
@@ -1322,6 +1329,33 @@
         transition:--elev var(--dur-lift) var(--ease-out)}
   .lift[data-lift="1"]{--elev:var(--lift-hi)}
 
+  /* 换位弧凸（`.swap`，0.25.0，list-reorder 的落地版）：**换位不是瞬移，也不是钻洞**——
+     排序课三张卡重排成序那一步（seg-1 s2，[10,9,1] → [1,10,9]），'1' 从 x=700 直穿到
+     x=300，从另两张卡中间"隧道式"穿过，读不出"换了位置"。这一族把直线位移（照旧走
+     `.nt`）与一条**垂直抛物线**（offset-path，两端都回原点）叠在两层上：抛物线只在
+     换位那一步演，"越过"与"让位"一目了然。五条口径：
+       ① 包装层 `w-<v>-swp` 挂在蓄力层**之外**（`w-<v>-swp` → `w-<v>-ant` → `w-<v>`）：
+          offset-path / offset-distance 是独立的呈现属性，不与内层 transform（槽位）或
+          animation（.in）抢位置——同节点两条 transition 简写会互相顶掉（.lift 老账），
+          分开成层就各演各的；
+       ② 档位挂在呈现属性上（`data-go`），弧凸路径写进 `--swap-route`（**路线是数据**，
+          与 `.ride` 同一条口径）：`M 0 0 Q 0 -2·rise 0 0` 是垂直抛物线，控制点 = 峰值
+          ×2（二次贝塞尔 50% 处到峰，两端都在原点 = 换位完成 = 无偏移）；offset-rotate
+          必须 0deg——不写的话默认 auto，卡会顺着竖直路径的切线被转成 90°；
+       ③ 峰值由**行程**现算（JS 读三枚令牌，见 poseWorld）：新老槽位距离 × --swap-k、
+          封顶 --swap-rise、短于 --swap-min 的平移不演弧凸（位移短 = 平移，不算换位），
+          于是[10,9,1] → [1,10,9] 这一步只有越过整行的 '1' 有弧凸，让位的两张直行；
+       ④ 换位判据写在 worldFor（见 JS）：**本幕内第一次"可见"换序**——两个姿势都在台
+          上（op>0）。扫到就算数（sticky），所以"排好了 → 收上架子"那一步不重放；灯灭
+          着的换位（off → messed）不演弧凸：看不见位置，谈不上"越过"；同一幕第二次可
+          见换序（范本没有）data-go 已驻 1，弧凸不再重演——直线位移照常，不撒谎；
+       ⑤ reduced-motion 与导出关的是 **transition**：`data-go` 与 --swap-route 的终值都
+          在呈现属性上，一刀下去直接落"换位完成"那一格，一格信息不少（与 .ride / .tilt
+          同一判断，见媒体块那一行）。 */
+  .swap{offset-path:var(--swap-route);offset-distance:0%;offset-rotate:0deg;
+        transition:offset-distance var(--dur-move) var(--ease-in-out)}
+  .swap[data-go="1"]{offset-distance:100%}
+
   /* ── 随动层（0.24.0）：三条都跟着一个连续量走 ─────────────────────────
      上面几组补的都是"演一次"的词汇（入场 / 揭示 / 落位 / 重量与预备），这一组
      三条都**没有"演完"这一说**：镜头跟着这一步真的走了多少（①位移定拍——消费者
@@ -1591,6 +1625,13 @@
     .wind{animation:none}
     .wind > g{transition-delay:0s}
     .lift{transition:none}
+    /* 换位弧凸（0.25.0）关 **transition**、不关档位：`data-go` 与 --swap-route 的终值
+       都在呈现属性上，一刀下去直接落"换位完成"那一格——排好了就是排好了，不演那一
+       段抛物线，一格信息不少（与 .ride / .tilt / #spot 同一判断：关的是补间不是终态）。
+       这一行**不需要抬特异度**：基础规则写在本块**之前**的 §③ 动效原语区，同为
+       (0,1,0)，源序后者胜。清单里也不许出现 --swap-k / --swap-rise / --swap-min /
+       data-go：那是把"换位完成"的状态读数一起关掉（纪律③）。 */
+    .swap{transition:none}
     /* 随动层（0.24.0）三条同口径，关的都是**补间**不是读数：
          · 位移定拍**不用另写一行**——#cam 那行 `#cam,.nt,.bar-fill{transition:none}`
            与 #depth 自己那行早就把它们收掉了；换成派生时长 --cam-dur 之后这一族
@@ -2657,9 +2698,10 @@
        · **复用的节点**绝不能再写那一遍占位宽：占位值会被当成一次真实状态变化，
          画面先往 96 补间、再掉头补向终态——那是肉眼可见的抖动，不是生长。
      窄屏字号由 put 统一放大，量出来的宽度自然跟着走，不补第二套口径。 */
-  function poseWorld(name){
+  function poseWorld(name, fired){
     var p = POSE[name];
     if (!p) return;
+    var prevPose = POSE[poseNow];        // 换位行程的基准：上一步姿势（poseNow 下一行才覆盖）
     poseNow = name;
     /* 预备后蓄（0.23.0）：只有**上架子**那一跳有——世界 y 从 232 直冲 84 是 148
        单位的向上位移，直接走读作"被系统搬走了"，先沉 --wind-back 单位再起来才读作
@@ -2679,9 +2721,26 @@
          · 幅度、方向、让出的那一拍全在令牌上（`--wind-back` / `--wind-dy` /
            `--wind-hold`），这里只写"这一步蓄不蓄"（纪律 1）。 */
     var wind = name === 'shelf';
+    /* 换位弧凸（0.25.0）：只在这一步真的换位时算弧凸。峰值由**行程**现算——新老槽位
+       距离 × --swap-k、封顶 --swap-rise、短于 --swap-min 的平移不演（位移短 = 平移，
+       不算换位）；路径写进 --swap-route（路线是数据，与 .ride 同口径），控制点 = 峰值
+       ×2（垂直抛物线 50% 处到峰，两端回原点）。三枚令牌从 CSS 读（口径同 --par-far，
+       getComputedStyle 只在 poseWorld 每步一次的粒度上取，不做逐卡逐帧读）。 */
+    var swapK = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--swap-k')) || .35,
+        swapRise = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--swap-rise')) || 140,
+        swapMin = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--swap-min')) || 250;
     HERO.forEach(function(v){
       var slot = p.order.indexOf(v), g = 'w-' + v, boxKey = g + '-r';
-      var A = put('world', 'g', g + '-ant', {class: wind ? 'wind' : null});
+      var rise = 0;
+      if (fired && prevPose && prevPose.op > 0 &&
+          prevPose.order.join() !== p.order.join()){
+        var ps = prevPose.order.indexOf(v);
+        var travel = Math.abs(p.xs[slot] - prevPose.xs[ps]);
+        if (travel > swapMin) rise = Math.min(swapRise, Math.round(travel * swapK));
+      }
+      var S = put('world', 'g', g + '-swp', {class:'swap', 'data-go': fired ? '1' : '0',
+        style:'--swap-route:path(\'M 0 0 Q 0 ' + (-rise * 2) + ' 0 0\')'});
+      var A = put(S, 'g', g + '-ant', {class: wind ? 'wind' : null});
       put(A, 'g', g, {transform:'translate(' + p.xs[slot] + ',' + p.y + ') scale(' + p.k + ')',
         opacity:p.op});
       var t = TONE[p.tone];
@@ -2701,9 +2760,22 @@
    *  步的 renderer。靠历史的话，第一句的姿势会漏进后面每一帧（实测过：整幕都挂着
    *  开场那排影子）。所以状态必须是 (scene, step) 的纯函数。 */
   function worldFor(sid, step){
-    var seq = WORLD[sid], name = null;
-    if (seq) for (var i = 0; i <= step && i < seq.length; i++) if (seq[i]) name = seq[i];
-    poseWorld(name || 'off');       // 这一幕没写世界谱 = 主角不在台上
+    var seq = WORLD[sid], name = null, base = null, fired = false;
+    if (seq) for (var i = 0; i <= step && i < seq.length; i++){
+      if (!seq[i]) continue;
+      name = seq[i];
+      var q = POSE[name];
+      /* 换位弧凸的档位（0.25.0）：本幕内**第一个可见姿势**（op>0）之后，又出现一个
+         不同序的可见姿势 = 这幕里真的换过位置（含本步）。扫到就算数（sticky），所以
+         "排好了 → 收上架子"那一步不重放；开头灯灭着的 off（op=0）不立基准，看不见
+         位置的换位（off → messed）不演弧凸。跨幕沿用（worldFor 只在幕内回推）同口径。 */
+      if (q.op > 0){
+        var o = q.order.join();
+        if (!base) base = o;
+        else if (o !== base) fired = true;
+      }
+    }
+    poseWorld(name || 'off', fired);    // 这一幕没写世界谱 = 主角不在台上
   }
 
   // ── 相机：每一步声明一个取景窗，镜头怎么推怎么摇全在这张表里 ──────────
