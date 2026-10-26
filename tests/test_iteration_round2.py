@@ -5343,8 +5343,8 @@ def test_spot_ffwd_pregate_primitives_present():
         html.count("<polyline points=") >= 3, "三枚雪佛龙住在画布中心那一层"
 
     # ⑥ 掠擦的消费者与判据：JS 从令牌读阈值，四道不演
-    assert "function begin(){ GEN++; spotOff(); }" in html, \
-        "每一步开头归零：灯是全局层，不声明就是没有（纪律①）"
+    assert "function begin(){ GEN++; spotOff(); DECODE = {}; }" in html, \
+        "每一步开头归零：灯是全局层，不声明就是没有（纪律①；0.26.0 起解码登记表同一条路）"
     body = code[code.index("function camBox(node){"):code.index("function spotOn(keys, pad){")]
     assert "transform.baseVal" in body, "洞心读的是 transform 属性（目标值）"
     assert "getScreenCTM" not in code, \
@@ -6021,7 +6021,11 @@ def test_settle_wind_lift_primitives_present():
         "蓄不蓄由姿势推导（纪律 1）：导出每帧一次冷启动，记住建上跳会漏演"
     assert "g + '-ant', {class: wind ? 'wind' : null}" in html
     i_ant = html.index("var A = put(S, 'g', g + '-ant'")
-    i_hero = html.index("put(A, 'g', g, {transform:'translate('")
+    # 0.26.0 起主角那一发 put 的第一个键是拖尾档位（class/style），位移仍在同一次写里：
+    # 这条锁的是"蓄力层在主角之外且是主角的父层"，不是键的顺序。
+    i_hero = html.index("put(A, 'g', g, {")
+    assert "transform:'translate(' + p.xs[slot]" in html[i_hero:i_hero + 320], \
+        "位移仍由主角那层的 transform 承载（拖尾只加 delay，不改谁承载位移）"
     assert i_ant < i_hero, "蓄力层必须在主角之外、且是主角的父层"
     assert html.index("function poseWorld(name, fired){") < i_ant < html.index("function renderA(step){"), \
         "让拍与蓄力都在 poseWorld 里就地声明（renderer 只写这一步蓄不蓄）"
@@ -6209,6 +6213,8 @@ _WIND_READ = r"""(function(){
     heroInAnt:(h.parentNode === a), heroCls:h.getAttribute('class'),
     heroDelay:cs.transitionDelay, heroTp:cs.transitionProperty,
     heroTd:cs.transitionDuration, heroTe:cs.transitionTimingFunction.slice(0, 32),
+    trailR:h.style.getPropertyValue('--trail-r'),
+    trailStep:getComputedStyle(document.documentElement).getPropertyValue('--trail-step'),
     back:ca.getPropertyValue('--wind-back'), hold:ca.getPropertyValue('--wind-hold'),
     y:+q.y.toFixed(2), transform:h.getAttribute('transform')});
 })()"""
@@ -6299,8 +6305,9 @@ def test_wind_anticipates_by_borrowing_a_frame_from_the_move(full_lesson):
       · 蓄力层的行程：`windIn` 280ms、`--ease-in-out` = `cubic-bezier(0.65, 0, 0.35, 1)`、
         34% 那格（t=95.2ms）读到 `0px 8.99997px`（= `--wind-back` 9 单位），两端回零、
         `fill:none`、静止态 `translate` 读 `none`——事件不是状态；
-      · 让拍只改延迟不改清单：主角 `w-10` 的 `transitionDelay` 从 s2 的十七个 `0s`
-        变成 s3 的一格 `0.0952s`，而 `transitionProperty` / `transitionDuration` /
+      · 让拍只改延迟不改清单：主角 `w-10` 的 `transitionDelay` 从 s2（无 rank 时十七个
+        `0s`；0.26.0 起这一步有拖尾，那是 `--trail-step × rank` 的一格）变成 s3 的一格
+        `0.0952s`，而 `transitionProperty` / `transitionDuration` /
         `transitionTimingFunction` 与不蓄力的那一步**逐字符相同**（十七项）；
       · **主动作必须为它让出那一拍**（这条是量出来的，不是美学判断）：同一步走三遍，
         每遍逐 rAF 采主角屏幕 y（本机起点 348.17，绝对坐标随视口漂）——范本现状最低沉到 **429.17**
@@ -6320,8 +6327,21 @@ def test_wind_anticipates_by_borrowing_a_frame_from_the_move(full_lesson):
         assert s2["antCls"] == "nt" and s2["antAnim"] == "none", \
             f"不蓄力的那一步：蓄力层还在（主角的父层），但 class 是空状态：{s2}"
         assert s2["heroInAnt"] is True, "主角住在蓄力层里（`.wind > g` 的 g 就是它）"
-        assert len(s2["heroTp"].split(",")) == 17 and s2["heroDelay"].count("0s") == 17, \
-            f"不蓄力时十七项清单配十七个 0s：{s2}"
+        assert len(s2["heroTp"].split(",")) == 17, f"十七项清单不被动到：{s2}"
+        # 0.26.0 起这一步还有拖尾：让位的两张按 rank 晚一格或两格。`.trail` 写的正是
+        # **只有 transition-delay 这一条长档**，所以清单仍是十七项、delay 收成一格——
+        # 这条断言从"十七个 0s"改成"要么全零、要么恰好等于 --trail-step × rank"，
+        # 钉的还是同一件事：让拍不许碰到那十七项里的任何一个别的读数。
+        if s2["trailR"] in ("", "0"):
+            assert s2["heroDelay"].count("0s") == 17, \
+                f"没有 rank 就该十七个 0s：{s2}"
+        else:
+            want = _ms(s2["trailStep"]) * int(s2["trailR"])
+            assert "trail" in s2["heroCls"] and \
+                abs(_ms(s2["heroDelay"]) - want) < 0.5, \
+                f"拖尾那一格只由 --trail-step × --trail-r 求出（{want}ms）：{s2}"
+        assert "0.0952" not in s2["heroDelay"], \
+            f"不蓄力的那一步绝不能借到那一拍：{s2['heroDelay']}"
 
         ev("window.__jump('seg-1', 3)")
         s3 = json.loads(ev(_WIND_READ))
@@ -7951,5 +7971,656 @@ def test_swap_arcs_a_card_over_the_row_on_reorder(full_lesson):
             f"导出定格直接落换位完成：{shot}"
         assert shot["tr"] == "translate(300,232) scale(1)" and shot["runs"] == [], \
             f"导出定格上 '1' 站在最左槽、无在跑补间：{shot}"
+    finally:
+        _kill(chrome)
+
+
+# ══ 0.26.0「先后与边界」：拖尾跟随 / 逐字解码 / 越界橡皮筋 ═════════════════
+#
+# 三条都是**量出来才敢写进范本**的，所以这一节的断言全部读派生值：档位由
+# `--trail-step × --trail-r` 求出、阻尼由 `--band-cap`/`--band-soft` 求出、解码的
+# 落定节奏由 `--decode-lead × 字数` 求出——测试里不抄第二个数（口径同 _cam_expect_ms）。
+# 屏幕绝对坐标随视口漂，所以位移一律"同一会话内自己对照自己"，不写死 px。
+
+def test_trail_decode_band_primitives_present():
+    """模板结构契约：0.26.0「先后与边界」三条的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的全是本轮量出来"为什么只能这么写"的边界：
+      · 三只新令牌（`--trail-step` / `--decode-lead` / `--dur-band`·`--band-cap`·`--band-soft`）
+        真在 :root 的解析结果里（注释配对由 _css_comment_problems 兜住，那一课丢过一整块）；
+      · **拖尾只有一条长档**：`.trail` 整条规则里不许出现 `transition` 简写（写了就把 `.nt`
+        那十七项顶掉，0.19.0 / 0.23.0 同一课），且基础规则源序在 `.nt` 之后、同为 (0,1,0)；
+        `--trail-r` **故意不注册**（它是排位的读数不是要补间的行程，口径同 --cam-pan）；
+        档距 `--trail-step` 全 CSS 只被消费**一次**，`.07s`/`.14s` 不许抄成两份字面量；
+      · **解码不许是第二路字幕**：字面由 `badge(..., dec)` 逐枚 opt-in，写的是变量
+        （`d.n.textContent = out`），全模板没有第二处 `textContent = '...'` 字面量赋值；
+        噪声**没有随机数**——`Math.random` 在整个范本与运行时里一次都不许出现（导出是每帧
+        一次冷启动 seek，随机一次等于同一秒的两帧是不同的字，GSAP ScrambleText 官方
+        为这件事专门写了 --concurrency=1）；宽度靠 `textLength` + spacingAndGlyphs 钉住；
+        `decodeWrite(t)` 排在 `capLitWrite(t)` **之后**（要靠 capSent，0.16.0 那条老账）；
+        登记表 `DECODE` 在 `begin()` 里清空，于是"这一步有没有在解码"也是 (scene, step) 的
+        纯函数；
+      · **橡皮筋不撒谎**：时钟写的是**夹过的** raw、band 写的是**未夹的** raw（两行源序
+        锁死），阻尼只从两只旋钮求（`bCap * a / (a + bSoft)`），回弹补间挂在 CSS
+        （`--band` 注册成 `<length>`、`inherits:false`、初值 0px——未注册时它是 token，
+        对照页实测 482ms 内 13 次采样全是终值，中间一格都不存在），JS 侧只写终值、
+        `seek`/`bandWrite` 那一段里一个 `setTimeout` 都不许有；
+      · reduced-motion 三行新兜底各关各的对象（拖尾关 delay、气泡与端头亮关 transition），
+        且都在基础规则**之后**；兜底里不许出现"补一个更短的时长"。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    root = re.search(r":root\{([\s\S]*?)\n  \}", css).group(1)
+
+    # ⓪ 注释配对 + 五只新令牌真在 :root 里
+    assert _css_comment_problems(html) == [], _css_comment_problems(html)
+    for tok in ("--trail-step", "--decode-lead", "--dur-band", "--band-cap", "--band-soft"):
+        assert re.search(re.escape(tok) + r"\s*:", root), \
+            f"{tok} 没长在 :root 里（被注释语法吃掉过一次，见 _css_comment_problems）"
+
+    # ① 拖尾：一条长档、一个来源、一个消费者，且 `--trail-r` 不注册
+    assert ".trail{transition-delay:calc(var(--trail-step) * var(--trail-r, 0))}" in css
+    trail = re.search(r"\.trail\{(.*?)\}", css, flags=re.S).group(1)
+    assert "transition:" not in trail, \
+        ".trail 里出现 transition 简写就把 .nt 那份十七项清单整条顶掉（0.19.0 老账）"
+    assert css.index(".nt{") < css.index(".trail{transition-delay:calc"), \
+        "两条同为 (0,1,0)，先后靠源序：兜底与归零都写在后面才压得住"
+    assert "@property --trail-r" not in html, \
+        "--trail-r 是排位的读数（常量替换进 calc），注册了就去补间它（口径同 --cam-pan）"
+    assert css.count("var(--trail-step)") == 1, \
+        "档距只在 .trail 一处被消费：抄出第二个消费者就再也不是'只此一处'"
+    assert ".14s" not in css and "0.14s" not in css, \
+        "把 rank×档距的第二格抄成字面量就是第二个数（口径同 --wind-hold / --par-far）"
+    assert "style: rank[hi] ? '--trail-r:' + rank[hi] : null" in html, \
+        "排位属于节点、尺度属于令牌：两边各写一半，JS 里不许出现 .07 / .14"
+    assert "if (travel[i] > 0) rank[i] = r;" in html, \
+        "行程为 0 的卡不给档：它没动，晚一拍落定就是撒谎"
+
+    # ② 解码：opt-in、无随机、钉宽度、按步重建、排在换句分支之后
+    assert "Math.random" not in html, \
+        "导出每帧一次冷启动 seek：随机一次就等于同一秒的两帧是不同的字"
+    assert "function badge(parent, key, x, y, s, col, dec){" in html
+    assert "if (dec) decodeArm(t, s);" in html, "解码是逐枚徽标 opt-in，不是全局开"
+    assert "var DEC_POOL = {" in html
+    pool = html.split("var DEC_POOL = {")[1].split("};")[0]
+    for k in ("cjk", "digit", "alpha", "other"):
+        assert re.search(r"\b%s: '" % k, pool), f"噪声池少一类：{k}"
+    assert "n.removeAttribute('textLength');" in html and \
+        "n.setAttribute('textLength', w.toFixed(1));" in html and \
+        "n.setAttribute('lengthAdjust', 'spacingAndGlyphs');" in html, \
+        "先撤钉再量、量完钉回去：不钉住的话解码途中换字会把药丸底撑抖"
+    arm = html.split("function decodeArm(n, text){")[1].split("\n  }")[0]
+    assert "var w = n.getComputedTextLength();" in arm and "n.getBBox" not in arm, \
+        "钉的是推进量不是墨盒：getBBox().width 在 spacingAndGlyphs 下会随噪声字自己抖" \
+        "（实测「较」那一格 56.467 vs 56.0），拿它钉会把整串压窄到药丸边上"
+    assert html.index("capLitWrite(t);") < html.index("decodeWrite(t);"), \
+        "decodeWrite 要靠 capSent，写在换句分支之前就会拿上一句的时长算这一句的进度"
+    assert "DECODE = {};" in html.split("function begin(){")[1].split("\n  }")[0], \
+        "登记表按步重建：这一步有没有在解码必须与画面一样是 (scene, step) 的纯函数"
+    assert "window.__coursewareShotMode || mqReduce.matches" in html, \
+        "导出与减动效一律直接落完整词：未定住的那些格本来就不可读"
+    assert "var mqReduce = window.matchMedia('(prefers-reduced-motion:reduce)');" in html
+    dec_body = html.split("function decodeWrite(t){")[1].split("\n  }")[0]
+    assert "d.n.textContent = out;" in dec_body and "textContent = '" not in dec_body, \
+        "解码写的是变量：范本里第二路'字幕字面量'会被检查器读成第二条字幕轨道"
+
+    # ③ 橡皮筋：注册、独立 translate、只从令牌求阻尼
+    assert ("@property --band{syntax:'<length>';inherits:false;initial-value:0px}" in html), \
+        "不注册就没有回弹（对照页实测：未注册时 13 次采样全是终值）；inherits:false = 谁用谁持有"
+    tip = re.search(r"\.bar \.tip\{(.*?)\}", css, flags=re.S).group(1)
+    assert "translate:var(--band) 0;" in tip, \
+        "位移走独立 translate 属性：写进 transform 会在落定那一瞬丢掉 translateX(-50%) 居中"
+    assert tip.count("transition:") == 1, "两份 transition 简写会互相顶掉（.nt 同一课）"
+    assert ("transition:opacity var(--dur-fast),\n"
+            "                       --band var(--dur-band) var(--ease-spring)") in html
+    assert "@property --band-cap" not in html and "@property --band-soft" not in html, \
+        "两只旋钮是常量不是行程：注册了就会被当成可补间的第二套动画"
+    assert "bCap * a / (a + bSoft)" in html, "阻尼只有这一处公式（cap·x/(x+soft)）"
+    for t in ("--band-cap", "--band-soft"):
+        assert "getPropertyValue('%s')" % t in html, f"{t} 没从 CSS 读出来（代码里不许抄数）"
+
+    # ④ 时钟诚实：夹过的才给 currentTime，未夹的才给 band，顺序锁死
+    seek_body = html.split("var seek = function(x){")[1].split("};")[0]
+    assert "var raw = (x - r.left) / r.width;" in seek_body
+    assert seek_body.index("audio.currentTime = Math.max(0, Math.min(1, raw)) * TOTAL;") < \
+        seek_body.index("bandWrite(raw, r.width);"), \
+        "先夹时钟再喂未夹的 raw：反过来（或 band 也吃夹过的值）越界读数就永远是 0"
+    assert "bandWrite(Math" not in html, "band 拿到的必须是**未夹**的 raw"
+    assert "setTimeout" not in seek_body and "setTimeout" not in \
+        html.split("var bandWrite = function(raw, w){")[1].split("\n    };")[0], \
+        "回弹的补间在 CSS（--dur-band + --ease-spring），这里只写终值——纪律 1"
+    assert "delete barEl.dataset.band;" in html and \
+        "tipEl.style.setProperty('--band', '0px');" in html, "松手：档位退出、位移写终值 0"
+    assert ".bar::after{content:\"\";position:absolute;inset:0;border-radius:inherit;" \
+           "pointer-events:none;" in css.replace("              ", " ").replace(
+               "               ", " ") or "pointer-events:none" in css
+    for side in ("r", "l"):
+        assert '.bar[data-band="%s"]::after{opacity:1' % side in css, \
+            "端头那圈亮走 data-band 档位而不是 --band 数值：它是状态读数，减动效下照样落"
+
+    # ⑤ reduced-motion：三行新兜底各关各的对象，且都在基础规则之后
+    rm = css.split("@media (prefers-reduced-motion: reduce){")[1]
+    assert ".trail{transition-delay:0s}" in rm, \
+        "transition-delay 不在全局 duration 钳制范围内（0.18.0 在 animation-delay 上同一课）"
+    assert ".bar .tip{transition:none}" in rm and ".bar::after{transition:none}" in rm
+    assert css.index(".trail{transition-delay:calc") < css.index(".trail{transition-delay:0s}"), \
+        "同为 (0,1,0)，归零那行必须靠源序压过去"
+    assert "var(--trail-step)" not in rm and "var(--dur-band)" not in rm, \
+        "兜底里不许出现'补一个更短的时长'——那是演一次更快的动效，不是不演"
+
+
+_TRAIL_READ = r"""(function(){
+  var o = {};
+  ['10','9','1'].forEach(function(v){
+    var n = document.getElementById('w-' + v), cs = getComputedStyle(n);
+    var q = n.getBoundingClientRect();
+    o[v] = {cls:n.getAttribute('class'), r:n.style.getPropertyValue('--trail-r'),
+            delay:cs.transitionDelay, tp:cs.transitionProperty,
+            td:cs.transitionDuration, te:cs.transitionTimingFunction,
+            x:+(q.x + q.width/2).toFixed(2)};
+  });
+  var rs = getComputedStyle(document.documentElement);
+  o.step = rs.getPropertyValue('--trail-step');
+  o.move = rs.getPropertyValue('--dur-move');
+  return JSON.stringify(o);
+})()"""
+
+# 把三张卡的 transform 补间一起 pause() 后按 currentTime 钉在若干格上采样：
+# delay 是"从 animation start 算起"的时间，所以 t=70 对一条 delay=70 的补间
+# 就是进度 0——这正是拖尾唯一可信的读法（跑真实时钟会先被 runner 快慢骗一次）。
+_TRAIL_FREEZE = r"""(function(){
+  var an = {}, order = ['10','9','1'];
+  for (var i = 0; i < order.length; i++){
+    var v = order[i];
+    var list = (document.getElementById('w-' + v).getAnimations({subtree:false}) || [])
+        .filter(function(a){ return a.transitionProperty === 'transform'; });
+    if (list.length !== 1) return JSON.stringify({err:v + ' 的 transform 补间不是恰好一条',
+      all:(document.getElementById('w-' + v).getAnimations({subtree:false}) || [])
+          .map(function(a){ return a.transitionProperty || a.animationName; })});
+    an[v] = list[0];
+  }
+  var meta = {};
+  order.forEach(function(v){
+    // delay 在 effect 的 timing 上（CSSTransition 自己没有 .delay 属性，读错了
+    // 会拿到 undefined，JSON.stringify 直接把那个键丢掉——断言就变成 KeyError）
+    var ct = an[v].effect.getComputedTiming();
+    meta[v] = {del:ct.delay, dur:ct.duration, state:an[v].playState};
+  });
+  order.forEach(function(v){ an[v].pause(); });
+  var rows = {};
+  [0, 70, 140, 210, 640].forEach(function(t){
+    order.forEach(function(v){ an[v].currentTime = t; });
+    var row = {};
+    order.forEach(function(v){
+      var q = document.getElementById('w-' + v).getBoundingClientRect();
+      row[v] = +(q.x + q.width/2).toFixed(2);
+    });
+    rows[t] = row;
+  });
+  order.forEach(function(v){ an[v].cancel(); });
+  var after = {};
+  order.forEach(function(v){
+    var q = document.getElementById('w-' + v).getBoundingClientRect();
+    after[v] = +(q.x + q.width/2).toFixed(2);
+  });
+  return JSON.stringify({meta:meta, rows:rows, after:after});
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_trail_yields_the_yielders_to_the_card_that_moves_first(full_lesson):
+    """真实浏览器：换位那一步不是三张卡约好同一毫秒一起瞬移（0.26.0「拖尾跟随」）。
+
+    范本 seg-1 s2 把 `bay`（[10,9,1]）排成 `sorted`（[1,10,9]）：'1' 走 400 单位越过整行
+    （0.25.0 已经给它一条弧凸），'10'/'9' 各让 200 单位、**行程完全打平**。12 项动画原则
+    里的「跟随与重叠」落在这里就是：主动作先动，两张让位的按 rank 各晚一格
+    （`--trail-step × --trail-r` = 70 / 140ms）。六件事必须一起成立：
+      · rank 由行程**现推**，不是一张新写的姿势表：越过来那张 rank 0（不挂 `.trail`），
+        打平的两张按 HERO 书写序分 1 / 2，让位里最右的那张等得最久 → 一道从左往右的波；
+      · 没走的卡不给档（s3 收上架子时 '10' 槽位不变 → 没有 --trail-r，也就不会因为
+        "别人都晚了"而被读成"它也晚了"）；
+      · 只改长档：三张卡的 `transitionProperty` / `Duration` / `TimingFunction` 逐字符相同
+        （十七项），差异只在 delay，且 delay 是一个值（重复给全部十七项 = 整张卡晚一格）；
+      · 冻结采样把"晚一格"变成屏幕事实：t=70 时主动作已经走了 ≥ 40 设备px 而两张跟随的
+        **一格没动**（与 t=0 同值）；'10' 在 t=140 才动、'9' 在 t=210 才动；t=640 三张都
+        落到 cancel 之后的终值（档距不改终态）；
+      · 同一步只许一个让拍来源：s3（shelf）`.wind > g` 以 (0,1,1) 压住 `.trail` 的 (0,1,0)，
+        三张卡读到**同一个** delay，那个带 --trail-r:1 的读数不是 70ms 的倍数；
+      · 纯函数：绕回 bay 再走同一趟，档位与 delay 逐位复现（无随机、无历史）。"""
+    chrome, ev, _send = _cdp(full_lesson, "trail26")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+
+        # ① 换位那一步：主动作不挂档，两张让位的各晚一格 / 两格
+        ev("window.__jump('seg-1', 2)")
+        s2 = json.loads(ev(_TRAIL_READ))
+        step = _ms(s2["step"])
+        assert s2["1"]["r"] == "" and "trail" not in s2["1"]["cls"], \
+            f"行程最长的那张是主动作，不该自己拖尾：{s2['1']}"
+        assert s2["1"]["delay"].count("0s") == 17, f"rank 0 → 十七个 0s：{s2['1']}"
+        assert s2["10"]["r"] == "1" and s2["9"]["r"] == "2", \
+            f"打平的行程按 HERO 书写序分档（['10','9','1']）：{s2['10']} {s2['9']}"
+        for v in ("10", "9"):
+            assert "trail" in s2[v]["cls"], f"有 rank 就得挂 class：{s2[v]}"
+            assert _ms(s2[v]["delay"]) == pytest.approx(step * int(s2[v]["r"]), abs=0.5), \
+                f"delay 只由 --trail-step × rank 求出：{v} {s2[v]['delay']} vs {step}"
+            assert s2[v]["delay"].count(",") == 0, \
+                f"一个值重复给十七项才是整张卡晚一格：{s2[v]['delay']}"
+            for k in ("tp", "td", "te"):
+                assert s2[v][k] == s2["1"][k], \
+                    f"{k} 不许被拖尾动到（只写长档）：\n{s2[v][k]}\n{s2['1'][k]}"
+        assert len(s2["1"]["tp"].split(",")) == 17, f"清单仍是 .nt 那十七项：{s2}"
+        assert _ms(s2["1"]["td"].split(",")[0]) == _ms(s2["move"]), \
+            f"transform 的时长仍是 --dur-move（拖尾不新开一档）：{s2['td']} {s2['move']}"
+
+        # ② 冻结采样：晚一格是屏幕上量得出来的，不是 CSS 里的一个字符串
+        fz = json.loads(ev(_TRAIL_FREEZE))
+        assert "err" not in fz, str(fz)
+        assert fz["meta"]["10"]["del"] == pytest.approx(step, abs=0.5) and \
+            fz["meta"]["9"]["del"] == pytest.approx(step * 2, abs=0.5) and \
+            fz["meta"]["1"]["del"] == 0, f"三条补间各自的 delay：{fz['meta']}"
+        assert len({fz["meta"][v]["dur"] for v in ("10", "9", "1")}) == 1 and \
+            fz["meta"]["1"]["dur"] == _ms(s2["move"]), \
+            f"三条时长同档（--dur-move），差别只在 delay：{fz['meta']}"
+        r = fz["rows"]
+        assert r["70"]["1"] < r["0"]["1"] - 40, \
+            f"主动作 t=70 已经走出去一大截：{r['0']['1']} → {r['70']['1']}"
+        assert r["70"]["10"] == r["0"]["10"] and r["70"]["9"] == r["0"]["9"], \
+            f"两张跟随的在 t=70 还钉在原位（delay 未到）：{r['70']} vs {r['0']}"
+        assert r["140"]["10"] > r["0"]["10"] + 40 and r["140"]["9"] == r["0"]["9"], \
+            f"rank 1 在 70~140 之间起步、rank 2 仍不动：{r['140']}"
+        assert r["210"]["9"] > r["0"]["9"] + 40, f"rank 2 在 140~210 之间才起步：{r['210']}"
+        for v in ("10", "9", "1"):
+            assert abs(r["640"][v] - fz["after"][v]) < 0.6, \
+                f"{v}：档距只改先后不改终态，t=640 就是落定的那一格（{fz['after'][v]}）"
+
+        # ③ 同一步只许一个让拍来源：上架子那一步 .wind > g 压住拖尾，三张卡同一读数
+        ev("window.__jump('seg-1', 3)")
+        s3 = json.loads(ev(_TRAIL_READ))
+        assert s3["10"]["r"] == "" and "trail" not in s3["10"]["cls"], \
+            f"'10' 在 shelf 那一格槽位没变（500→500）→ 不给档，晚一拍就是撒谎：{s3['10']}"
+        assert s3["1"]["r"] == "1", f"'1' 在 shelf 那一步让了 30 单位 → 有档：{s3['1']}"
+        ds = {s3[v]["delay"] for v in ("10", "9", "1")}
+        assert len(ds) == 1, f"蓄力那一步三张卡读到同一个 delay（同一来源）：{s3}"
+        only = ds.pop()
+        assert _ms(only) % step >= 0.5 or _ms(only) < step, \
+            f"那一格是 --wind-hold 借的拍，不是 --trail-step 的整数格：{only} vs {step}"
+        assert "0.0952s" in only, \
+            f"0.23.0 钉过的 shelf 让拍读数不能因为拖尾而变（.wind > g 特异度 (0,1,1)）：{only}"
+
+        # ④ 纯函数：绕回 bay 再走同一趟，档位与 delay 逐位复现
+        ev("window.__jump('seg-1', 0)")
+        _wait_idle(ev, "#w-10")
+        ev("window.__jump('seg-1', 2)")
+        again = json.loads(ev(_TRAIL_READ))
+        for v in ("10", "9", "1"):
+            assert again[v]["cls"] == s2[v]["cls"] and again[v]["r"] == s2[v]["r"] and \
+                again[v]["delay"] == s2[v]["delay"], \
+                f"同一对姿势永远同一套档位（无随机、无历史）：{v} {s2[v]} → {again[v]}"
+    finally:
+        _kill(chrome)
+
+
+_DECODE_PROBE = r"""(function(id_, sid, idx, ks){
+  var sc = window.__tl.scenes.filter(function(x){ return x.step_id === sid; })[0];
+  var s = sc.runtime.narration[idx];
+  var n = document.getElementById(id_ + '-t'), r = document.getElementById(id_ + '-r');
+  if (!n) return JSON.stringify({err:'没有 ' + id_ + '-t'});
+  function at(k){
+    window.__t = s.start + s.duration * k;
+    document.getElementById('main-audio').dispatchEvent(new Event('timeupdate'));
+    return {k:k, txt:n.textContent, w:+n.getBBox().width.toFixed(3),
+            adv:+n.getComputedTextLength().toFixed(3),
+            tl:n.getAttribute('textLength'), la:n.getAttribute('lengthAdjust'),
+            pill:+r.getBoundingClientRect().width.toFixed(3)};
+  }
+  return JSON.stringify({sent:s.text, dur:s.duration, lead:getComputedStyle(
+    document.documentElement).getPropertyValue('--decode-lead'), rows:ks.map(at)});
+})          """
+# ↑ 结尾**不带** `()`：调用方把参数接在后面拼成 `(function(...){...})('a-rule','seg-1',2,[…])`。
+#   这里若写成 `})()`，传进去的参数就丢了（sc 变成 undefined，第一次采样直接抛错）。
+
+
+def _jsround(x):
+    """JS 的 Math.round 是「.5 向上」，Python 的 round 是银行家舍入——混用会把
+       末字落定那一格算错半格（范本 4 字词在 k=.63 就整词定住，正压在这个 .5 上）。"""
+    return math.floor(x + 0.5)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_decode_locks_the_term_while_the_line_says_it(full_lesson):
+    """真实浏览器：术语跟着旁白**从噪声里一个字一个字定住**（0.26.0「逐字解码」）。
+
+    范本 seg-1 s2 的徽标「默认规则」挂在句"这不是缺陷，是排序的默认规则在起作用。"
+    （2.77s）上，s3 的「转成字符串」挂在 4.706s 那句上。五件事必须一起成立：
+      · 建档即钉宽：`textLength` = 现量的**推进量**（55.968→56.0 / 69.994→70.0），
+        `lengthAdjust` = spacingAndGlyphs，于是进度 0→1 的十格采样里
+        `getComputedTextLength()` 与药丸底宽（77.413）**一格不差**（解码途中换的是
+        别的字，不钉住就会抖）；反面口径也钉住：`getBBox().width` 量的是墨盒，
+        `spacingAndGlyphs` 下会随噪声字自己抖（实测「较」那一格 56.467 vs 56.0），
+        所以它只能被容忍、不能当钉的对象——拿它钉会把整串压窄到药丸边上；
+      · 落定节奏是 `round(k / lead × 字数)`：每一格的前 res 个字与真字逐位相同、
+        其余全是**同一字符类**的噪声（CJK 换 CJK）；末字在 `lead × (字数 − .5) / 字数`
+        就定了（四字词实测 .63、五字词 .65），lead=.72 只是最晚上限；
+      · 确定性：同一个 k 采两次逐字符相同，中间夹一次别的 k 也照样复现（导出是每帧
+        一次冷启动 seek，随机一次就等于同一秒的两帧是不同的字）；
+      · 解码是**逐枚徽标 opt-in** 的：同屏没传 dec 的徽标（seg-3 的「巧合」）在任何
+        进度上都恒等于字面；
+      · 句长与进度都只从当句读数来：k=1 与 lead 之后仍是整词（末尾留白给读者），
+        且 textContent 只由解码写，不是第二路字幕。"""
+    chrome, ev, _send = _cdp(full_lesson, "dec26")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        ks = "[0,.1,.2,.3,.4,.5,.6,.63,.72,1]"
+
+        def read(id_, sid, idx, ks=ks):
+            # 先跳到"这枚徽标在场的那一步"，再等落定——徽标是建档即出现，
+            # 没跳这一步就没有这个节点（上一轮探针就扫过一次空）；落定之后再量
+            # 药丸底宽，量到的才是钉住的那个数而不是挤压途中的插值。
+            ev("window.__jump('%s', %d)" % (sid, idx))
+            assert _wait_idle(ev, "#%s-r" % id_) == [], "徽标那层的补间要先落定"
+            got = json.loads(ev(_DECODE_PROBE + "('%s','%s',%d,%s)" % (id_, sid, idx, ks)))
+            assert "err" not in got, str(got)
+            return got
+
+        d = read("a-rule", "seg-1", 2)
+        want = "默认规则"
+        lead = float(d["lead"])
+        assert d["sent"].endswith(want + "在起作用。"), f"范本句子变了：{d['sent']}"
+        assert want in d["sent"], f"字面必须是这句里真被念到的词：{d['sent']}"
+
+        # ① 钉宽：十格采样里**推进量**与药丸底宽一格不差
+        r0 = d["rows"][0]
+        assert r0["la"] == "spacingAndGlyphs" and r0["tl"], f"建档时钉了 textLength：{r0}"
+        assert abs(float(r0["tl"]) - r0["adv"]) < 0.06, f"钉的是现量的推进量：{r0}"
+        assert len({r["adv"] for r in d["rows"]}) == 1, \
+            f"解码途中推进量不许漂：{[r['adv'] for r in d['rows']]}"
+        assert len({r["pill"] for r in d["rows"]}) == 1, \
+            f"药丸底跟着推进量一起钉住：{[r['pill'] for r in d['rows']]}"
+        # ⚠ `getBBox().width` 是墨盒，不是钉的那个量：spacingAndGlyphs 逐字重排边距，
+        #   噪声字「较」的墨宽溢出，实测 k=.5 读到 56.467 而推进量仍是 56.0。这条断言
+        #   把"墨盒只小抖、不许当口径"钉住——拿 bbox 去钉会把整串压窄（药丸底不跟着窄）。
+        ink = sorted({r["w"] for r in d["rows"]})
+        assert ink[-1] - ink[0] <= 0.5, f"墨盒抖动超出可接受的一小截：{ink}"
+        assert len({r["adv"] for r in d["rows"]}) < len(ink) + 1
+
+        # ②③ 落定节奏 + 字符类 + 单调 + 确定性
+        prev = -1
+        for row in d["rows"]:
+            res = min(len(want), _jsround(row["k"] / lead * len(want)))
+            assert len(row["txt"]) == len(want), f"解码不改字数：{row}"
+            assert row["txt"][:res] == want[:res], f"前 {res} 格已定住：{row}"
+            for c in row["txt"][res:]:
+                assert ord(c) > 0x2e7f, f"噪声必须是同一字符类（CJK 换 CJK）：{row}"
+            assert res >= prev, f"落定的格数单调不减：{row}"
+            prev = res
+            assert (row["txt"] == want) == (res >= len(want)), f"整词只在写满时出现：{row}"
+        assert d["rows"][0]["txt"] != want, "k=0 不该已经写好"
+        k0 = d["rows"][0]["txt"]
+        again = read("a-rule", "seg-1", 2, ks="[0,.5,0]")
+        assert again["rows"][2]["txt"] == again["rows"][0]["txt"] == k0, \
+            f"同一个 k 永远同一个串（导出每帧冷启动）：{k0} vs {again['rows'][2]['txt']}"
+
+        # 末字落定点：lead × (字数 − .5) / 字数（四字词 = .63）
+        edge = read("a-rule", "seg-1", 2, ks="[.6,.63]")
+        last_at = lead * (len(want) - 0.5) / len(want)
+        assert edge["rows"][0]["txt"] != want and edge["rows"][1]["txt"] == want, \
+            f"末字在 {round(last_at, 3)} 落定（lead=.72 是最晚上限不是那一拍）：{edge['rows']}"
+
+        # ④ 解码是逐枚徽标 opt-in：没传 dec 的徽标恒等于字面
+        g = read("g-luck", "seg-3", 1, ks="[0,.3,.6,1]")
+        assert all(r["txt"] == "巧合" for r in g["rows"]), \
+            f"非解码徽标不许被进度改写：{[r['txt'] for r in g['rows']]}"
+        # 没钉 textLength 的徽标：字面恒等 → 墨盒与推进量都恒等（同一串同一宽）
+        assert len({r["w"] for r in g["rows"]}) == 1 and len({r["adv"] for r in g["rows"]}) == 1
+
+        # 五字词同一套节奏（另一次建档，另一句长）
+        s = read("a-str", "seg-1", 3, ks="[0,.5,.65,.72,1]")
+        assert s["rows"][0]["txt"] != "转成字符串" and s["rows"][3]["txt"] == "转成字符串"
+        assert len({r["adv"] for r in s["rows"]}) == 1, f"五字词同样钉住推进量：{s['rows']}"
+        assert abs(float(s["rows"][0]["tl"]) - s["rows"][0]["adv"]) < 0.06, \
+            f"钉的仍是推进量 70.0（自然墨盒是 70.134，钉它就会压窄）：{s['rows'][0]}"
+        assert len({r["w"] for r in s["rows"]}) <= 2, \
+            f"墨盒只容许一格噪声字的溢出（70.253），不许成串漂：{[r['w'] for r in s['rows']]}"
+    finally:
+        _kill(chrome)
+
+
+_BAND_PROBE = r"""(function(){
+  var b = document.getElementById('bar'), tp = document.getElementById('bar-tip');
+  var csT = getComputedStyle(tp), csB = getComputedStyle(b, '::after');
+  var tl = JSON.parse(document.getElementById('lesson-timeline').textContent);
+  return JSON.stringify({
+    want:tp.style.getPropertyValue('--band'),
+    comp:csT.getPropertyValue('--band'), tr:csT.translate,
+    tprop:csT.transitionProperty, tdur:csT.transitionDuration,
+    te:csT.transitionTimingFunction, data:b.dataset.band || null,
+    t:+document.getElementById('main-audio').currentTime.toFixed(3),
+    total:+tl.scenes[tl.scenes.length - 1].runtime.end,
+    afterOp:csB.opacity, afterPe:csB.pointerEvents, afterBg:csB.backgroundImage.slice(0, 24),
+    runs:(tp.getAnimations({subtree:false}) || []).map(function(a){
+      return a.transitionProperty || a.animationName;})});
+})()"""
+
+
+def _drag(send, kind, x, y, buttons):
+    """CDP 真实指针：按下/拖动写 buttons=1，松手必须 button:'left' + buttons=0
+       （button:'none' 的 mouseReleased 合成不出 pointerup，0.12.0 那条拖动用例踩过）。"""
+    send("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y,
+                                      "button": "left", "buttons": buttons,
+                                      "clickCount": 1})
+
+
+def _wait_band(ev, pred, timeout=2.5):
+    """轮询越界读数直到谓词成立：回弹那一格是 CSS 在插值，机器慢只会多 poll 两次，
+       不该把断言写成"等 459ms"（本机量出来的数，CI 只会更慢）。"""
+    last = None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        last = json.loads(ev(_BAND_PROBE))
+        if pred(last):
+            return last
+        time.sleep(0.05)
+    return last
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_band_stretches_the_tip_but_never_the_clock(full_lesson):
+    """真实浏览器：拖过头了，气泡给、时钟不给（0.26.0「越界橡皮筋」）。
+
+    指针在条内时一切照旧；越过端点之后 `seek` 把**未夹**的 raw 交给 bandWrite、
+    只把夹过的写给 currentTime。四件事必须一起成立：
+      · 时钟不说谎：向右越过 12 / 24 / 48 / 96 / 200px 五格，currentTime **全部**等于
+        时间轴末尾 115.201s（从 lesson-timeline 现读，不写死）；向左越过 40px 落 0s；
+      · 位移非线性：`cap · x / (x + soft)` 由页面自己那两只旋钮求出，逐格对上实测
+        （12→4.80 / 24→8.00 / 48→12.00 / 96→16.00 / 200→19.35 / 左 40→−10.91px），
+        单调、亚线性、永远不越封顶——线性跟随等于把手指在条外的距离原样画进画面；
+      · 回弹是 CSS 不是 JS：写进去的是终值（`tp.style`），computed 的 `--band` 与
+        `translate` 在同一条 spring 上插值，`getAnimations()` 里有一条
+        `transitionProperty === '--band'`；读 inline 拿到的是目标值，读它测不出回弹
+        （本轮踩过的坑，断言把两个读数一起取）；
+      · 档位与亮：`data-band="r|l"` 随越界方向落，端头那圈亮（`.bar::after`）随之淡入，
+        `pointer-events:none`，松手档位删除、位移弹回 0（轮询 computed 读数到落定，
+        不等固定毫秒——459ms 这个数是本机量出来的，CI 只会更慢）。"""
+    chrome, ev, send = _cdp(full_lesson, "band26")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        ev("window.__jump('seg-1', 1)")
+        ev("document.getElementById('bar').scrollIntoView({block:'center'})")
+        rect = json.loads(ev("(function(){var r=document.getElementById('bar')"
+                             ".getBoundingClientRect();return JSON.stringify({"
+                             "y:r.top + r.height/2,l:r.left,rt:r.right,w:r.width});})()"))
+        tok = json.loads(ev("(function(){var rs=getComputedStyle(document.documentElement);"
+                            "return JSON.stringify({cap:rs.getPropertyValue('--band-cap'),"
+                            "soft:rs.getPropertyValue('--band-soft'),"
+                            "dur:rs.getPropertyValue('--dur-band')});})()"))
+        cap, soft = _px(tok["cap"]), _px(tok["soft"])
+
+        def band_expect(over):
+            a = abs(over)
+            return (cap * a / (a + soft)) if a else 0.0
+
+        def read():
+            return json.loads(ev(_BAND_PROBE))
+
+        # ① 条内：没有越界，一切线性照旧
+        _drag(send, "mousePressed", rect["l"] + rect["w"] * .6, rect["y"], 1)
+        r_in = read()
+        assert r_in["data"] is None and _tval(r_in["tr"]) == 0.0, f"条内不该有位移：{r_in}"
+        assert r_in["afterOp"] == "0" and r_in["afterPe"] == "none", \
+            f"端头那圈亮静止态在场但看不见、不吃指针：{r_in}"
+        _drag(send, "mouseMoved", rect["l"] + rect["w"] * .7, rect["y"], 1)
+        assert read()["t"] > r_in["t"] + 1, "条内仍然跟手（本用例不该动到既有擦洗）"
+
+        # ② 越过右端点：位移按阻尼折、时钟一步都不许多走
+        seen = []
+        for dx in (12, 24, 48, 96, 200):
+            _drag(send, "mouseMoved", rect["rt"] + dx, rect["y"], 1)
+            r = read()
+            seen.append(r)
+            assert r["data"] == "r", f"档位该读『右到头了』：{r}"
+            assert _px(r["want"]) == pytest.approx(band_expect(dx), abs=0.05), \
+                f"越界 {dx}px → cap·x/(x+soft)（{band_expect(dx)}）：{r['want']}"
+            assert r["t"] == pytest.approx(r["total"], abs=0.005), \
+                f"越界 {dx}px 时 currentTime 仍钉在时间轴末尾 {r['total']}s：{r['t']}"
+        vals = [_px(r["want"]) for r in seen]
+        dxs = (12, 24, 48, 96, 200)
+        assert all(b > a for a, b in zip(vals, vals[1:])), f"单调：{vals}"
+        conf = [v / d for v, d in zip(vals, dxs)]
+        assert all(b < a for a, b in zip(conf, conf[1:])), \
+            f"亚线性：手指每多拖 1px 换到的位移越来越少（越拖越追不上）：{conf}"
+        assert vals[-1] < cap, f"逼近但不越过封顶 {cap}px：{vals[-1]}"
+
+        # 端头那圈亮随档位淡入（淡入是补间，轮询到"亮了"这件事，不等固定毫秒）
+        lit = _wait_band(ev, lambda b: b["afterOp"] != "0")
+        assert lit["afterOp"] != "0" and lit["afterBg"].startswith("linear-gradient"), \
+            f"右端那圈亮该跟着档位落：{lit}"
+
+        # ③ 回弹是 CSS：写进去的是终值，computed 还在半路上
+        mid = read()
+        assert "--band" in mid["tprop"], f"气泡的补间清单里有 --band：{mid['tprop']}"
+        assert _ms(tok["dur"]) in [_ms(x.strip()) for x in mid["tdur"].split(",")], \
+            f"回弹那一档就是 --dur-band（{tok['dur']}），不是新写的第二个时长：{mid['tdur']}"
+        assert any(x == "--band" for x in mid["runs"]), \
+            f"getAnimations 里那条就是回弹本体：{mid['runs']}"
+        assert _px(mid["comp"]) < _px(mid["want"]) - 0.5, \
+            f"computed（{mid['comp']}）落后于刚写的目标值（{mid['want']}）——" \
+            "读 inline 永远读不到这一格，本轮踩过"
+
+        # ④ 越过左端点：反号、档位换头、时钟落 0
+        _drag(send, "mouseMoved", rect["l"] - 40, rect["y"], 1)
+        rl = read()
+        assert rl["data"] == "l", f"档位跟着方向：{rl}"
+        assert _px(rl["want"]) == pytest.approx(-band_expect(-40), abs=0.05), \
+            f"左边同样折：{rl['want']} vs {-band_expect(-40)}"
+        assert rl["t"] == 0.0, f"左端外面时钟只能是 0：{rl['t']}"
+
+        # ⑤ 松手：档位退出、位移弹回 0（轮询读数，不等毫秒）
+        _drag(send, "mouseReleased", rect["l"] - 40, rect["y"], 0)
+        assert read()["data"] is None, "松手 data-band 必须删掉（状态随手势退出）"
+        rest = _wait_band(ev, lambda b: _tval(b["tr"]) == 0.0 and b["afterOp"] == "0")
+        assert _tval(rest["tr"]) == 0.0 and _px(rest["comp"]) == pytest.approx(0.0, abs=0.01), \
+            f"落定之后气泡回到居中那一格：{rest}"
+        assert rest["runs"] == [], f"弹完不留一条在跑的补间：{rest['runs']}"
+        assert rest["afterOp"] == "0", f"端头那圈亮收掉：{rest}"
+        _drag(send, "mouseMoved", rect["l"] - 8, 6, 0)     # 指针移出条外再读一次
+        assert read()["data"] is None, "松手之后不该再有越界读数"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_trail_decode_band_reduced_motion_and_shot_terminals(full_lesson):
+    """减动效与导出那一刀：三条各关各的对象，但**读数一条都不许丢**（0.26.0）。
+
+      · 拖尾关的是"先后"：`--trail-r` 与 `.trail` class 照旧落在节点上（rank 是事实），
+        只有 delay 归 0——不写这一行，`transition-duration` 的全局钳制碰不到 delay，
+        晕动用户仍会看到两张卡各晚 70 / 140ms（0.18.0 在 animation-delay 上同一课）；
+      · 解码关的是"字面"本身：它改的是 textContent、没有 CSS 行可挂，所以兜底只能在
+        JS 里认偏好；减动效下 k=.1 那一格直接是完整的"转成字符串"——未定住的那些格
+        本来就不可读，留着只减分；
+      · 橡皮筋关的是"那一下弹回"：`data-band` 照落、端头那圈亮**一步落档**（opacity 1），
+        而位移恒为 0px（JS 写 0，不是靠补间消失）；
+      · 导出截图模式与减动效落的是**同一张定格**：解码直接整词、三张卡无在跑补间且
+        已经站在 sorted 那一格上。"""
+    chrome, ev, send = _cdp(full_lesson, "rb26")
+    try:
+        ev(_SEEK)
+        ev("document.getElementById('stage').dataset.state = 'playing'")
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+
+        # ① 拖尾：档位还在、先后归零
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.3)
+        s = json.loads(ev(_TRAIL_READ))
+        assert s["10"]["r"] == "1" and s["9"]["r"] == "2" and \
+            "trail" in s["10"]["cls"] and "trail" in s["9"]["cls"], \
+            f"rank 是状态读数，关动效不许把它一起抹掉：{s['10']} {s['9']}"
+        for v in ("10", "9", "1"):
+            assert s[v]["delay"] == "0s", f"关的是先后不是档位：{v} {s[v]['delay']}"
+            assert s[v]["tp"] == "none", f"补间整条关掉的既有口径：{s[v]['tp']}"
+
+        # ② 解码：进度压在 .1 那一格，字面直接是完整的词
+        ev("window.__jump('seg-1', 3)")
+        time.sleep(0.2)
+        d = json.loads(ev(_DECODE_PROBE + "('a-str','seg-1',3,[0,.1,.5,1])"))
+        assert all(r["txt"] == "转成字符串" for r in d["rows"]), \
+            f"减动效下一格噪声都不给：{[r['txt'] for r in d['rows']]}"
+
+        # ③ 橡皮筋：档位照落、端头照亮、位移给 0
+        ev("document.getElementById('bar').scrollIntoView({block:'center'})")
+        rect = json.loads(ev("(function(){var r=document.getElementById('bar')"
+                             ".getBoundingClientRect();return JSON.stringify({"
+                             "y:r.top + r.height/2,rt:r.right});})()"))
+        _drag(send, "mousePressed", rect["rt"] - 40, rect["y"], 1)
+        _drag(send, "mouseMoved", rect["rt"] + 96, rect["y"], 1)
+        time.sleep(0.2)
+        b = json.loads(ev(_BAND_PROBE))
+        assert b["data"] == "r", f"'到头了'这件事仍然要说得出：{b}"
+        assert b["afterOp"] == "1" and b["afterBg"].startswith("linear-gradient"), \
+            f"端头那圈亮一步落档（不淡入）：{b}"
+        assert b["t"] == pytest.approx(b["total"], abs=0.005), f"时钟同样只到末尾：{b['t']}"
+        assert _px(b["comp"]) == 0.0 and _tval(b["tr"]) == 0.0, \
+            f"位移由 JS 直接写 0（不是靠补间消失）：{b['comp']} / {b['tr']}"
+        assert b["want"] == "0.00px", f"连目标值都不给：{b['want']}"
+        _drag(send, "mouseReleased", rect["rt"] + 96, rect["y"], 0)
+        send("Emulation.setEmulatedMedia", {"features": []})
+
+        # ④ 导出那一刀：与减动效同一张定格
+        ev("(function(){var st = document.createElement('style'); st.id = 'shotcut26';"
+           " st.textContent = '*,*::before,*::after{transition:none!important;"
+           "animation:none!important}'; document.head.appendChild(st);})()")
+        ev("window.__coursewareShotMode = true")
+        ev("window.__jump('seg-1', 0)")
+        time.sleep(0.3)
+        ev("window.__jump('seg-1', 2)")
+        time.sleep(0.3)
+        shot = json.loads(ev(_TRAIL_READ))
+        for v in ("10", "9", "1"):
+            assert shot[v]["x"] == pytest.approx(s[v]["x"], abs=0.6), \
+                f"{v}：导出定格与减动效落同一格（sorted 那一格）：{shot[v]} vs {s[v]}"
+        runs = json.loads(ev("(function(){var a=[];['10','9','1'].forEach(function(v){"
+                             "(document.getElementById('w-'+v)"
+                             ".getAnimations({subtree:false})||[]).forEach(function(x){"
+                             "a.push(x.transitionProperty||x.animationName);});});"
+                             "return JSON.stringify(a);})()"))
+        assert runs == [], f"导出定格上不该有半截补间：{runs}"
+        ds = json.loads(ev(_DECODE_PROBE + "('a-rule','seg-1',2,[0,.1,.5])"))
+        assert all(r["txt"] == "默认规则" for r in ds["rows"]), \
+            f"导出每帧一次冷启动 seek，解码直接落完整词（随机/进度都会撕裂帧）：" \
+            f"{[r['txt'] for r in ds['rows']]}"
     finally:
         _kill(chrome)

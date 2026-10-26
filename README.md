@@ -590,6 +590,29 @@ python -m pytest tests/ -q
   还没开跑读 0%。改成 `wait_swap(pred)` 轮询（50ms 一格、4s 超时）：等到
   `0 < offset-distance < 100` 证明补间真在跑才进断言，建档 / 落定 / sticky / 灯灭四段
   的固定 sleep 一并换成等 `runs == []` 轮询。口径同 0.23.1：等的是事实，不是毫秒数；
+- 0.26.0 的回归：`test_trail_decode_band_primitives_present` 锁三条的静态口径——`.trail`
+  只写 `transition-delay` **长档**（`.nt` 那份十七项清单不许被重述，气泡那条 `transition:`
+  计数为 1）、档距只在一处被消费（`css.count("var(--trail-step)") == 1`）、`--trail-r`
+  **故意不注册**、JS 里不许出现 `.07` / `.14` 字面量、"行程为 0 的卡不给档"那一行原样在场；
+  解码锁 `if (dec) decodeArm(t, s);` 的逐枚 opt-in、四类噪声池、`begin()` 清登记表、
+  **全文没有 `Math.random`**、`decodeWrite` 排在 `capLitWrite` 之后，以及钉的必须是
+  `getComputedTextLength()`（`decodeArm` 里不许出现 `n.getBBox`）；橡皮筋锁 `@property --band`
+  的 `<length>` + `inherits:false`、位移走独立 `translate`、阻尼只从 `--band-cap` /
+  `--band-soft` 求。reduced-motion 三行新兜底各关各的对象、都靠源序压过基础规则，且兜底里
+  不许出现 `var(--trail-step)` / `var(--dur-band)`（关的是补间，不是"演一次更快的"）。
+  三条 CDP 用例：拖尾把三张卡的 transform 补间一起 `pause()` 后按 `currentTime` 钉格采样
+  （t=70 主动作已走 ≥40 设备px 而两张跟随与 t=0 同值、140 / 210 才轮到它们、640 全部落到
+  `cancel()` 之后的终值），顺带把"同一步只许一个让拍来源"读成上架子那一步三张卡 delay
+  全等于 `--wind-hold`；解码按句内进度十格采样，推进量与药丸底宽一格不差（56.0 / 77.413）、
+  落定格数逐位对上 `round(k / lead × 字数)`、末字在 .63 落定、`.71 → .72 → .71` 复现同一串、
+  非解码徽标恒等于字面；橡皮筋走**真实指针**拖出端点五格（12 / 24 / 48 / 96 / 200px），核
+  `currentTime` 全部钉在时间轴末尾 115.201s、位移对上 `cap·x/(x+soft)` 且每 px 的顺应单调降、
+  `data-band` 随方向落档、端头 `::after` 淡入且 `pointer-events:none`、松手后**轮询 computed**
+  直到弹回 0px（不等本机那个 459ms）。本轮另外量出两条口径写进 stage.md §9：读插值中的数
+  只能读 computed（`el.style` 是刚写进去的目标值，探针因此把 `want` / `comp` 一起取；
+  `CSSTransition` 没有 `.delay`，要 `effect.getComputedTiming()`），以及**推进量 ≠ 墨盒**
+  （`getBBox().width` 在 `spacingAndGlyphs` 下随噪声字抖到 56.467，拿它钉宽等于把整串压窄
+  到药丸边上）。本机全量 **426 passed / 2 skipped**；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

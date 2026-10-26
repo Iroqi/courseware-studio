@@ -211,6 +211,25 @@
        --swap-k 行程→峰值的斜率、--swap-rise 峰值封顶、--swap-min 不演弧凸的行程
        下限（位移短于它 = 平移，直行即可）。峰值为正 = 向上越。 */
     --swap-k:.35; --swap-rise:140; --swap-min:250;
+    /* 先后与边界（0.26.0）：三条里第一条补的是 12 项动画原则里本仓库一直没落的
+       **跟随与重叠**（overlapping action：一个物体的各部分不在同一瞬间停住），第二条
+       把"跟着嘴"从字幕带引进画面里的字（kinetic typography 的解码读法），第三条管的是
+       **边界的手感**——拖到头了要读得出"到头"，而不是"跟不上了"。
+         · --trail-step .07s：拖尾的档距，只此一处的**先后**（不是新时长档）。实测见
+           stage.md §3.4（把三条补间一起 pause() 后按 currentTime 采样）：主角身体先走，
+           晚一格的框在 t=70ms 还停在原位、t=140ms 才动，晚两格的字在 t=140ms 仍不动、
+           t=210ms 才动；三档总行程 .5 + .14 = .64s（主角 500ms 落位，两张跟随的卡
+           640ms 落位），仍短于沿线抵达（--dur-ride .8s）——再长就读成
+           "三个各走各的"而不是"一串被带着走"；
+         · --decode-lead .72：逐字解码在一句旁白的**前 72%** 走完。这个 72% 是"最后一个
+           字最晚在此定住"的上限而不是它定住的那一拍：四字词按 round(k/.72×4) 逐字落定，
+           末字实测在 63% 处就成了"默认规则"（0.60 还是"默认规后"），五字词在 65%。
+           余下的两成八是留给读者的——解码不许贴着句尾才定住，那时旁白已经念完了；
+         · --dur-band .42s / --band-cap 24px / --band-soft 48px：越界橡皮筋的回弹时长
+           与那条**非线性**阻尼曲线的两只旋钮（越过 soft 那一格时正好走到封顶的一半，
+           再越只逼近不越过，见 .band 边界②）。.42s 与入场 / 落位同档。 */
+    --trail-step:.07s; --decode-lead:.72;
+    --dur-band:.42s; --band-cap:24px; --band-soft:48px;
     /* 随动层（0.24.0）：前三轮补的是"演一次"的词汇（入场 / 揭示 / 落位），这一轮三条
        都不演一次——它们**跟着一个连续量走**：镜头跟着这一步真的走了多少、辉光跟着
        指针落在哪儿、色温跟着这一段在课程的哪一档。前沿动效体系把这件事叫
@@ -427,7 +446,19 @@
             padding:3px 9px;border-radius:6px;background:#232a38;border:1px solid #3b4459;
             font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--fg);
             box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none;
-            opacity:0;transition:opacity var(--dur-fast);z-index:3}
+            opacity:0;z-index:3;
+            /* 越界橡皮筋（0.26.0）：气泡的横向 overshoot 走**独立 `translate` 属性**，
+               `transform:translateX(-50%)` 那条居中一个字不动（0.13.0 / 0.16.0 老账：
+               写进 transform 会在落定那一瞬把居中分量丢掉）。`--band` 注册成
+               `<length>` 才有"松手弹回"这一格：对照页实测——同一个 `translate:var(--x) 0`
+               加同一条 spring 补间，`--x` 注册时 0→16px 逐帧可读（41/82/122ms 上是
+               2.79 / 7.51 / 12.67px，484ms 落位），未注册时 13 次采样（每 40ms 一次，
+               共 482ms）全是终值 16px，中间一格都不存在。补间清单与 opacity
+               **同一条规则里并列**，不再另写一份 `transition` 简写（两份会互相顶掉，
+               见 .nt 那条口径）。 */
+            translate:var(--band) 0;
+            transition:opacity var(--dur-fast),
+                       --band var(--dur-band) var(--ease-spring)}
   .bar .tip[data-on="1"]{opacity:1}
   /* 气泡弹簧落定（0.16.0，把 --ease-spring 用进播放器行）：气泡出现时轻弹 7px 落住，
      与它报的那个刻度长高是同一个动作的两半——"这里有你想要的信息"。
@@ -439,6 +470,34 @@
   @keyframes tipPop{from{transform:translateX(-50%) translateY(7px)}
                     to{transform:translateX(-50%) translateY(0)}}
   .bar .tip.tipPop{animation:tipPop var(--dur-tip) var(--ease-spring) backwards}
+  /* 越界橡皮筋（0.26.0）的另一半：**到头了**这件事画在条的那一头。指针拖过条的端点时
+     JS 不再把播放头跟着手指撒谎（时钟仍是纯读数），而是把超出量按一条**非线性阻尼**
+     折成一个横向偏移交给气泡，并给 .bar 挂 `data-band="l|r"`。四条口径：
+       ① `--band` 注册成 `<length>`、`inherits:false`、初值 `0px`：0px 就是"没有越界"，
+          不写 / 不能写 / 导出三种情形都落在那一格；`inherits:false` 是因为这个读数
+          **只属于气泡自己**（谁用谁持有，JS 直接写在 tip 的 style 上，不穿给后代）。
+       ② 偏移由 `--band-cap`（封顶）与 `--band-soft`（半程点）两只旋钮折出来
+          （`cap · x / (x + soft)`，x 是手指越过端点多少 px）：越过 soft 那一格正好走到
+          封顶的一半，再越只逼近不越过。实测这一串：向右越过 12/24/48/96/200px →
+          4.80/8.00/12.00/16.00/19.35px，向左越过 40px → −10.91px；松手后从 16px 弹回
+          0px 用掉 459ms，中途反向过冲到 −1.68px 一次（`--dur-band` 那条 spring 的尾巴）。
+          **线性跟随是错的**——那等于让手指在条外
+          100px 也把播放头推出去 100px 的视觉距离，而一整条课件轨也就几百 px。
+       ③ 端头那一圈亮（`.bar::after` 的渐变）走 **data-band 档位**而不是 `--band` 的
+          数值：它是"哪一头顶到了"的状态读数，减少动效下照样落（关的是补间不是状态，
+          与 `.tilt` / `#spot` 同一判断）；而 `--band` 那一格位移在减少动效下由 JS
+          直接写 0——给晕动用户弹一下没有信息量。
+       ④ 装饰层一律 `pointer-events:none`（与 #spot / 涟漪 / #depth .wash 同一口径）。
+          层的次序靠 **z-index 同档 + 生成顺序**：`.bar .tick` 与 `.bar::after` 都是
+          z-index:2，而 `::after` 是最后一个子元素——所以这圈亮盖在填充与刻度之上，
+          不吃指针、也不需要在 CSS 里再抬一档。 */
+  @property --band{syntax:'<length>';inherits:false;initial-value:0px}
+  .bar::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+              opacity:0;z-index:2;transition:opacity var(--dur-band) var(--ease-out)}
+  .bar[data-band="r"]::after{opacity:1;
+    background:linear-gradient(90deg,transparent 55%,var(--key-soft))}
+  .bar[data-band="l"]::after{opacity:1;
+    background:linear-gradient(270deg,transparent 55%,var(--key-soft))}
   .step{font:12px/1.4 ui-monospace,Consolas,monospace;color:var(--dim);
         white-space:nowrap;text-align:right}
 
@@ -1356,6 +1415,39 @@
         transition:offset-distance var(--dur-move) var(--ease-in-out)}
   .swap[data-go="1"]{offset-distance:100%}
 
+  /* 拖尾跟随（`.trail`，0.26.0，12 项动画原则里的「跟随与重叠」overlapping action）：
+     一个物体的各部分不会在同一瞬间停住——兔子落地之后耳朵还在动。网页侧的落地版是
+     **主体先走，从属者各晚一格**。范本的消费者是世界层那三张卡在换位那一步：越过整行
+     的那一张（行程最长）是主动作、rank 0，两张让位的按行程排 rank 1 / rank 2——于是
+     "它先动，它们才让开"读得出来，而不是三张卡约好同一毫秒一起瞬移（0.25.0 那条
+     list-reorder 的补集：弧凸管"怎么走"，这一条管"谁先动"）。六条口径：
+       ① **只写长档 `transition-delay`，绝不重述 `transition` 简写**：主角节点身上已经
+          挂着 `.nt` 那份十七项清单，再写一份简写就把它整条顶掉（0.19.0 / 0.23.0 老账，
+          `.wind > g` 同一课）；实测挂上之后 `transitionProperty` / `transitionDuration`
+          / `transitionTimingFunction` 三个读数与不挂时**逐字符相同**，只有 delay 变。
+          delay 写成**一个值**会重复给清单里那十七项（computed 从 17 个 `0s` 收成
+          一个 `0.14s`）——要的就是这个：整张卡（位移 + 淡入 + 辉光）一起晚一格，
+          而不是只有 transform 晚、别的原地追。
+       ② 先后**只从 --trail-step 一处派生**（`calc(var(--trail-step) * var(--trail-r))`）：
+          把 .07s / .14s 抄成两份字面量就是第二个数（口径同 --wind-hold / --par-far）。
+          rank 写在元素自己身上（`style="--trail-r:2"`）——排位的**事实**属于那个节点，
+          档距的**尺度**属于令牌，两边各管一半。
+       ③ `--trail-r` **故意不注册**：它是排位的读数（常量替换进 calc），不是要补间的
+          行程；注册成 `<number>` 只是让它多一条"能被补间"的可能（口径同 --spot-k /
+          --squash-x / --cam-pan）。未注册时 `calc(.07s * 2)` 照样求得出 `0.14s`（实测）。
+       ④ **同一步只许一个让拍来源**：上架子那一步（`shelf`）0.23.0 已经借过一拍
+          （`.wind > g{transition-delay:var(--wind-hold)}`）。它带元素选择器、特异度
+          (0,1,1) 压过 `.trail` 的 (0,1,0)，实测那一步三张卡的 delay 仍是 `0.0952s`
+          而不是 `0.0952s` 与 `.14s` 抢方向盘——拖尾在那里自动退让，不需要 JS 判姿势。
+       ⑤ 走的是 transition 不是 animation：**事件不是状态**，但档位是读数——rank 由
+          (scene, step) 现推（`poseWorld` 里按行程排），复用同一 key 换位置才演得到，
+          建档那一步没有"上一计算值"、直接落终态（与 `.nt` / `.swap` 同一口径）。
+       ⑥ reduced-motion 关的是**这一层的先后**：媒体块里 `.trail{transition-delay:0s}`
+          一行归零。不写这一行，全局 `transition-duration:.01ms` 的钳制**管不到 delay**
+          （0.18.0 在 animation-delay 上踩过同一坑，这是它的 transition 孪生兄弟），
+          减少动效的人仍然会看到让位的两张卡各晚 70 / 140ms 才落。 */
+  .trail{transition-delay:calc(var(--trail-step) * var(--trail-r, 0))}
+
   /* ── 随动层（0.24.0）：三条都跟着一个连续量走 ─────────────────────────
      上面几组补的都是"演一次"的词汇（入场 / 揭示 / 落位 / 重量与预备），这一组
      三条都**没有"演完"这一说**：镜头跟着这一步真的走了多少（①位移定拍——消费者
@@ -1647,6 +1739,25 @@
            补间不受影响。 */
     :root{transition:none}
     .hot::before{transition:none}
+    /* 先后与边界（0.26.0）三条同口径，但**关的对象不是一类东西**：
+         · 拖尾关的是**这一层的先后**：`transition-delay` 不在全局
+           `transition-duration:.01ms` 钳制范围内（0.18.0 在 animation-delay 上踩过
+           同一坑，这是它的 transition 孪生兄弟）——不写这一行，减少动效的人仍然会
+           看到让位的两张卡各晚 70 / 140ms 才落。基础规则 `.trail` 写在本块**之前**、
+           同为 (0,1,0)，靠源序压住，不需要抬特异度；上面那行 `.wind > g` 已经把
+           上架子那一步的让拍归零，两条各管各的一步；
+         · 解码**没有 CSS 行可写**：它改的是 textContent，不是补间——所以它的兜底只能在
+           JS 里认这个偏好（`mqReduce`，见 decodeWrite）。减动效实测：把进度压在 k=.10
+           那一格，字面直接是完整的"转成字符串"，一格噪声都不给——未定住的那些格对
+           晕动与读屏用户本来就是不可读的字，留着只减分不加信息；
+         · 橡皮筋关的是**那一下回弹**：气泡的 `--band` 与端头亮各在一条清单里，两行
+           `transition:none` 一刀把两者都收掉，档位照落——`data-band` 仍在、端头仍亮、
+           只是不弹（与 #spot / .tilt / .ride 同一判断：关的是补间不是状态读数）。
+           `--band` 本身的归零在 JS 里（mqReduce，见 §⑦ 擦洗那一段）：给晕动用户把
+           气泡顶出条外再弹回来没有信息量，而"到头了"这件事端头那圈亮已经说了。 */
+    .trail{transition-delay:0s}
+    .bar .tip{transition:none}
+    .bar::after{transition:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -2504,6 +2615,11 @@
   function el(id){ return document.getElementById(id); }
   var mqNarrow = window.matchMedia('(max-width:560px)');
   var mqShort  = window.matchMedia('(max-height:560px)');
+  /* 减少动效偏好（0.26.0）：CSS 那一侧的兜底靠媒体块，**JS 驱动的逐拍读数**没有媒体块
+     可挂——解码（改写 textContent）与橡皮筋（写 `--band` 位移）必须在代码里认这个偏好，
+     否则关动效的人照样看到字在游、气泡在弹。口径与 CSS 一致：落终态、不落半成品
+     （字直接是完整的词，气泡不越过条的端点）。 */
+  var mqReduce = window.matchMedia('(prefers-reduced-motion:reduce)');
   // 小屏唯一判定 = 宽 ≤560 或 高 ≤560（手机横屏宽 800+ 但高不足 400，画布按高缩得更狠）；
   // 导出截图模式一律按桌面渲染——视频与桌面页面同一张脸，放大只为移动端真机。
   // 结果写进 html[data-compact]：CSS 字号分档、put() 的放大、camSet 的兜底取景
@@ -2534,7 +2650,11 @@
   // 在 renderer 体内采集画面文字、与旁白原句做形状比对的（stage.md 纪律 3）。
   // 换名字 = 让这道机器防线静默失明，所以 API 演进时名字不动。
   var REG = {}, GEN = 0;
-  function begin(){ GEN++; spotOff(); }         // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 逐字解码的登记表（0.26.0）：每一步开头清空，由 renderer 重新挂上——所以"这一步
+     有没有在解码"与画面状态一样，是 (scene, step) 的纯函数，导出冷启动 seek 到那一帧
+     也照样是该解码的一步（纪律 1）。 */
+  var DECODE = {};
+  function begin(){ GEN++; spotOff(); DECODE = {}; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -2563,16 +2683,20 @@
    *  `.nt` 的 transition 简写；淡入 `.in` 留在内层 rect/字上，两层各演各的）。
    *  支点取这层的**底边中点**，所以药丸的下沿全程不动，只有顶边砸下去再弹回。
    *  同一 key 复用节点时 class 不变 → 不重放：徽标**第一次落位**才演，
-   *  后来换位置/换文案是补间与重排，不是又一次落地（g-luck 在 s4 换位置就是这种）。 */
-  function badge(parent, key, x, y, s, col){
+   *  后来换位置/换文案是补间与重排，不是又一次落地（g-luck 在 s4 换位置就是这种）。
+   *  0.26.0 起第七个参数 `dec` 是 truthy 时，这个徽标**逐字解码**：字面从噪声里一个字
+   *  一个字定住，跟着当句旁白走（见 decodeArm / decodeWrite）。只有"这个词正在被推导
+   *  出来"的那一格该传它——默认不传，画面里绝大多数字是已经定好的事实。 */
+  function badge(parent, key, x, y, s, col, dec){
     var fs = scaleFontSize('text', 14);
     var g = put(parent, 'g', key + '-g', {transform:'translate(' + x + ',' + y + ')'});
     var sq = put(g, 'g', key + '-sq', {class:'settle'});
     var w = Math.max(30, s.length * (fs > 14 ? fs + 2 : 13) + 18);
     put(sq, 'rect', key + '-r', {x:-w/2, y:-(fs*0.5+7), width:w, height:fs+14, rx:(fs+14)/2,
       fill:'rgba(245,166,35,.12)', stroke:col, 'stroke-width':1.5});
-    txt(sq, key + '-t', {x:0, y:Math.round(fs*0.36), 'text-anchor':'middle', 'font-size':14,
-      'font-weight':'600', fill:col}, s);
+    var t = txt(sq, key + '-t', {x:0, y:Math.round(fs*0.36), 'text-anchor':'middle',
+      'font-size':14, 'font-weight':'600', fill:col}, s);
+    if (dec) decodeArm(t, s);
     return g;
   }
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
@@ -2729,19 +2853,37 @@
     var swapK = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--swap-k')) || .35,
         swapRise = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--swap-rise')) || 140,
         swapMin = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--swap-min')) || 250;
-    HERO.forEach(function(v){
+    /* 拖尾跟随（0.26.0）：档位**由行程现推**，不是再写一张姿势表——走得最远的那张就是
+       这一步的主动作（rank 0，恰好也是 0.25.0 越过来那一张），其余按行程从大到小排
+       1 / 2；行程打平时按 HERO 的书写序，于是让位的两张从左往右读成一道波。没有随机、
+       没有历史，同一对姿势永远同一套档位（纪律 1）。行程为 0 的不给档（它没动，
+       晚一拍落定是撒谎）。范本实测（bay→sorted）：越过来那张行程 400 单位（屏幕上
+       510.4 设备px，差的是相机倍率）拿 rank 0，两张让位的各 200 单位（255.2 设备px）
+       **正好打平** → 按 HERO 的书写序分出 .07s / .14s；同一步里那张主动作的
+       `--swap-route` 是 `Q 0 -280 0 0`（有弧凸），另两张 `Q 0 0 0 0`（直行）——
+       "谁先动"与"谁越过"落在同一个读数上，不是两套各说各话的事实。 */
+    var travel = HERO.map(function(v){
+      if (!prevPose) return 0;
+      var ps = prevPose.order.indexOf(v), q = p.order.indexOf(v);
+      return (ps < 0 || q < 0) ? 0 : Math.abs(p.xs[q] - prevPose.xs[ps]);
+    });
+    var rank = [0, 0, 0];
+    travel.map(function(_, i){ return i; })
+      .sort(function(a, b){ return travel[b] - travel[a] || a - b; })
+      .forEach(function(i, r){ if (travel[i] > 0) rank[i] = r; });
+    HERO.forEach(function(v, hi){
       var slot = p.order.indexOf(v), g = 'w-' + v, boxKey = g + '-r';
       var rise = 0;
       if (fired && prevPose && prevPose.op > 0 &&
           prevPose.order.join() !== p.order.join()){
-        var ps = prevPose.order.indexOf(v);
-        var travel = Math.abs(p.xs[slot] - prevPose.xs[ps]);
-        if (travel > swapMin) rise = Math.min(swapRise, Math.round(travel * swapK));
+        if (travel[hi] > swapMin) rise = Math.min(swapRise, Math.round(travel[hi] * swapK));
       }
       var S = put('world', 'g', g + '-swp', {class:'swap', 'data-go': fired ? '1' : '0',
         style:'--swap-route:path(\'M 0 0 Q 0 ' + (-rise * 2) + ' 0 0\')'});
       var A = put(S, 'g', g + '-ant', {class: wind ? 'wind' : null});
-      put(A, 'g', g, {transform:'translate(' + p.xs[slot] + ',' + p.y + ') scale(' + p.k + ')',
+      put(A, 'g', g, {class: rank[hi] ? 'trail' : null,
+        style: rank[hi] ? '--trail-r:' + rank[hi] : null,
+        transform:'translate(' + p.xs[slot] + ',' + p.y + ') scale(' + p.k + ')',
         opacity:p.op});
       var t = TONE[p.tone];
       if (!REG[boxKey]) put(g, 'rect', boxKey, {x:-48, y:-46, width:96, height:92, rx:14,
@@ -3055,8 +3197,10 @@
       txt(arcs, 'a-arc-2-lab', {class:'halo', x:400, y:136, 'text-anchor':'middle', 'font-size':13,
         fill:'#8d95a8'}, "'10' 先");
     }
-    if (step === 2) badge('a-body', 'a-rule', 500, 322, '默认规则', '#f5a623');
-    if (step === 3) badge('a-body', 'a-str', 500, 150, '转成字符串', '#4d90f0');
+    // 两枚徽标都传 dec（0.26.0 逐字解码的消费者）：这两句正是本课"把一个结论推出来"
+    // 的两拍——'默认规则' 与 '转成字符串' 是观众跟着旁白**认出来**的词，不是查到的。
+    if (step === 2) badge('a-body', 'a-rule', 500, 322, '默认规则', '#f5a623', true);
+    if (step === 3) badge('a-body', 'a-str', 500, 150, '转成字符串', '#4d90f0', true);
     sweep('a-body');
   }
 
@@ -3562,6 +3706,92 @@
           : Math.max(0, Math.min(1, (t - capSent.start) / capSent.duration));
     var v = (LIT_FULL * k).toFixed(1) + '%';
     if (el2.style.getPropertyValue('--lit') !== v) el2.style.setProperty('--lit', v);
+  }
+
+  /* ── 逐字解码（0.26.0，kinetic typography 的 decode / scramble 读法）─────────
+     画面里的**术语**不写成"已经定好的字"，而是让它在被念到的那一句里**从噪声里一个字
+     一个字定住**——旁白说到"先转成字符串"时，观众看着那五个字被逐个认出来，读作"这个
+     词正在被推导出来"，而不是"这块屏幕刚打印出一行结论"。
+     与 0.19.0 的跟读点亮同一族（都是 currentTime 的逐拍纯函数、回拖跟得回、暂停停得住），
+     但**刻意不同的一条**：点亮只压暗、永远可读，所以 reduce 下照旧跟着嘴；解码在未定
+     住的那些格里**本身就是不可读的字**，那对晕动/读屏用户是减分不是加分——所以 reduce
+     与导出截图模式一律直接落完整的词（前沿实现同一口径：resolved text 才是内容本体，
+     scramble 只是它的入场）。五条边界：
+       ① **不许用随机数**：前沿库（GSAP ScrambleText 一类）内部是随机取字符，官方文档
+          自己写了"逐帧渲染要 --concurrency=1 才复现得一致"。本仓库导出 mp4 是每帧一次
+          冷启动 seek，随机一次就等于**同一秒的两帧是不同的字**。这里的字面由 (目标字符,
+          下标, 句内进度) 现算，同一个 t 永远给同一个串（测试按这个钉死）。
+       ② **字宽不许漂**：徽标的药丸底宽是按文案长度算的（badge 里那一行 w=），而解码
+          途中换的是**别的字**——非等宽字体下 Latin 池里 'i' 与 'm' 差一截，画面会抖。
+          建档时把终态宽度现量出来钉进 `textLength` + `lengthAdjust=spacingAndGlyphs`，
+          解码期间整串的推进量被钉死在同一个数上。实测：四字词自然推进量 55.968 → 钉
+          56.0，k 从 0 到 1 的十格采样里 `getComputedTextLength()` 全是 56.0、药丸底宽
+          全是 77.413，一格都没抖；五字词 69.994 → 钉 70.0 同样恒定。
+          ⚠ 量的必须是 `getComputedTextLength()`（**推进量**）而不是 `getBBox().width`
+          （**墨盒**）：两者对同一串就不等（五字词实测 69.994 vs 70.134），而墨盒在解码
+          途中还会自己抖——`spacingAndGlyphs` 是按字符重新分配边距的，k=.5 那一格的噪声
+          字「较」墨宽溢出，`getBBox().width` 读到 56.467（多 0.467），前后九格都是 56.0。
+          钉墨盒等于把整串压窄，而药丸底是按长度写的、不会跟着窄，字就贴到边上去了。
+       ③ 池按**字符类**分：CJK 换 CJK（全角同宽，就算不钉 textLength 也不漂）、数字换
+          数字、字母换字母——噪声长得像它要变成的东西，才读作"还没定住"而不是"换了一
+          门语言"。
+       ④ **前 --decode-lead 走完，末尾留白给读者**：解码贴着句尾才定住等于没演（旁白
+          已经念完，观众还没看到完整的词）。走完之前每一格都还剩没定的字。落定节奏是
+          `round(k/lead × 字数)`，末字其实在 `lead × (字数 − .5) / 字数` 就定了：四字词
+          实测 k=.60 还是"默认规后"、k=.63 起整词"默认规则"（lead=.72 是最晚上限而不是
+          末字定住那一拍），五字词在 .65。回拖可复现：.71 → .72 → .71 三次同一串。
+       ⑤ 登记表按步重建（begin() 清空）：**这一步有没有在解码**与画面状态一样是
+          (scene, step) 的纯函数，导出冷启动 seek 到那一帧照样是该解码的那一帧。 */
+  var DEC_POOL = {
+    cjk: '码序形值则符底较稳判对排前后数',
+    digit: '0123456789',
+    alpha: 'abcmoxzds',
+    other: '·+×'
+  };
+  var DEC_LEAD = -1;
+  function decodeLead(){                 // 读法同 ffThreshold()：设计期参数，一次就缓存
+    if (DEC_LEAD < 0){
+      var n = parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--decode-lead'));
+      DEC_LEAD = (n > 0 && n <= 1) ? n : .72;
+    }
+    return DEC_LEAD;
+  }
+  /** 第 i 格在进度 k 上的噪声字面：由 (目标字符, i, k) 现算，**没有随机数**（边界①）。 */
+  function decGlyph(ch, i, k){
+    var pool = (ch >= '0' && ch <= '9') ? DEC_POOL.digit
+             : (ch.toLowerCase() !== ch || /[a-z]/i.test(ch)) ? DEC_POOL.alpha
+             : (ch.charCodeAt(0) > 0x2e7f) ? DEC_POOL.cjk
+             : DEC_POOL.other;
+    return pool.charAt((i * 7 + Math.floor(k * pool.length * 3)) % pool.length);
+  }
+  function decodeArm(n, text){
+    n.removeAttribute('textLength');                       // 先撤钉，量的才是自然宽度
+    var w = n.getComputedTextLength();   // 量**推进量**（advance），不是 getBBox 的墨盒
+    n.setAttribute('textLength', w.toFixed(1));
+    n.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    DECODE[n.dataset.key] = {n:n, text:text};
+  }
+  /** 逐拍写：与 capProgWrite / capLitWrite 排在同一处（**换句分支之后**），因为要靠
+     capSent——写在前面就会拿上一句的时长算这一句的进度（0.16.0 那条实测教训）。 */
+  function decodeWrite(t){
+    for (var key in DECODE){
+      var d = DECODE[key], out = d.text;
+      var full = window.__coursewareShotMode || mqReduce.matches ||
+                 !capSent || !(capSent.duration > 0);
+      if (!full){
+        var len = d.text.length;
+        var k = Math.max(0, Math.min(1,
+              (t - capSent.start) / capSent.duration / decodeLead()));
+        var res = Math.min(len, Math.round(k * len));
+        if (res < len){
+          var s = d.text.slice(0, res);
+          for (var i = res; i < len; i++) s += decGlyph(d.text.charAt(i), i, k);
+          out = s;
+        }
+      }
+      if (d.n.textContent !== out) d.n.textContent = out;   // 同值不重写（每帧都跑）
+    }
   }
 
   // ══ ④ 侧栏：参考要点（renderNotes）══════════════════════════════════════
@@ -4152,6 +4382,9 @@
     // 因为 capShow 才写 capSent；写在前面会让换句那一帧拿上一句的时长算这一句的亮度。
     // 导出截图页每帧只跑一次 tick()，那一帧落的正是那一秒的读数（口径见 capLitWrite）。
     capLitWrite(t);
+    // 逐字解码（0.26.0）：与细线、点亮同一个位置、同一个 capSent——**排在换句分支之后**，
+    // 因为解码的进度是"当前这一句念到哪儿"。没有解码项时这一趟就是个空循环。
+    decodeWrite(t);
     // 门禁每帧判一次（幂等）：它自己比锚点，所以**空档里也要判**——
     // at:'end' 的门禁正是开在末句之后的那个空档里。
     // 擦洗期间例外：preGateOpen 会把 currentTime 拽回场景起点，和还按着
@@ -4319,9 +4552,46 @@
     barEl.setPointerCapture(e.pointerId);
     scrubbing = true;
     barEl.dataset.drag = '1';           // 拖动跟手：填充过渡缩短，见 .bar[data-drag]
+    /* 越界橡皮筋（0.26.0，边界的手感）：手指拖出条的端点时，**播放头一步都不许多走**
+       （currentTime 仍是夹在 [0, TOTAL] 的纯读数，时钟不许被手势撒谎），但手指也不能
+       毫无回应——把越过的那段按 `cap · x / (x + soft)` 折成一个横向位移交给气泡，并给
+       条挂上 `data-band="l|r"`（端头那一圈亮走档位，见 CSS「越界橡皮筋」）。五条口径：
+         · 封顶 cap 与半程点 soft 只在 CSS 一处（--band-cap / --band-soft），这里读出来
+           用，不在代码里抄第二个数（口径同 --swap-k / --par-far）；
+         · **非线性是这条手势的定义本身**：线性跟随等于手指在条外 100px 也把气泡推
+           出去 100px，越拖越"追不上"才读得出"到头了"（数值见 CSS 那条边界②）；
+         · **时钟不跟手指走**：`seek` 把未夹的 raw 交给 bandWrite、只把夹过的
+           `Math.max(0, Math.min(1, raw))` 写给 currentTime。实测把指针拖过条的右端点
+           12 / 24 / 48 / 96 / 200px，currentTime 五次都停在总长 115.201s 上不动；拖过
+           左端点 40px 落 0s——越界的只是气泡，时间轴一个字都不许多说；
+         · 位移写在**气泡自己身上**（--band 注册成 `<length>`、inherits:false）：谁用谁
+           持有，别穿给后代；回弹的补间在 CSS 里（--dur-band + --ease-spring），这里
+           只写终值 0px，不排任何时长（纪律 1）。⚠ 要读"正在弹回的那一格"必须读
+           **computed 的 `translate`**（或 computed 的 `--band`）；读 `tipEl.style`
+           拿到的是刚写进去的**终值**，同一帧就是 0px，测不出任何回弹（本轮踩过）；
+         · 减少动效下**档位照落、位移给 0**：那一下弹回对晕动用户没有信息量，而
+           "到头了"端头那圈亮已经说了。 */
+    var bCap = parseFloat(getComputedStyle(document.documentElement)
+                 .getPropertyValue('--band-cap')) || 24,
+        bSoft = parseFloat(getComputedStyle(document.documentElement)
+                 .getPropertyValue('--band-soft')) || 48,
+        tipEl = el('bar-tip');
+    var bandWrite = function(raw, w){
+      var over = raw < 0 ? raw * w : (raw > 1 ? (raw - 1) * w : 0);
+      if (over < 0) barEl.dataset.band = 'l';
+      else if (over > 0) barEl.dataset.band = 'r';
+      else delete barEl.dataset.band;
+      var a = Math.abs(over);
+      var d = a ? (over < 0 ? -1 : 1) * bCap * a / (a + bSoft) : 0;
+      if (mqReduce.matches) d = 0;
+      var s = d.toFixed(2) + 'px';
+      if (tipEl.style.getPropertyValue('--band') !== s) tipEl.style.setProperty('--band', s);
+    };
     var seek = function(x){
       var r = barEl.getBoundingClientRect();
-      audio.currentTime = Math.max(0, Math.min(1, (x - r.left) / r.width)) * TOTAL;
+      var raw = (x - r.left) / r.width;
+      audio.currentTime = Math.max(0, Math.min(1, raw)) * TOTAL;
+      bandWrite(raw, r.width);
     };
     seek(e.clientX);
     var move = function(ev){ if (ev.pointerId === e.pointerId) seek(ev.clientX); };
@@ -4332,6 +4602,8 @@
       barEl.removeEventListener('pointercancel', stop);
       scrubbing = false;
       delete barEl.dataset.drag;        // 松手恢复 --dur-fill 滑行到位
+      delete barEl.dataset.band;        // 越界档位随松手退出：端头那圈亮收掉
+      tipEl.style.setProperty('--band', '0px');   // 弹回：补间在 CSS，这里只写终值
       tick();                     // 松手补判：擦洗跨过的门禁锚点在这儿兑现
     };
     barEl.addEventListener('pointermove', move);

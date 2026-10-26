@@ -3,6 +3,111 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.26.0] - 2026-10-26
+
+### 新增（余势、推导与在手——拖尾跟随 / 逐字解码 / 越界橡皮筋）
+
+0.25.0 让"换了位置"读得出来之后，对着前沿动效体系再盘一遍，剩下的缺口不在"演什么"上，
+而在三件更基础的事：**一个东西不会所有部分同时停住**（迪士尼 12 原则里的 follow-through /
+overlapping action，网页侧的落地版是"主体先走、从属者各晚一格"）；**结论不该像已经印好的
+事实**（kinetic typography 的 decode / scramble 读法：术语在被念到的那一句里从噪声里逐字
+定住，观众读到的是"这个词正在被推导出来"）；**边界该有阻力**（rubber-band overscroll：
+拖到端点之外要给画面回馈，但数据一个字都不许多走）。前沿实践与本流水线在这里恰好互为
+反面：库里的 scramble 内部用随机字符，官方文档自己写了逐帧渲染要 `--concurrency=1` 才
+复现得一致——而本仓库导出 mp4 是**每帧一次冷启动 seek**，随机一次就等于同一秒的两帧是
+不同的字；库里的 overscroll 通常把指针位置直接当值——而这里的 `audio.currentTime` 是
+**唯一的时钟与唯一的证据**，字幕、门禁、导出全按它算。所以三条的落点分别是：字面由
+(目标字符, 下标, 句内进度) 现算（无随机）、越界只给气泡位移不给时钟、拖尾只借
+`transition-delay` 一格而不新开时长档。数字全部来自 Chrome 152 的 CDP。
+
+**拖尾跟随（`.trail` + `--trail-step:.07s` + 节点上的 `--trail-r`）**。范本消费者是世界层
+那三张卡在换位那一步（seg-1 s2，`[10,9,1]` → `[1,10,9]`）：'1' 走 400 viewBox 单位
+（= 510.4 设备px）是主动作、rank 0 **不挂档**，'10' / '9' 各让 200 单位、**行程完全打平**
+（= 255.2 设备px，同一个数），于是按 HERO 书写序分 rank 1 / 2——让位里最右那张等得最久，
+画面上一道从左往右的波。rank 由 `poseWorld` 按行程现推（`travel` + 排序），**不是新写的
+姿势表**，所以导出冷启动 seek 到那一帧拿到的是同一套档位。三条硬口径：① **只写长档
+`transition-delay`，绝不重述 `transition` 简写**——主角节点已经挂着 `.nt` 那十七项清单，
+再写一份简写就整条顶掉（0.19.0 / 0.23.0 老账）；实测挂上之后 `transitionProperty` /
+`Duration` / `TimingFunction` 三个读数与不挂时**逐字符相同**，只有 delay 变，而且是
+**一个值**（computed 从 17 个 `0s` 收成一条 `0.14s`）——要的就是整张卡（位移 + 淡入 +
+辉光）一起晚一格，而不是只有 transform 晚、别的属性原地追。② **同一步只许一个让拍来源**：
+上架子那一步 0.23.0 已经借过一拍，`.wind > g{transition-delay:var(--wind-hold)}` 带元素
+选择器、特异度 (0,1,1) 压过 `.trail` 的 (0,1,0)，实测那一步三张卡读到**同一个** `0.0952s`，
+拖尾自动退让、不需要 JS 判姿势。③ `--trail-r` **故意不注册**（它是排位的读数不是要补间的
+行程；未注册时 `calc(.07s * 2)` 照样求出 `0.14s`，实测）。可信读法是把三张卡的 transform
+补间一起 `pause()` 后按 `currentTime` 钉格采样（跑真实时钟会先被 runner 快慢骗一次）：
+t=70 主动作已走 ≥40 设备px 而两张跟随**一格没动**（与 t=0 同值）、'10' 在 140 / '9' 在 210
+才动、t=640 三张都落到 `cancel()` 之后的终值——`.5 + .14 = .64s` 短于 `--dur-ride` 的 .8s，
+档距不改终态。reduced-motion 必须显式写 `.trail{transition-delay:0s}`：全局
+`transition-duration:.01ms` 的钳制**管不到 delay**（0.18.0 在 `animation-delay` 上踩过
+同一个坑的 transition 孪生兄弟），不写那一行，晕动用户仍然会看到让位的两张各晚 70 / 140ms。
+
+**逐字解码（`badge(…, dec)` opt-in + `decodeArm` / `decodeWrite` + `--decode-lead:.72`）**。
+只有"这个词正在被推导出来"的那一格传 `dec`——范本 seg-1 s2 的「默认规则」、s3 的
+「转成字符串」；画面里绝大多数字仍是已经定好的事实。与 0.19.0 的跟读点亮同一族（都是
+`currentTime` 的逐拍纯函数、回拖跟得回、暂停停得住），但**刻意不同**：点亮只压暗、永远
+可读，所以 reduce 下照旧跟着嘴；解码在未定住的那些格里**本身就是不可读的字**，那对晕动 /
+读屏用户是减分不是加分——所以 reduce 与导出截图模式一律直接落完整词（前沿实现同一口径：
+resolved text 才是内容本体，scramble 只是它的入场）。四条口径：① 无随机（见上面那段）；
+② **字宽不许漂**——建档时把终态宽度钉进 `textLength` + `lengthAdjust=spacingAndGlyphs`，
+量的必须是 `getComputedTextLength()`（**推进量**）而不是 `getBBox().width`（**墨盒**）：
+实测四字词自然推进量 55.968 → 钉 56.0，k 从 0 到 1 十格采样推进量全是 56.0、药丸底宽全是
+77.413 一格不差；而墨盒两串本就与推进量不等（五字词 69.994 vs 70.134），还会在解码途中
+自己抖——`spacingAndGlyphs` 逐字重排边距，k=.5 那格的噪声字「较」墨宽溢出读到 56.467。
+钉墨盒等于把整串压窄，而药丸底宽是按文案长度写的（`Math.max(30, s.length*…)`）、不会跟着
+窄，字就贴到边上去了。③ 噪声池按**字符类**分（CJK 换 CJK、数字换数字、字母换字母、符号
+换符号），噪声长得像它要变成的东西才读作"还没定住"而不是"换了一门语言"；④ **整词在
+`--decode-lead` 之前落定**——落定节奏 `round(k / lead × 字数)`，末字实测在 .63（四字词）/
+.65（五字词）就定了（lead=.72 是最晚上限而不是那一拍），贴着句尾才定住等于没演；回拖复现
+实测 `.71 → .72 → .71` 三次同一串。登记表在 `begin()` 里清空，"这一步有没有在解码"与画面
+一样是 (scene, step) 的纯函数。
+
+**越界橡皮筋（`.bar[data-band]` + 注册属性 `--band` + `--dur-band:.42s` / `--band-cap:24px`
+/ `--band-soft:48px`）**。拖动条拖过端点，原生播放器要么死要么跳，rubber-band 那条路是
+**给画面阻力、不给数据越界**：`seek` 把**未夹**的 raw 交给 `bandWrite`、只把夹过的写给
+`currentTime`。走真实 CDP 指针（`Input.dispatchMouseEvent`）实测：向右越过 12 / 24 / 48 /
+96 / 200px 五格，`currentTime` **全部**等于时间轴末尾 115.201s（数从 `lesson-timeline`
+现读，不写死），向左越过 40px 落 0s——时间轴一个字都不许多说；而气泡按
+`cap · x / (x + soft)` 这条双曲线阻尼（两只旋钮只在 CSS 一处，JS 读 computed 求值）折出
+4.80 / 8.00 / 12.00 / 16.00 / 19.35px，单调、**亚线性**（每 px 的顺应 0.40 → 0.333 →
+0.25 → 0.167 → 0.097，手指越拖越追不上）、逼近但不越过 24px 封顶；左端反向 −10.91px。
+端头那一圈 `.bar::after` 渐变随 `data-band="l|r"` 淡入且 `pointer-events:none`（与刻度同
+z-index 档、靠生成顺序画在刻度之上）；松手删档位、`--band` 写回 `0px`，回弹的补间在 CSS 里
+（`--dur-band` + `--ease-spring`，本机实测 459ms 落定、中途反向过冲一次 −1.68px）。位移挂在
+**独立 `translate` 属性**上（`--band` 那份），不碰既有的 `transform:translateX(-50%)` 居中
+分量——写进 transform 会在落定那一瞬把居中丢掉（0.13.0 同一课）。`--band` 注册成
+`<length>`、`inherits:false`、初值 `0px`：**不注册就没有回弹**（对照页实测未注册时 13 次
+采样全是终值，token 是离散替换）、`inherits:false` 是"谁用谁持有"（0.18.0 `--delay` 那条
+的镜像：不许往后代与伪元素穿）。reduce 关的是**那一下回弹**（`.bar .tip` / `.bar::after`
+两行 `transition:none`），档位与端头亮照落，而 `--band` 的归零额外在 JS 里（`mqReduce`
+时 `d = 0`）——给晕动用户连位移都不给，但"到头了"这件事仍写在条上。
+
+**本轮量出两条"看着跑通了、读数其实是错的"通道**，一并写进 stage.md §9：① **插值中的数
+只能读 computed**——`tipEl.style` 拿到的是刚写进去的**目标值**，本轮第一版探针读它，于是
+"回弹"永远测不到自己想测的东西（现在把 `want` / `comp` 两个读数一起取，断言 computed
+落后于目标值才算补间在跑）；`CSSTransition` **没有** `.delay`，delay 在
+`effect.getComputedTiming()` 上，读错的字段会被 `JSON.stringify` 整个吃掉、下游只剩
+`KeyError`。② **推进量 ≠ 墨盒**（见解码那条），`getBBox()` 在 `lengthAdjust` 之下不是
+稳定的排版宽度。测试口径另外收了一条：**轮询 computed 读数直到落定**，不等本机量出来的
+那个 459ms（0.23.1 / 0.25.1 那条"等的是事实不是毫秒数"的第三次落地）。
+
+### 测试与文档
+
+新增 `test_trail_decode_band_primitives_present`（静态：三族令牌与选择器只在 :root 一处、
+`.trail` 不许重述简写、全文无 `Math.random`、`decodeArm` 里不许出现 `n.getBBox`、
+`@property --band` 的注册参数、reduced-motion 三行新兜底各关各的对象且都在基础规则之后、
+兜底里不许出现"补一个更短的时长"）+ 四条 CDP 用例：
+`test_trail_yields_the_yielders_to_the_card_that_moves_first`（档位 / 只改长档 / 冻结采样 /
+让拍退让 / 无历史复现）、`test_decode_locks_the_term_while_the_line_says_it`（钉宽 /
+落定节奏 / 字符类 / 确定性 / opt-in / 五字词同节奏）、
+`test_band_stretches_the_tip_but_never_the_clock`（条内不变 / 五格越界与时钟诚实 / 亚线性 /
+回弹是 CSS / 左端反向 / 松手弹回），以及
+`test_trail_decode_band_reduced_motion_and_shot_terminals`（reduce 与导出截图两个终端形态
+一起验）。既有两条静态锁因这两轮的写法重钉：`begin()` 那行现在带 `DECODE = {}`、hero
+`put(` 的参数顺序带 `class` / `style`。stage.md §3.4 加三行原语表 + 一条"余势、推导与在手"
+长条 + 「别这么干（0.26.0 实测否决）」五条、§9 交付清单加三条口径；SKILL.md §5 与 README
+「开发与自测」同步。本机全量 **426 passed / 2 skipped**（0.25.0 是 421）。
+
 ## [0.24.0] - 2026-10-25
 
 ### 新增（随动层——位移定拍 / 触点辉光 / 色温定调）

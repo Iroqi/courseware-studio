@@ -240,7 +240,30 @@ transform，抛物线由包装层 `w-<v>-swp` 上的 `offset-distance` 补间承
 挂弧凸，让位者直行）；路线写进呈现属性 `--swap-route`（与 `.ride` 同口径）且
 `offset-rotate:0deg` 显式写（默认 auto 会把卡转成 90°）；判据由 (scene, step) 就地推导
 且 sticky——灯灭着的换位（off → messed）不演、收上架子那一步不重放；reduced-motion /
-导出关的是 transition 不是 data-go 档位，一刀切掉直接落"换位完成"那一格）。
+导出关的是 transition 不是 data-go 档位，一刀切掉直接落"换位完成"那一格）。这一轮把
+**余势、推导与在手**接上（12 项动画原则里的"跟随与重叠"、kinetic typography 的 decode
+读法、边界的橡皮筋阻力）：
+**拖尾跟随**（`.trail` 只写 `transition-delay` **长档**、绝不重述 `.nt` 那份十七项简写
+——重述就把整条补间清单顶掉；实测挂上后 property/duration/timing 三个读数逐字符不变，
+只有 delay 变成一个值重复给全部十七项 = 整张卡晚一格。档距只从 `--trail-step` 一处派生，
+rank 由 `poseWorld` 按行程现推、写在元素自己身上（`--trail-r`，**故意不注册**）：走得最远
+那张是主动作、rank 0 不挂档，行程打平的让位者按书写序分 1 / 2，没走的卡不给档（没动却
+"晚了"就是撒谎）。冻结采样实测 t=70 主动作已走 ≥40 设备px 而两张跟随一格没动、140 / 210
+才轮到它们；同一步只许一个让拍来源（`.wind > g` 带元素选择器以 (0,1,1) 压过 (0,1,0)，
+拖尾自动退让）。reduce 那行必须显式 `transition-delay:0s`——全局时长钳制**管不到 delay**）、
+**逐字解码**（`badge(..., dec)` 逐枚 opt-in：术语按**句内进度**从同一字符类的噪声里逐字
+定住，字面由 (目标字符, 下标, 进度) 现算、**没有随机数**（导出是每帧一次冷启动 seek，
+随机一次就等于同一秒的两帧是不同的字）；建档时把 `getComputedTextLength()` 这个**推进量**
+钉进 `textLength` + `lengthAdjust=spacingAndGlyphs`——`getBBox().width` 量的是墨盒，它在
+spacingAndGlyphs 下随噪声字自己抖（实测 56.467 vs 恒定的 56.0），钉它会把整串压窄到
+药丸边上。整词在 `--decode-lead` 之前落定（末字实测 .63 / .65，贴着句尾才定住等于没演）；
+reduce 与截图模式一律直接落完整词——未定住的那些格本来就不可读）、
+**越界橡皮筋**（拖出条的端点：`--band` 注册成 `<length>` + `inherits:false`（不注册就没有
+回弹——未注册时逐格采样全是终值），气泡按 `cap·x/(x+soft)` 亚线性溢出、`--dur-band` +
+`--ease-spring` 弹回，端头 `.bar::after` 随呈现档位 `data-band="l|r"` 亮一圈且
+`pointer-events:none`；**时钟不跟手指走**——实测向右越界 12–200px 五格 `currentTime`
+全部钉在时间轴末尾、向左越 40px 落 0s。回弹那一格只有 **computed** 读数测得到，
+`el.style` 拿到的是刚写的目标值）。
 ——见 stage.md §3.4。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
