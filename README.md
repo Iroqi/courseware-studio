@@ -646,7 +646,8 @@ python -m pytest tests/ -q
   3.12 档红在 `test_strike_line_draws_over_wrong_comparator` 的 s3 局部坐标断言——
   同一条划线两次 `getBBox()` 的端点差 **0.0495px**（Chrome 155 的文字度量亚像素抖动），
   原容差 0.01px。断言本意是区分组内局部坐标与世界坐标（后者在 s3 会差 93px），容差
-  放到 0.5px，仍抓得住那种错法；
+  放到 0.5px，仍抓得住那种错法；CI run #40 复按三档全绿（Chrome 155.0.8059.39，
+  均 **432 passed / 2 skipped**，真实时钟 2 passed / 4 deselected）；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴

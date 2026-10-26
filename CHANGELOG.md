@@ -14,6 +14,10 @@
 若误改成世界坐标，s3 会整整差 **93px**。容差放到 **0.5px**（仍只有那道错法的
 1/186），探针一个字节没动。本机复跑 **1 passed**；3.10 档当次卡在
 "Install ffmpeg and ensure Chrome"（runner 基础设施，未跑到测试），下一条推送重跑。
+CI 以 0.27.1 推送复按：run #40 三档 Python（3.10 / 3.11 / 3.12）全部
+`completed success`，runner 的 Chrome 155.0.8059.39 上读数同为
+**432 passed / 2 skipped**，真实时钟回归三档同为 2 passed / 4 deselected；
+红过的这条在 3.12 档修后逐用例核对一致。
 
 ## [0.27.0] - 2026-10-26
 
