@@ -4348,6 +4348,25 @@ def test_rider_arrives_and_stays_at_the_destination(full_lesson):
         box = st["bbox"]
 
         ev("window.__jump('seg-6', 1)")           # 相等元素保序 → 上路
+        # 0.29.0 动效目的审计续：右列结果卡错峰落位（一屏一个话头）——s1 的话头
+        # 是两条 ride 沿线抵达，三张结果卡同拍淡入会抢戏；三卡按 i 错峰
+        # 0/.06/.12s（.in 现成的 var(--delay)），连线与 ride 保持话头地位。
+        dels = json.loads(ev("""(function(){
+          var d = {};
+          ['e-r-\u5c0f\u660e','e-r-\u5c0f\u7ea2','e-r-\u5c0f\u521a'].forEach(function(id){
+            var el = document.getElementById(id);
+            if (el) d[id] = getComputedStyle(el).animationDelay;
+          });
+          return JSON.stringify(d);
+        })()"""))
+        assert set(dels.keys()) == {'e-r-\u5c0f\u660e', 'e-r-\u5c0f\u7ea2', 'e-r-\u5c0f\u521a'}, \
+            f"s1 三张结果卡都在场：{dels}"
+        assert set(dels.values()) == {'0s', '0.06s', '0.12s'}, \
+            f"三张卡错峰 0/.06/.12s（依次就位，不抢 ride 的戏）：{dels}"
+        assert dels['e-r-\u5c0f\u521a'] == '0s', \
+            f"小刚 80 排最前先落位：{dels}"
+        assert dels['e-r-\u5c0f\u660e'] == '0.06s' and dels['e-r-\u5c0f\u7ea2'] == '0.12s', \
+            f"小明/小红同分按位序依次就位（从上往下自然读序）：{dels}"
         sw = json.loads(ev(_RIDE_SWEEP.replace("RIDE", "e-ride-\u5c0f\u660e")))
         assert "err" not in sw, str(sw)
         assert sw["dur"] == 800, f"行程 800ms：{sw}"
@@ -9307,3 +9326,20 @@ def test_focus_audit_unreached_row_stays_dimmed():
     assert "var offRow = (ri !== cur && step >= 4) || (ri === 1 && step < 4);" in src, \
         "两分支并进一条 offRow：换组弱化与未轮到弱化同一档位"
     assert "数据被搞乱" in src or "messed" in src, "renderD 的混乱动作仍在场（审计无漏项）"
+
+
+def test_focus_audit_result_cards_stagger_into_place():
+    """0.29.0 动效目的审计续：一屏一个话头，右列结果卡错峰落位。
+
+    renderE（seg-6 稳定排序）s1 的话头是"相等元素保序"——两条连线 .draw 同拍画、
+    两条 ride 同拍出发（小明 150→222、小红 222→294 沿线走）。右列三张结果卡
+    （小刚/小明/小红）如果同一拍淡入，就跟话头抢注意力，成了"一次铺满"。改法：
+    三张卡错峰落位（--delay 0 / .06 / .12s，从上往下自然读序），连线与 ride 保持
+    话头地位。锁的口径：
+      · 右列（col === 1）卡片挂 inline style --delay，按 i 错峰；
+      · 左列录入顺序（col === 0）s0 整体揭晓是它自己的话头，不加 delay；
+      · 错峰用现成的 .in 的 var(--delay)（0.10.0 就有），不开新档位。
+    """
+    src = TEMPLATE_HTML.read_text(encoding="utf-8")
+    assert "style: col === 1 ? '--delay:' + (i * .06).toFixed(2) + 's' : null" in src,         "右列卡按 i 错峰 0/.06/.12s，左列保持整体揭晓"
+    assert "--delay:.06s" in src, "错峰档位用现成 --delay 机制"

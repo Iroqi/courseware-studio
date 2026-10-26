@@ -642,6 +642,11 @@ python -m pytest tests/ -q
   `mqReduce` / `__coursewareShotMode` 下一个字节都不写。本轮量出的读法错误写进 stage.md：
   **对已入树节点重复 `appendChild` / `insertBefore` 会摘下再插回、重放 CSS 动画**（划线
   在 s3/s5 每一步重新划一遍，静态断言全绿）。本机全量 **432 passed / 2 skipped**；
+- 0.29.0 的回归：右列结果卡错峰落位（一屏一话头续）——`test_focus_audit_result_cards_stagger_into_place`
+  锁 renderE 右列 `col === 1` 卡片挂 inline `--delay` 按 i 错峰（0/.06/.12s，用现成
+  var(--delay)）、左列不加；`test_rider_arrives_and_stays_at_the_destination` 增补
+  CDP 断言：s1 三张右列卡都在场、animation-delay 精确 0s/0.06s/0.12s、小刚先落、
+  小明/小红按位序，连线与 ride 保持话头。
 - 0.28.0 的回归：磁吸延伸到选项药丸——`test_mag_extends_to_options_pills_primitives_present`
   锁 `.mag` 只写 translate 一条 transition（无 :hover / transform）、buildChoice 包
   span.mag、magMove / magClear 选择器含 `#gate-block .mag`、包装层内按钮禁用跳过、
