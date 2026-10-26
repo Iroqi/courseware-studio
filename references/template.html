@@ -273,6 +273,25 @@
        按 §8 重算对比度。 */
     --dur-mood:1.2s; --tint-wash:.28;
     --tint-calm:#0e1f4b; --tint-turn:#341b0b; --tint-key:#08261f;
+    /* 批注三件（0.27.0）：荧光笔、反证划线、磁吸迎手。
+       ① 荧光笔标记：--mark-ink 借主色的柔光档（--key-soft，琥珀 .14）——它不是
+       新颜色，是"这段话现在要看了"的同一支墨。这个数压着 §8 的合成口径：琥珀字
+       #f5a623 衬在 .14 琥珀带上仍是 6.09:1（舞台底 #1c212d）/6.64:1（#161a23），
+       但红字 #ef4d4d 只剩 3.43:1 / 3.74:1——所以划线只能落在琥珀关键句上，
+       红字只许配"压暗"不许配亮带（见 .mark 边界③）。--mark-tilt -.6° 是手写
+       荧光笔的斜度：肉眼刚能看出来，又不至于让带宽露怯。
+       ② 反证划线：--strike-ink 用错误红，跟 d-src-t 判错时的字色同一支；
+       --dur-strike .34s 借换位那一档（--dur-swp .34s）的节拍——"划掉"和"换位"
+       都是把一件事挪出原位，不该比一次淡入（.42s）还慢。--strike-tilt 1.4° 是
+       斜线的斜率，左端高、右端低，像从左上往右下划的一笔。 */
+    --mark-ink:var(--key-soft); --mark-tilt:-.6deg; --dur-mark:.42s;
+    --strike-ink:#ef4d4d; --strike-tilt:1.4deg; --dur-strike:.34s;
+    /* ③ 磁吸迎手：--mag-r 是磁场半径（本地盒单位，和 --hot-r 同一口径），
+       --mag-pull 是峰值位移——6px 刚够看见"它朝你挪了一点"，再多就变成按钮
+       在躲指针。--dur-mag .34s 与 --dur-swp 同档：迎手是位置事件，不是氛围事件。
+       位移走 sin(πd/r) 衰减：中心 0、半程 6px、边缘回 0，所以指针划过不会
+       把按钮"拽走"再硬弹回来。 */
+    --mag-r:34px; --mag-pull:6px; --dur-mag:.34s;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -689,6 +708,56 @@
   /* 画线：配 pathLength="1"，虚线偏移从整条藏到整条显；终态 = 满线 */
   .draw{stroke-dasharray:1 1;animation:ntDraw var(--dur-draw) var(--ease-out) backwards}
   @keyframes ntDraw{from{stroke-dashoffset:1}}
+  /* 荧光笔标记（`.mark`，0.27.0，前沿做法：highlighter annotation）：一句关键话被
+     划上一道半透明琥珀带。**几何必须量出来**——带宽、起点、斜度都从目标文本的
+     getBBox() 现推（markBehind），作者只给一句话和一个 key，不手填坐标；换字号、
+     换句长都不用回头改数。
+     四条实测边界：
+       ① **画在文字后面**：SVG 的绘制顺序就是文档顺序，色带必须 insertBefore 到
+          文本节点之前。put() 直接追加会盖在笔画上——半透明层压字等于把字色与带色
+          按 alpha 再混一次，琥珀字自己看不出来，换成别的字色就会串色；整行也会
+          糊成一块平色，不再有"笔划过去"的层次；
+       ② **只给琥珀字配带**：亮带会抬背景亮度，红字 #ef4d4d 衬在 .14 琥珀上只剩
+          3.43:1（舞台底 #1c212d）/ 3.74:1（#161a23），跌破 4.5:1；琥珀字 #f5a623
+          衬同一条带仍有 6.09 / 6.64:1。所以消费者只许是琥珀——见 renderC s4 的
+          c-head；红字要"被划掉"用 .strike，不许用 .mark（见 token 注释①）；
+       ③ **斜度靠独立 rotate 属性，不写进 transform**：transform 已被 scaleX 入场
+          占用，把 rotate 塞进 keyframes 的 from 端会在 to 端丢掉它；rotate 是独立
+          属性，只做静态倾角、不参与补间，导出切掉 animation 后它还在（定格仍是
+          那道斜带，与 .tilt 把终态写在 data-pan 上同一纪律）；
+       ④ **终态写在元素自己身上**：base transform 只有 rotate，markIn 只写 from 的
+          scaleX(0)——animation:none 的两种兜底（减少动效 / 导出截图）都落在完整
+          色带，不是"划到一半"。
+     带宽 .55 × bbox 高、起点 bbox.x−4、右缘 +8：只压字的下半格，像真的荧光笔从
+     基线上一路抹过去；加厚到 .8 会把上一行也罩进来，收窄到 .3 就变成下划线。 */
+  .mark{transform-box:fill-box;transform-origin:0 50%;
+        rotate:var(--mark-tilt);fill:var(--mark-ink);
+        animation:markIn var(--dur-mark) var(--ease-out) backwards;
+        pointer-events:none}
+  @keyframes markIn{from{transform:scaleX(0)}}
+  /* 反证划线（`.strike`，0.27.0）：一句话被判错，红笔从左到右划掉。
+     pathLength="1" + dasharray "1 1" + dashoffset 0（与 .draw 同一族归一单位），
+     入场只写 from 的 offset:1——终态是一条完整的线，导出/减少动效截断后仍是
+     "划掉了"，不是"划到一半"。
+     四条实测边界：
+       ① **斜线端点在 JS 里算**：水平 <line> 的 fill-box 高为 0，把 rotate 挂在
+          transform-box:fill-box 上时旋转盒退化成一条线，不同引擎落点不一；所以
+          斜率按 --strike-tilt 直接算进 y1/y2——左端高 tan/2、右端低 tan/2，方向
+          就是手划的左上 → 右下（见 strikeThrough）；
+       ② **必须画在文字上面**：与 .mark 相反，划线要压过笔画才读得出"作废"；同一
+          组里 append 在文本之后，SVG 文档顺序保证它在最上层；
+       ③ **文字同时压暗、不换红**：红线是"判定"，字是"证据"——两者都红会互相抢。
+          字落 #8d95a8（比正文暗一档，合成对比度 5:1 以上：衬在红 tint 盒上是 5.37:1），红只留给线（renderD）；
+       ④ **不挂 .draw**：.draw 的 animation-delay 可被 .st1 改写，那是入场的错峰；
+          划线要的是**每一步都在**（s1 划掉之后到 s5 仍是被划掉的那一行），所以
+          自建 strikeIn，不继承 .draw 的节奏令牌。
+     线宽取 max(2, bbox 高 × .09)：18px 字号得 2px、30px 得 2.7px——细看是笔尖，
+     不是删除线字符。 */
+  .strike{stroke:var(--strike-ink);stroke-linecap:round;fill:none;
+          stroke-dasharray:1 1;stroke-dashoffset:0;
+          animation:strikeIn var(--dur-strike) var(--ease-out) backwards;
+          pointer-events:none}
+  @keyframes strikeIn{from{stroke-dashoffset:1}}
   .pulse{animation:ntPulse var(--dur-pulse) ease-in-out infinite}
   @keyframes ntPulse{0%,100%{opacity:1}50%{opacity:.45}}
   /* 沿线流光（0.18.0，"这条关系刚被走通一遍"）：.draw 说"线存在"，这一条说
@@ -1758,6 +1827,17 @@
     .trail{transition-delay:0s}
     .bar .tip{transition:none}
     .bar::after{transition:none}
+    /* 批注与迎手（0.27.0）同口径，但关的层数各不相同：
+         · 荧光笔与反证划线关 **animation**：两者的终态（整条色带 / 整条红线）都写在
+           元素自己身上，一刀下去仍是"这句话被标了 / 被划掉"，不是半截——与 .bloom /
+           .flow / .reveal 同一课；
+         · 磁吸迎手关 **transition**，且必须带 `#gate` 抬到 (1,2,0)：这两条基础规则
+           写在 §④ 播放器行那一段（源序在本块**之后**），朴素选择器会被后来者顶掉。
+           JS 侧还有第二道闸（mqReduce，见 §⑦ 磁吸那一段）——CSS 关的是补间，代码
+           关的是"根本不写位移"，两头都认同一个偏好；关掉后按钮原地不动，"按得到"
+           这件事一格不少（与 #spot / .tilt / .ride 同一判断：位置信息不连档位一起关）。 */
+    .mark,.strike{animation:none}
+    #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
   /* ── ④ 播放器行：**紧贴在画布下面**，与画布共左右边 ──────────────────
@@ -1924,10 +2004,14 @@
   .gate-next{display:flex;align-items:center;gap:11px;margin-top:11px;padding-top:11px;
              border-top:1px solid #262c3a}
   .gate-next[hidden]{display:none}
-  /* 「继续」键与卡里的提交键同款（.gate-next / .act-row 两条路径共用一套样式） */
+  /* 「继续」键与卡里的提交键同款（.gate-next / .act-row 两条路径共用一套样式）。
+     磁吸迎手（0.27.0）把 translate 加进这一条 transition：位移是**手指给的**，
+     用 --ease-spring（带一点回弹）；filter 那档保持原速。两个属性各写各的时长，
+     合成一条简写，不新开第二条 transition（后一条会把前一条整个顶掉）。 */
   .gate-next .go,.act-row .go{background:var(--key);color:#14181f;border:0;border-radius:999px;
                  padding:8px 18px;cursor:pointer;font-weight:600;font-size:13.5px;
-                 transition:filter var(--dur-fast)}
+                 transition:filter var(--dur-fast),
+                            translate var(--dur-mag) var(--ease-spring)}
   /* 放行键掠光（0.17.0，前沿做法：CTA shine）：答对之后"继续"出现的那一下，
      一道高光从左掠到右——邀请点击的动效语言，Stripe / Linear 那类官网的主按钮
      同款。四条边界：
@@ -2699,6 +2783,57 @@
     if (dec) decodeArm(t, s);
     return g;
   }
+  /** 荧光笔标记（0.27.0）：把一道**量出来**的琥珀带垫到一段已有文字后面。
+   *  调用方只给父容器、key、文字节点；几何全从 getBBox() 现推——换字号、换句长、
+   *  换渲染器都不用回头改坐标（与 0.14.0 划重点 `--hl-x/--hl-w` 的"量出来"同源，
+   *  但那一支是字幕带、这一支是画面里任意一行）。
+   *  三条接线口径：
+   *   ① 必须插到**文字节点之前**：SVG 没有 z-index，绘制顺序就是文档顺序；用 put()
+   *      直接追加会盖在笔画上（对比度跌到 3.1:1，见 CSS .mark 边界①）；
+   *   ② 带宽 = bbox 宽 + 8、高 = bbox 高 × .55、起点在 bbox 下沿上方的 .45 处——
+   *      只压字的下半格，像荧光笔从基线抹过去，不是一块盖住整行的色块；
+   *   ③ 返回的节点不用调用方管：`sweep()` 下一步按 key 收掉（与其它图元同一寿命）。
+   *  这里不读令牌：斜度、墨色、时长全在 CSS 的 `.mark` 与 `:root` 里。 */
+  function markBehind(parent, key, node){
+    if (!node || typeof node.getBBox !== 'function') return null;
+    var bb = node.getBBox();
+    if (!bb.width || !bb.height) return null;
+    var r = put(parent, 'rect', key, {class:'mark', rx:2,
+      x:bb.x - 4, y:bb.y + bb.height * .45,
+      width:bb.width + 8, height:bb.height * .55});
+    var h = node.parentNode || host(parent);
+    /* 已经贴在文字前面就**不要再 insertBefore**：DOM 的插入操作会先把节点摘下再插回，
+       等于重建一次元素，CSS 动画（markIn）会从头重放。s4 被重复渲染时画面会"划两次"，
+       与进度无关。只在位置不对时才搬（首帧那一次）。 */
+    if (r.nextElementSibling !== node) h.insertBefore(r, node);
+    return r;
+  }
+  /** 反证划线（0.27.0）：在已有文字上压一笔红线，从左往右把这句话划掉。
+   *  斜率必须**算进端点**：水平 `<line>` 的 fill-box 高为 0，`transform-box:fill-box`
+   *  上的 rotate 没有稳定的旋转盒（见 CSS .strike 边界①）。--strike-tilt 从 :root
+   *  现读，作者改令牌不用改 renderer；负值也照算（方向反过来就是左下 → 右上）。
+   *  线宽 max(2, bbox 高 × .09)：18px 字号得 2px、30px 得 2.7px——是"笔尖"的
+   *  粗细，不是删除线字符。append 在文字之后（同一父层），SVG 文档顺序保证它压
+   *  在笔画最上层——与 .mark 的 insertBefore 正好相反，两条各走各的层。 */
+  function strikeThrough(parent, key, node){
+    if (!node || typeof node.getBBox !== 'function') return null;
+    var bb = node.getBBox();
+    if (!bb.width || !bb.height) return null;
+    var deg = parseFloat(getComputedStyle(document.documentElement)
+      .getPropertyValue('--strike-tilt')) || 0;
+    var x0 = bb.x - 5, x1 = bb.x + bb.width + 5;
+    var half = Math.tan(Math.abs(deg) * Math.PI / 180) * (x1 - x0) / 2;
+    var y = bb.y + bb.height * .52;
+    var n = put(parent, 'line', key, {class:'strike', pathLength:1,
+      x1:x0, y1:y - half, x2:x1, y2:y + half,
+      'stroke-width':Math.max(2, Math.round(bb.height * .09 * 10) / 10)});
+    /* 首创建时 put() 已把它追加在同一父层的最末（文字之后）；**不许每步再 append**：
+       对已有子节点 append 等于摘下再插回，strikeIn 会在 s3/s5 每一步重放，line 每步
+       都重新"划一遍"。只有父层真的不同才搬（消费者没这条路径，留作 helper 的自保）。 */
+    var h = node.parentNode || host(parent);
+    if (n.parentNode !== h) h.appendChild(n);
+    return n;
+  }
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
    *  才有"的那个小挂件不再被引用时，也必须跟着掉——只扫容器一层会把它留在台上。
    *  没有退场动画：要淡出就把 opacity 写成 0 让它再停一步，下一步不再引用它收尾。 */
@@ -3307,8 +3442,15 @@
     else if (step === 5){ headFill = '#f5a623'; headText = 'a - b 升序 · b - a 降序'; }
     else if (pick === -1){ headFill = '#8d95a8'; headText = '不传比较函数 → 字符串序；要按数值排，得自己传'; }
     else { headFill = c.col; headText = '(a, b) => a - b    →    ' + c.sign; }
-    txt('c-body', 'c-head', {x:500, y:cy-111, 'text-anchor':'middle', 'font-size':19,
+    var head = txt('c-body', 'c-head', {x:500, y:cy-111, 'text-anchor':'middle', 'font-size':19,
       'font-family':MONO, fill: headFill}, headText);
+    /* 荧光笔标记（0.27.0）的**唯一消费者**：s4 这句是整幕的结论（"只看符号"），
+       给它在字后面垫一道测出来的琥珀带——划线动作发生在"这句话被说出来"的同一拍。
+       s5 不再调用，带子被 sweep 收掉，画面只剩"落到升降序"那行新结论——标记是
+       一次性的"现在看这句"，不是永久高亮（永久高亮会让 s5 看起来还没讲完）。
+       为什么只给琥珀句：红字配亮带对比度不足 4.5:1，红字那一路要走 .strike
+       （见 CSS .mark 边界②与 renderD）。 */
+    if (step === 4) markBehind('c-body', 'c-mark', head);
     // a / b 两个方块：常驻节点，契约态之间**滑过去**（transform 由 .nt 补间）；
     // s4/s5 收拢居中、描边变橙把视线压到符号上。
     var aX = pick >= 0 ? 500 + cases[pick].dx[0] : 448;
@@ -3402,8 +3544,18 @@
     put(G, 'rect', 'd-src', {x:150, y:110, width:290, height:66, rx:12,
       fill: wrong ? 'rgba(239,77,77,.08)' : '#161a23',
       stroke: wrong ? '#ef4d4d' : '#2a3140'});
-    txt(G, 'd-src-t', {x:295, y:151, 'text-anchor':'middle', 'font-size':18,
-      'font-family':MONO, fill: wrong ? '#ef4d4d' : '#c9d1e0'}, '(a, b) => a < b');
+    var srcT = txt(G, 'd-src-t', {x:295, y:151, 'text-anchor':'middle', 'font-size':18,
+      'font-family':MONO, fill: wrong ? '#8d95a8' : '#c9d1e0'}, '(a, b) => a < b');
+    /* 反证划线（0.27.0）的**唯一消费者**：s0 先把错写法摆上来（完整、正常字色），
+       s1 判它错的那一拍，红笔从左往右划掉，同时字压暗一档。
+       为什么字不跟着换成红色：这一刻画面里已经有三处红（外框、input 的 tint、
+       后面的 false），再红一行字，四个红块互相抢，"哪一笔是新发生的"就看不见了；
+       字压到 #8d95a8、红只留给那条线，划线本身才是这一拍的动词（合成对比度
+       5.37:1，见 CSS .strike 边界③）。
+       划线挂在 d-rig 里：s3 管线右移配平时它跟着走，不会留在原地指向空气；
+       s1 之后每一步都重新声明（wrong 从 s1 起为真），所以到 s5 那行仍是划掉的
+       ——"旧写法被否掉"是持久状态，不是一次性动画。 */
+    if (wrong) strikeThrough(G, 'd-src-x', srcT);
     put(G, 'line', 'd-link', {x1:446, y1:143, x2:536, y2:143, stroke:'#2f3646', 'stroke-width':2});
     txt(G, 'd-link-t', {x:491, y:133, 'text-anchor':'middle', 'font-size':11,
       fill:'#5d6577'}, '求值');
@@ -4092,6 +4244,7 @@
   function openGate(i){
     if (gOpen >= 0) return;
     clearTimeout(gateClosing); gateEl.classList.remove('leaving');   // 别接着上一题的淡出
+    magClear();   // 磁吸迎手（0.27.0）：上一题留下的 translate 不许带给下一张卡
     var g = GATES[i], t = gateType(i), c = CARDS[t];
     try {
       gateHost.dataset.stepId = g.scene;          // 作答归到这个场景上
@@ -4694,6 +4847,79 @@
     delete el('bar-tip').dataset.on;
     delete el('bar-tip').dataset.seg;   // 离开即复位：下次进来气泡算"从无到有"，重弹一次
   });
+
+  /* ── 磁吸迎手（0.27.0，前沿做法：magnetic / proximity button）──────────────
+     指针进到门禁按钮外圈 --mag-r 的场里，按钮朝指针挪最多 --mag-pull；位移按
+     sin(π·d/r) 衰减：贴边 0、半程峰值、场缘回 0。指针从旁边掠过时，按钮"迎一下"
+     再自己回位；指针越过按钮中心时位移穿过 0 换向，所以它不会被"拽走"再硬弹。
+     五条口径：
+       ① 只写**独立 translate 属性**：`:active` 的 scale 是另一个属性，两者相乘，
+          互不顶掉；时长与缓动全在 CSS（--dur-mag + --ease-spring），JS 一个时长
+          都不碰——与 0.23.0 挤压落位、0.25.0 换位弧凸同一条分工。
+       ② 事件委托在 #gate 上：门禁卡片每次开题都重建内容，逐个按钮绑会随 DOM 重建
+          丢线；pointermove 每帧只扫**当前可见**的 .go（offsetWidth 为 0 的直接跳过，
+          通常 1–3 个）。
+       ③ 场半径从**盒边**算，不是从圆心：一颗 120×34 的按钮，四角离圆心已 62px，
+          从圆心量的话指针贴着边也进不了场。dx/dy 先减半宽半高再取模。
+       ④ 只认鼠标/笔，且不认减少动效 / 导出截图：触屏没有 hover 语义，磁吸在手指
+          底下只会变成"点不准"；关动效的人也不该看到东西自己挪。pointerType 为空
+          的合成事件按鼠标处理（CDP / 自动化走这一路）。
+       ⑤ **键盘路径一个字节都不碰**：focusin / pointerdown / pointerleave 即清位移，
+          Tab 到按钮上它原地不动。translate 不改布局盒、不改命中区（实测 rect 宽高
+          不变、点击落点仍按原盒判定），所以"迎手"永远不会让点击落空。
+     量场用**扣掉当前位移**的矩形：否则按钮迎过来 6px，场也跟着挪 6px，指针没动
+     按钮却会来回找位。上一帧的位移记在元素自己身上（`_mag`），几何就稳定了。 */
+  function magClear(){
+    Array.prototype.forEach.call(
+      gateEl.querySelectorAll('.gate-next .go, .act-row .go'), function(b){
+        if (b.style.translate) b.style.translate = '';
+        if (b.dataset.mag) delete b.dataset.mag;
+        b._mag = null;
+      });
+  }
+  function magMove(e){
+    if (window.__coursewareShotMode || mqReduce.matches ||
+        (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'pen')){
+      magClear(); return;
+    }
+    var rootCS = getComputedStyle(document.documentElement);
+    var R = parseFloat(rootCS.getPropertyValue('--mag-r')) || 34;
+    var P = parseFloat(rootCS.getPropertyValue('--mag-pull')) || 6;
+    var best = null, bestK = 0, bestX = 0, bestY = 0;
+    Array.prototype.forEach.call(
+      gateEl.querySelectorAll('.gate-next .go:not(:disabled), .act-row .go:not(:disabled)'),
+      function(b){
+        if (!b.offsetWidth) return;
+        var cur = b._mag || {x:0, y:0};
+        var r = b.getBoundingClientRect(), w = r.width, h = r.height;
+        var cx = r.left + w/2 - cur.x, cy = r.top + h/2 - cur.y;
+        var px = Math.max(0, Math.abs(e.clientX - cx) - w/2);
+        var py = Math.max(0, Math.abs(e.clientY - cy) - h/2);
+        var d = Math.sqrt(px*px + py*py);
+        if (d > R) return;
+        var k = Math.sin(Math.PI * Math.min(1, d / R));
+        if (k <= bestK) return;
+        var vx = e.clientX - cx, vy = e.clientY - cy;
+        var len = Math.sqrt(vx*vx + vy*vy) || 1;
+        best = b; bestK = k;
+        bestX = vx / len * P * k; bestY = vy / len * P * k;
+      });
+    Array.prototype.forEach.call(
+      gateEl.querySelectorAll('.gate-next .go, .act-row .go'), function(b){
+        if (b === best) return;
+        if (b.style.translate) b.style.translate = '';
+        if (b.dataset.mag) delete b.dataset.mag;
+        b._mag = null;
+      });
+    if (!best) return;
+    best.dataset.mag = '1';
+    best._mag = {x:bestX, y:bestY};
+    best.style.translate = bestX.toFixed(2) + 'px ' + bestY.toFixed(2) + 'px';
+  }
+  gateEl.addEventListener('pointermove', magMove);
+  gateEl.addEventListener('pointerleave', magClear);
+  gateEl.addEventListener('pointerdown', magClear);
+  gateEl.addEventListener('focusin', magClear);
 
   tick();
 })();

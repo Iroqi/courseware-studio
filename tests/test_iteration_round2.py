@@ -8624,3 +8624,549 @@ def test_trail_decode_band_reduced_motion_and_shot_terminals(full_lesson):
             f"{[r['txt'] for r in ds['rows']]}"
     finally:
         _kill(chrome)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 0.27.0 批注与迎手：荧光笔标记 / 反证划线 / 磁吸迎手
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_annotation_and_magnet_primitives_present():
+    """模板结构契约：0.27.0 三条原语的口径必须长在范本里（无浏览器也可锁）。
+
+    锁的是本轮量出来"为什么只能这么写"的边界：
+      · 九只新令牌真在 :root 解析结果里；`--mark-tilt` / `--strike-tilt` **故意不注册**
+        （静态几何读数，不参与补间，口径同 --cam-pan / --trail-r）；
+      · 荧光笔：斜度走**独立 rotate 属性**、transform 只留给 scaleX 入场；色带必须
+        insertBefore 到文字之前（SVG 绘制顺序 = 文档顺序），带宽/起点 / 高全从 bbox 现推；
+      · 反证划线：斜率算进端点（水平 <line> 的 fill-box 高为 0，rotate 没有稳定旋转盒），
+        append 在文字之后（压在最上层），pathLength=1 的归一单位与 .draw 同族；
+        文字压暗不换红（红线是判定、字是证据，合成对比度由下一条用例核）；
+      · 磁吸：sin(πd/r) 从**盒边**量距、扣掉上一帧位移（否则场跟着按钮挪）、
+        只认鼠标/笔、减少动效与截图模式直接不写、键盘路径 focusin 即清；
+      · reduced-motion 两行兜底各关各的对象，且都写在基础规则之后（磁吸那条要带
+        `#gate` 抬特异度——基础规则在 §④，源序在本块之后）。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    root = re.search(r":root\{([\s\S]*?)\n  \}", css).group(1)
+
+    # ⓪ 注释配对 + 九只新令牌
+    assert _css_comment_problems(html) == [], _css_comment_problems(html)
+    toks = {
+        "--mark-ink": r"var\(--key-soft\)",
+        "--mark-tilt": r"-.6deg",
+        "--dur-mark": r"\.42s",
+        "--strike-ink": r"#ef4d4d",
+        "--strike-tilt": r"1\.4deg",
+        "--dur-strike": r"\.34s",
+        "--mag-r": r"34px",
+        "--mag-pull": r"6px",
+        "--dur-mag": r"\.34s",
+    }
+    for tok, val in toks.items():
+        m = re.search(re.escape(tok) + r":([^;]+);", root)
+        assert m, f"{tok} 没长在 :root 里（被注释语法吃掉过一次，见 _css_comment_problems）"
+        assert re.fullmatch(val, m.group(1).strip()), f"{tok} 的读数变了：{m.group(1)!r}"
+    for tok in ("--mark-tilt", "--strike-tilt"):
+        assert f"@property {tok}" not in html, \
+            f"{tok} 是静态几何读数，不参与补间（注册了反而会被逐帧插值，口径同 --cam-pan）"
+
+    # ① 荧光笔：独立 rotate + 只演 scaleX + 量出来的几何
+    mark = re.search(r"\.mark\{([\s\S]*?)\}", css).group(1)
+    assert "rotate:var(--mark-tilt)" in mark, "斜度走独立 rotate：transform 要留给 scaleX 入场"
+    assert "transform:rotate" not in mark, \
+        "把 rotate 塞进 transform 的 keyframes，to 端就会把它丢掉（独立属性不参与补间）"
+    assert "animation:markIn var(--dur-mark) var(--ease-out) backwards" in mark
+    assert "fill:var(--mark-ink)" in mark and "pointer-events:none" in mark
+    assert "transition:" not in mark, \
+        ".mark 自带 nt 类：这里再写 transition 就把 .nt 的十七项清单整条顶掉（老账）"
+    assert "@keyframes markIn{from{transform:scaleX(0)}}" in css, \
+        "只写 from：to 取元素自身（transform:none），减动效 / 导出都落在整条色带"
+    mb = html.split("function markBehind(parent, key, node){")[1].split("\n  }")[0]
+    assert "if (r.nextElementSibling !== node) h.insertBefore(r, node);" in mb, \
+        "已经贴在文字前就不要再插：DOM 插入会重挂节点，markIn 会在同一句上重放"
+    assert "bb.height * .55" in mb and "bb.width + 8" in mb and "bb.height * .45" in mb, \
+        "带宽/起点从 bbox 现推：手填坐标换句长就错位"
+    assert "getBBox" in mb and "Math.random" not in html
+    for body in (mb,):
+        assert "setTimeout" not in body and "setInterval" not in body, \
+            "原语不许自己排程：画面是 (scene, step) 的纯函数"
+
+    # ② 反证划线：斜率进端点、归一 dash、压在文字上、文字压暗
+    st = re.search(r"\.strike\{([\s\S]*?)\}", css).group(1)
+    assert "stroke:var(--strike-ink)" in st and "fill:none" in st
+    assert "stroke-dasharray:1 1" in st and "stroke-dashoffset:0" in st
+    assert "animation:strikeIn var(--dur-strike) var(--ease-out) backwards" in st
+    assert "pointer-events:none" in st and "transition:" not in st
+    assert "@keyframes strikeIn{from{stroke-dashoffset:1}}" in css, \
+        "终态写在元素上：切掉动画仍是完整的一笔，不是划到一半"
+    sb = html.split("function strikeThrough(parent, key, node){")[1].split("\n  }")[0]
+    assert "Math.tan(Math.abs(deg) * Math.PI / 180) * (x1 - x0) / 2" in sb, \
+        "水平 line 的 fill-box 高为 0：斜率必须算进端点，不能交给 rotate"
+    assert "bb.height * .52" in sb and "pathLength:1" in sb
+    assert "Math.max(2, Math.round(bb.height * .09 * 10) / 10)" in sb
+    assert "if (n.parentNode !== h) h.appendChild(n);" in sb, \
+        "首创建时 put() 已追加在文字之后；每步 append 会摘下再插回，strikeIn 会重放"
+    assert "setTimeout" not in sb and "setInterval" not in sb
+
+    # ③ 消费者：一琥珀一红，各走各的路
+    assert "var head = txt('c-body', 'c-head'" in html
+    assert "if (step === 4) markBehind('c-body', 'c-mark', head);" in html, \
+        "荧光笔只在 s4 出现：s5 是新结论，旧标记必须被 sweep 收掉"
+    assert "var srcT = txt(G, 'd-src-t'" in html
+    assert "if (wrong) strikeThrough(G, 'd-src-x', srcT);" in html, \
+        "s1 判错就开始划，s5 仍要划着——旧写法被否掉是持久状态"
+    assert "fill: wrong ? '#8d95a8' : '#c9d1e0'" in html, \
+        "字压暗、不换红：红线是判定，字是证据（见对比度用例）"
+
+    # ④ 磁吸：sin 场、盒边量距、扣位移、三道路径闸、委托 + 清理
+    mag = html.split("function magMove(e){")[1].split("\n  }")[0]
+    assert "Math.sin(Math.PI * Math.min(1, d / R))" in mag, \
+        "线性衰减在圆心有尖点；sin 在两端口都归零，指针穿过按钮不会抖"
+    assert "Math.abs(e.clientX - cx) - w/2" in mag and "Math.abs(e.clientY - cy) - h/2" in mag, \
+        "场半径从盒边量：从圆心量的话，120×34 的按钮四角就已经出圈"
+    assert "var cur = b._mag || {x:0, y:0};" in mag and "r.left + w/2 - cur.x" in mag, \
+        "量场要扣掉当前位移：否则按钮迎 6px、场也挪 6px，指针没动它却来回找位"
+    assert "window.__coursewareShotMode || mqReduce.matches" in mag
+    assert "e.pointerType !== 'mouse' && e.pointerType !== 'pen'" in mag, \
+        "触屏没有 hover 语义：磁吸在手指底下只会变成点不准"
+    assert "best.dataset.mag = '1';" in mag and \
+           "best.style.translate = bestX.toFixed(2) + 'px ' + bestY.toFixed(2) + 'px';" in mag, \
+        "只写独立 translate：:active 的 scale 是另一个属性，两者相乘"
+    mc = html.split("function magClear(){")[1].split("\n  }")[0]
+    assert "b.style.translate = ''" in mc and "b._mag = null" in mc
+    for evline in ("gateEl.addEventListener('pointermove', magMove);",
+                   "gateEl.addEventListener('pointerleave', magClear);",
+                   "gateEl.addEventListener('pointerdown', magClear);",
+                   "gateEl.addEventListener('focusin', magClear);"):
+        assert evline in html, f"磁吸接线缺一条：{evline}"
+    assert "magClear();   // 磁吸迎手（0.27.0）：上一题留下的 translate 不许带给下一张卡" in html
+    assert "transition:filter var(--dur-fast)," in css and \
+           "translate var(--dur-mag) var(--ease-spring)" in css, \
+        "两个属性写进同一条 transition 简写：另写一条会把 filter 那档整个顶掉"
+    go_block = re.search(r"\.gate-next \.go,\.act-row \.go\{([\s\S]*?)\}", css).group(1)
+    assert go_block.count("transition:") == 1, "transition 只许一条简写"
+
+    # ⑤ reduced-motion：两行兜底落在基础规则之后；磁吸那条要抬特异度
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{([\s\S]*?)\n  \}",
+                   css).group(1)
+    assert ".mark,.strike{animation:none}" in rm
+    assert "#gate .gate-next .go,#gate .act-row .go{transition:none}" in rm, \
+        "基础规则写在 §④、源序在本块之后：不抬 #gate 就被后来者顶掉（0.15.0 老账）"
+    assert css.index(".gate-next .go,.act-row .go{background") > \
+           css.index("#gate .gate-next .go,#gate .act-row .go{transition:none"), \
+        "基础规则源序在兜底之后：这正是必须抬 #gate 的原因（朴素选择器会被后来者顶掉）"
+    assert css.index(".mark{transform-box") < css.index(".mark,.strike{animation:none}")
+    assert "var(--dur-mark)" not in rm and "var(--dur-strike)" not in rm and \
+           "var(--dur-mag)" not in rm, \
+        "兜底里不许出现「补一个更短的时长」——那是在演一次更快的动效，不是不演"
+
+
+def test_marker_band_contrast_by_composition():
+    """荧光笔的墨量只能这么选：按 §8 的合成口径在 python 里算，不看截图平均亮度。
+
+    琥珀字 #f5a623 衬在 .14 的琥珀带上是 6.09:1（舞台顶）/ 6.64:1（--panel），
+    仍在正文 4.5 线上；**同一支红字 #ef4d4d 只剩 3.43 / 3.74**——所以荧光笔只许
+    落在琥珀句上，红字那一路必须换成"划线 + 压暗"（.strike）。
+    划线本身是图形（3:1 档）：红线上衬红 tint 盒（rgba(239,77,77,.08) over --panel）
+    是 4.48:1；压暗后的字 #8d95a8 在同一盒上是 5.37:1，仍是正文读数。
+    """
+    html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    root = re.search(r":root\{([\s\S]*?)\n  \}", css).group(1)
+
+    def _tok(name):
+        return re.search(re.escape(name) + r":([^;]+);", root).group(1).strip()
+
+    def _rgb(text):
+        h = text.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    def _lin(c):
+        c /= 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    def _lum(rgb_):
+        r, g, b = (_lin(c) for c in rgb_)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    def _cr(a, b):
+        hi, lo = max(a, b), min(a, b)
+        return (hi + 0.05) / (lo + 0.05)
+
+    def _over(fg, alpha, bg):
+        return tuple(f * alpha + b * (1 - alpha) for f, b in zip(fg, bg))
+
+    amber = _rgb(_tok("--key"))
+    soft = re.fullmatch(r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)", _tok("--key-soft"))
+    assert soft, f"--key-soft 不再是可解析的 rgba：{_tok('--key-soft')!r}"
+    band_ink = tuple(int(soft.group(i)) for i in (1, 2, 3))
+    alpha = float(soft.group(4))
+    assert band_ink == amber, \
+        "带色借的是主色同一支墨：荧光笔不是第二种黄（否则两种黄会互相打架）"
+    assert 0.10 <= alpha <= 0.18, f"墨量 {alpha} 越界：太浓压字，太淡看不见"
+    assert _tok("--mark-ink") == "var(--key-soft)"
+
+    stage = re.search(r"\.stage\{[^}]*background:linear-gradient\(180deg,(#\w{6}) 0%,"
+                      r"var\(--panel\) 55%,(#\w{6}) 100%\)", css)
+    assert stage, "舞台渐变读不到：这一条要求从 CSS 现取底色，不许在测试里抄 hex"
+    bases = {"upper": _rgb(stage.group(1)), "panel": _rgb(_tok("--panel")),
+             "lower": _rgb(stage.group(2))}
+    for name, base in bases.items():
+        bg = _lum(_over(band_ink, alpha, base))
+        got = _cr(_lum(amber), bg)
+        assert got >= 5.5, f"琥珀字衬 {name} 的荧光带只有 {got:.3f}:1（实测 ≥6.09）"
+
+    red = _rgb(_tok("--strike-ink"))
+    bgs = {name: _lum(_over(band_ink, alpha, base)) for name, base in bases.items()}
+    worst_red = min(_cr(_lum(red), v) for v in bgs.values())
+    assert worst_red < 4.5, \
+        f"红字配亮带本就不该过线（实测最亮 3.74）：若现在过了 {worst_red:.3f}，说明色带墨量被改了，" \
+        "关于'红字只能划线不能打底'的那条边界要重算"
+
+    tint = re.search(r"fill: wrong \? 'rgba\(239,77,77,([\d.]+)\)' : '#161a23'", html)
+    assert tint, "renderD 的红 tint 盒读不到：划线/压暗的合成底色就不成立"
+    box = _over(red, float(tint.group(1)), _rgb(_tok("--panel")))
+    assert _cr(_lum(red), _lum(box)) >= 3.0, "红线是图形，压在同色 tint 盒上要过 3:1"
+    assert _cr(_lum(_rgb("#8d95a8")), _lum(box)) >= 4.5, \
+        "压暗后的字仍是正文：合成对比度必须过 4.5:1（实测 5.37）"
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+def test_marker_band_is_measured_behind_key_line(full_lesson):
+    """荧光笔：量出来的带子垫在 s4 关键句后面，只演一次 scaleX，s5 收掉。
+
+    三条实测：
+      · 几何全部跟着 bbox 走（band 左缘 = 文本 x−4、宽 = 文本宽+8、高 = 文本高×.55、
+        起点在文本 y+45% 处）——不是手填坐标，换字号 / 换句长都不会错位；
+      · DOM 顺序在文字**之前**（previousElementSibling 是公式行），且带子自己没有 .in：
+        两层入场叠一起会互相糊掉（0.15.0 那两条消费者的同一课）；
+      · 动画 from 是 scaleX(0)、终态 transform:none，rotate 是独立属性 -0.6deg——
+        半程采样得到 0<a<1，跑完落回整条带。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "mark27")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-4', 4)")
+        st = json.loads(ev("""(function(){
+          var t = document.getElementById('c-head'), b = document.getElementById('c-mark');
+          if (!t || !b) return JSON.stringify({missing:true});
+          var tb = t.getBBox(), bb = b.getBBox();
+          var a = b.getAnimations()[0];
+          var start = null, mid = null;
+          if (a){
+            a.pause();
+            a.currentTime = 0;
+            var m0 = getComputedStyle(b).transform.match(/matrix\\(([^)]+)\\)/);
+            start = m0 ? +m0[1].split(',')[0] : null;
+            a.currentTime = 105;
+            var m = getComputedStyle(b).transform.match(/matrix\\(([^)]+)\\)/);
+            mid = m ? +m[1].split(',')[0] : null;
+          }
+          return JSON.stringify({
+            tb:[tb.x,tb.y,tb.width,tb.height], bb:[bb.x,bb.y,bb.width,bb.height],
+            start:start, mid:mid, rot:getComputedStyle(b).rotate, fill:getComputedStyle(b).fill,
+            cls:b.getAttribute('class'), prev:b.previousElementSibling.id,
+            bi:Array.prototype.indexOf.call(b.parentNode.children, b),
+            ti:Array.prototype.indexOf.call(b.parentNode.children, t),
+            anims:b.getAnimations().map(function(x){ return x.animationName; })});
+        })()"""))
+        assert not st.get("missing"), "s4 没长出荧光笔标记"
+        tb, bb = st["tb"], st["bb"]
+        assert st["prev"] == "c-formula" and st["bi"] < st["ti"], \
+            f"色带必须画在文字之前：{st['prev']} / {st['bi']} vs {st['ti']}"
+        assert st["cls"] == "nt mark", f"带子不许再挂入场类（两层入场互相糊）：{st['cls']}"
+        assert abs(bb[0] - (tb[0] - 4)) <= 0.6, f"左缘 = 文本 x−4：{bb[0]} vs {tb[0]}"
+        assert abs((bb[0] + bb[2]) - (tb[0] + tb[2] + 4)) <= 0.6, \
+            f"右缘 = 文本右缘 +4：{bb[0] + bb[2]} vs {tb[0] + tb[2]}"
+        assert abs(bb[3] - tb[3] * .55) <= 0.6, f"带高 = 文本高 ×.55：{bb[3]} vs {tb[3]}"
+        lo, hi = tb[1] + tb[3] * .38, tb[1] + tb[3] * .55
+        assert lo <= bb[1] <= hi, f"带子落在字的下半格：y={bb[1]}，文本 {tb[1]}..{tb[1]+tb[3]}"
+        assert st["start"] is not None and st["start"] < 0.05, \
+            f"入场必须从 scaleX(0) 长出来：start={st['start']}"
+        assert 0 < st["mid"] < 0.9, f"半程采样应在 (0,1) 之间：mid={st['mid']}"
+        assert st["rot"] == "-0.6deg", f"斜度是独立 rotate，不参与补间：{st['rot']}"
+        assert "0.14" in st["fill"], f"墨色 = --key-soft 的 .14 档：{st['fill']}"
+        assert st["anims"] == ["markIn"], f"只有 markIn 一条，不许叠 .in：{st['anims']}"
+
+        # 跑完 = 整条带（终态写在元素自己身上）
+        ev("(function(){var a=document.getElementById('c-mark').getAnimations()[0];"
+           "if(a){a.finish();}})()")
+        full = json.loads(ev("""(function(){var b=document.getElementById('c-mark');
+          return JSON.stringify({tf:getComputedStyle(b).transform,
+            w:b.getBBox().width});})()"""))
+        assert full["tf"] == "none", f"终态 transform:none：{full['tf']}"
+        assert abs(full["w"] - (tb[2] + 8)) <= 0.6, "跑完仍是整条带宽"
+
+        # s5 收掉；s0/s1 从未出现
+        ev("window.__jump('seg-4', 5)")
+        assert ev("!document.getElementById('c-mark')"), "s5 是新结论：旧标记必须被 sweep 收掉"
+        ev("window.__jump('seg-4', 1)")
+        assert ev("!document.getElementById('c-mark')"), "s1 的契约态不该有结论标记"
+        ev("window.__jump('seg-4', 0)")
+        assert ev("!document.getElementById('c-mark')"), "s0 是引入句，不该有标记"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+def test_strike_line_draws_over_wrong_comparator(full_lesson):
+    """反证划线：s1 判错那一拍从左往右划掉，s3 跟着管线走，s5 仍划着。
+
+    量的是四条：
+      · 红线端点按 --strike-tilt 算斜率（(y2−y1)/(x2−x1) ≈ tan 1.4°），中心落在
+        文本 bbox 的 52% 处——不是 rotate 出来的"大概位置"；
+      · 归一单位与 .draw 同族（pathLength=1、dasharray 1 1），半程采样 offset 在
+        (0,1) 之间、跑完为 0；线宽 max(2, bbox 高 ×.09)；
+      · 文档顺序在文字**之后**（压在最上层），父层是 d-rig（s3 右移配平时一起走）；
+      · 文字压暗到 #8d95a8，红色只留给线。
+    """
+    chrome, ev, _send = _cdp(full_lesson, "strike27")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-5', 1)")
+        st = json.loads(ev("""(function(){
+          var t = document.getElementById('d-src-t'), s = document.getElementById('d-src-x');
+          if (!t || !s) return JSON.stringify({missing:true});
+          var tb = t.getBBox();
+          var a = s.getAnimations()[0], off = null;
+          if (a){ a.pause(); a.currentTime = 170;
+                  off = parseFloat(getComputedStyle(s).strokeDashoffset); }
+          return JSON.stringify({
+            tb:[tb.x,tb.y,tb.width,tb.height],
+            xy:[+s.getAttribute('x1'),+s.getAttribute('y1'),
+                +s.getAttribute('x2'),+s.getAttribute('y2')],
+            w:s.getAttribute('stroke-width'), path:s.getAttribute('pathLength'),
+            dash:getComputedStyle(s).strokeDasharray, off:off,
+            fill:getComputedStyle(t).fill, stroke:getComputedStyle(s).stroke,
+            parent:s.parentNode.id,
+            si:Array.prototype.indexOf.call(t.parentNode.children, s),
+            ti:Array.prototype.indexOf.call(t.parentNode.children, t),
+            anims:s.getAnimations().map(function(x){ return x.animationName; })});
+        })()"""))
+        assert not st.get("missing"), "s1 判错后没长出划线"
+        x1, y1, x2, y2 = st["xy"]
+        tb = st["tb"]
+        slope = (y2 - y1) / (x2 - x1)
+        assert abs(slope - math.tan(math.radians(1.4))) <= 0.0015, \
+            f"斜率 = tan(--strike-tilt 1.4°)：{slope:.5f}"
+        assert (y1 + y2) / 2 == pytest.approx(tb[1] + tb[3] * .52, abs=0.5), \
+            "线心落在文本 bbox 的 52% 处（横跨字身，不是下划线）"
+        assert x1 <= tb[0] and x2 >= tb[0] + tb[2], "红线要出到字外一点，才像一笔划过去"
+        assert st["path"] == "1" and st["dash"].replace(" ", "") == "1px,1px", \
+            f"归一单位与 .draw 同族：pathLength={st['path']} dash={st['dash']}"
+        assert 0 < st["off"] < 0.9, f"半程采样应在 (0,1) 之间：{st['off']}"
+        assert st["w"] == "2", f"两行字高 ~21px 时线宽取 2：{st['w']}"
+        assert st["stroke"] == "rgb(239, 77, 77)", f"划线是错误红：{st['stroke']}"
+        assert st["fill"] == "rgb(141, 149, 168)", f"文字压暗不换红：{st['fill']}"
+        assert st["parent"] == "d-rig" and st["si"] > st["ti"], \
+            f"划线挂在 d-rig 里、压在文字之后：{st['parent']} / {st['si']} vs {st['ti']}"
+        assert st["anims"] == ["strikeIn"], f"只有 strikeIn：{st['anims']}"
+
+        ev("(function(){var a=document.getElementById('d-src-x').getAnimations()[0];"
+           "if(a){a.finish();}})()")
+        assert ev("parseFloat(getComputedStyle(document.getElementById('d-src-x'))"
+                  ".strokeDashoffset)") == 0, "跑完 = 完整的一笔（终态在元素自己身上）"
+
+        # s3 管线右移配平，划线跟着 d-rig 走；s5 仍划着
+        ev("window.__jump('seg-5', 3)")
+        s3 = json.loads(ev("""(function(){var s=document.getElementById('d-src-x');
+          var g=document.getElementById('d-rig');
+          return JSON.stringify({g:g.getAttribute('transform'),
+            x1:+s.getAttribute('x1'), x2:+s.getAttribute('x2'),
+            off:getComputedStyle(s).strokeDashoffset});})()"""))
+        assert s3["g"] == "translate(0,0)", f"s3 右段长出后整条管线归位：{s3['g']}"
+        assert s3["x1"] == pytest.approx(x1, abs=0.01) and \
+               s3["x2"] == pytest.approx(x2, abs=0.01), "划线是组内局部坐标：跟着管线走，不另算"
+        assert float(s3["off"].replace("px", "")) == 0
+        ev("window.__jump('seg-5', 5)")
+        assert ev("!!document.getElementById('d-src-x')"), \
+            "s5 给出正确写法，旧写法仍划着——'被否掉'是持久状态"
+
+        ev("window.__jump('seg-5', 0)")
+        assert ev("!document.getElementById('d-src-x')"), "s0 只是把错写法摆出来，还没判错"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+def test_magnetic_gate_button_follows_pointer(full_lesson):
+    """磁吸迎手：盒边 17px 处峰值 6px、贴边 0、场外不动；触屏与焦点一律不动。
+
+    量的是这套场：
+      · 指针在**盒边**外 17px（= --mag-r/2）时反馈最强：translate 6px、方向朝指针；
+      · 贴边 2px 时 sin(π·2/34)≈.18 → 约 1.1px；再退到 40px（>34）就完全没有；
+      · 几何按**扣掉当前位移**的矩形量：按钮迎 6px 后指针不动，值不会自己往回找；
+      · translate 不改布局盒：rect 宽高不变，点击照常落在按钮上（键盘/触屏也清位）。
+    """
+    chrome, ev, send = _cdp(full_lesson, "mag27")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-6', 0)")
+        _gate_open(ev, "#gate-seq")
+        time.sleep(0.8)   # 卡片入场落定后再量，避免把入场位移算进磁场
+        base = json.loads(ev("""(function(){var b=document.getElementById('seq-submit');
+          var r=b.getBoundingClientRect();
+          return JSON.stringify({l:r.left,t:r.top,w:r.width,h:r.height,
+            cy:r.top+r.height/2,r:r.left+r.width});})()"""))
+        assert base["w"] > 0, "序列题的提交键没露面"
+
+        def read():
+            return json.loads(ev("""(function(){var b=document.getElementById('seq-submit');
+              var r=b.getBoundingClientRect();
+              return JSON.stringify({tr:b.style.translate||'', mag:b.dataset.mag||'',
+                w:r.width,h:r.height,cx:r.left+r.width/2,cy:r.top+r.height/2});})()"""))
+
+        def nums(tr):
+            vals = [float(x) for x in re.findall(r"-?[\d.]+", tr)]
+            return (vals + [0.0, 0.0])[:2]
+
+        # ① 峰值：盒边外 17px
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.5)
+        peak = read()
+        px, py = nums(peak["tr"])
+        assert peak["mag"] == "1", f"最近的按钮要标 data-mag：{peak}"
+        assert px == pytest.approx(6, abs=0.5) and abs(py) <= 0.4, \
+            f"sin 场半程峰值 6px、方向朝指针：{peak['tr']}"
+        assert peak["w"] == pytest.approx(base["w"], abs=0.6), \
+            "translate 不改布局盒：宽高必须与静止时一致"
+
+        # ② 贴边：sin(π·2/34)≈.18 → 约 1.1px
+        _mouse(send, base["r"] + 2, base["cy"])
+        time.sleep(0.45)
+        edge = nums(read()["tr"])[0]
+        assert 0.6 <= edge <= 1.6, f"贴边只迎一点点：{edge}px"
+
+        # ③ 场外：40px > --mag-r，清零
+        _mouse(send, base["r"] + 40, base["cy"])
+        time.sleep(0.45)
+        far = read()
+        assert far["tr"] == "" and far["mag"] == "", f"场外必须完全回位：{far}"
+
+        # ④ 触屏：同一次 pointermove 换成 pointerType=touch，直接清位不启动
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.45)
+        assert read()["tr"] != ""
+        ev("""(function(){document.getElementById('gate').dispatchEvent(
+          new PointerEvent('pointermove', {bubbles:true, pointerType:'touch',
+            clientX:1000, clientY:400}));})()""")
+        assert read()["tr"] == "", "触屏没有 hover 语义：不允许磁吸挪按钮"
+
+        # ⑤ 键盘：焦点进来那一刻清位（Tab 到的按钮必须原地不动）
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.45)
+        assert read()["tr"] != ""
+        ev("(function(){var b=document.getElementById('seq-submit');"
+           "b.blur(); b.focus();})()")
+        assert read()["tr"] == "", "focusin 必须清位移：键盘路径一个字节都不碰"
+
+        # ⑥ 点击照常：迎手期间在按钮当前中心按一下，click 真的落到按钮上
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.45)
+        cur = read()
+        ev("window.__hits = 0; document.getElementById('seq-submit')"
+           ".addEventListener('click', function(){ window.__hits++; });")
+        send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": cur["cx"],
+            "y": cur["cy"], "button": "left", "buttons": 1, "clickCount": 1})
+        send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": cur["cx"],
+            "y": cur["cy"], "button": "left", "buttons": 0, "clickCount": 1})
+        assert ev("window.__hits") == 1, "磁吸是纯视觉位移：点击必须照常落到按钮上"
+    finally:
+        _kill(chrome)
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+def test_annotation_magnet_reduced_motion_and_export(full_lesson):
+    """减少动效与导出截图：批注关动画、落终态；磁吸根本不写位移。
+
+    三条口径与 0.15–0.26 的老账完全一致：
+      · 荧光笔关掉 animation 后仍是**整条带**（transform:none，rotate 不参与补间，
+        -0.6deg 还在）——内容不依赖动效，关掉后每一帧仍是同一张正确定格；
+      · 划线关掉后 dashoffset 落回 0（完整一笔），文字照旧压暗；
+      · 磁吸在 mqReduce / __coursewareShotMode 下**一个字节都不写**：不是"补一个
+        0.01ms 的时长"，而是根本不启动（口径同 0.26.0 的拖尾让拍归零）；
+      · 导出页的一刀切（transition/animation:none）与减少动效落同一张定格。
+    """
+    chrome, ev, send = _cdp(full_lesson, "annotRM")
+    try:
+        ev(_SEEK)
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+
+        ev("window.__jump('seg-4', 4)")
+        rm = json.loads(ev("""(function(){
+          var b = document.getElementById('c-mark');
+          if (!b) return JSON.stringify({missing:true});
+          var r = b.getBBox();
+          return JSON.stringify({anims:b.getAnimations().length,
+            name:getComputedStyle(b).animationName,
+            tf:getComputedStyle(b).transform, rot:getComputedStyle(b).rotate,
+            w:r.width});})()"""))
+        assert not rm.get("missing")
+        assert rm["anims"] == 0 and rm["name"] == "none", \
+            f"减少动效下 markIn 必须不跑：{rm}"
+        assert rm["tf"] == "none" and rm["rot"] == "-0.6deg", \
+            f"关动画落整条带，斜度是独立属性、照常保留：{rm}"
+        full_w = rm["w"]
+
+        ev("window.__jump('seg-5', 1)")
+        rm2 = json.loads(ev("""(function(){
+          var s = document.getElementById('d-src-x');
+          return JSON.stringify({anims:s.getAnimations().length,
+            name:getComputedStyle(s).animationName,
+            off:getComputedStyle(s).strokeDashoffset});})()"""))
+        assert rm2["anims"] == 0 and rm2["name"] == "none", \
+            f"减少动效下 strikeIn 必须不跑：{rm2}"
+        assert float(rm2["off"].replace("px", "")) == 0, \
+            f"关掉动画落完整一笔（终态在元素上）：{rm2['off']}"
+
+        # 磁吸在减少动效下不启动
+        ev("window.__jump('seg-6', 0)")
+        _gate_open(ev, "#gate-seq")
+        time.sleep(0.8)
+        base = json.loads(ev("""(function(){var b=document.getElementById('seq-submit');
+          var r=b.getBoundingClientRect();
+          return JSON.stringify({r:r.left+r.width, cy:r.top+r.height/2});})()"""))
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.45)
+        assert ev("document.getElementById('seq-submit').style.translate || ''") == "", \
+            "prefers-reduced-motion：磁吸一个字节都不写（不是关时长）"
+        assert ev("document.getElementById('seq-submit').dataset.mag || ''") == ""
+        send("Emulation.setEmulatedMedia", {"features": []})
+
+        # 正常模式下先让磁吸真的挪一次，证明后面的"不动"不是没接线
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.5)
+        assert ev("document.getElementById('seq-submit').style.translate || ''") != "", \
+            "清除 mqReduce 之后磁吸要能工作（否则这一条测不到东西）"
+
+        # 导出那一刀 + __coursewareShotMode
+        ev("(function(){var st = document.createElement('style'); st.id = 'shotcut27';"
+           " st.textContent = '*,*::before,*::after{transition:none!important;"
+           "animation:none!important}'; document.head.appendChild(st);})()")
+        ev("window.__coursewareShotMode = true")
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.3)
+        assert ev("document.getElementById('seq-submit').style.translate || ''") == "", \
+            "导出截图模式：磁吸不写位移（每帧冷启动，挪一下等于每一帧都不一样）"
+
+        ev("window.__jump('seg-4', 4)")
+        shot = json.loads(ev("""(function(){
+          var b = document.getElementById('c-mark');
+          return JSON.stringify({anims:b.getAnimations().length,
+            tf:getComputedStyle(b).transform, rot:getComputedStyle(b).rotate,
+            w:b.getBBox().width});})()"""))
+        assert shot["anims"] == 0 and shot["tf"] == "none", \
+            f"导出定格不许有半截补间：{shot}"
+        assert abs(shot["w"] - full_w) <= 0.5, "导出与减动效落同一张定格（整条带）"
+
+        ev("window.__jump('seg-5', 1)")
+        shot2 = json.loads(ev("""(function(){
+          var s = document.getElementById('d-src-x');
+          return JSON.stringify({anims:s.getAnimations().length,
+            off:getComputedStyle(s).strokeDashoffset});})()"""))
+        assert shot2["anims"] == 0 and float(shot2["off"].replace("px", "")) == 0, \
+            f"导出定格上划线是完整的一笔：{shot2}"
+    finally:
+        _kill(chrome)

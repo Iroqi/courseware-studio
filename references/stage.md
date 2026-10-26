@@ -184,6 +184,9 @@ var CAM = { 'seg-2': [ FULL, [230,61,580,120], [300,72,460,110], … ] };
 | `.trail`（0.26.0） | 拖尾跟随（`transition-delay:calc(var(--trail-step) * var(--trail-r))`，只写长档不重述简写；rank 由行程现推） | 主体先走、从属者各晚一格：三张卡里走得最远的那张**先动**（12 项动画原则里的 overlapping action / follow-through，0.25.0 那条弧凸的补集——弧凸管"怎么走"，这条管"谁先动"） |
 | 逐字解码（0.26.0，`decodeArm` / `decodeWrite`） | 术语徽标按**句内进度**从噪声里一格一格定住（噪声由 (目标字, 下标, 进度) 现算、无随机数；`textLength` + `lengthAdjust=spacingAndGlyphs` 钉住推进量；`--decode-lead` 让整词提前落定） | 这个词**正在被推导出来**：旁白念到"先转成字符串"时，观众看着那五个字被逐个认出来 |
 | `.bar[data-band]` + `--band`（0.26.0） | 越界橡皮筋（拖过条的端点时气泡按 `cap·x/(x+soft)` 横向溢出、`--dur-band` + `--ease-spring` 回弹，端头那一圈 `.bar::after` 渐变亮一档；`currentTime` 仍夹在 `[0,1]`） | 手指拖到条头了：**给手感不给时间**——"到头了"这件事画在条上，播放头与时间轴一步都不许多走 |
+| `.mark` + `markBehind()`（0.27.0） | 荧光笔标记（色带按目标文本 `getBBox()` 现量：宽+8 / 高×.55 / 起点 y+45%；`insertBefore` 到文字之前；斜度走独立 `rotate`，`markIn` 只演 `scaleX(0)`） | 这一句**现在**是结论：旁白说到"只看符号"的同一拍，一道琥珀从句子下沿抹过去（一次性标记，s5 收掉） |
+| `.strike` + `strikeThrough()`（0.27.0） | 反证划线（斜率按 `--strike-tilt` 算进端点，`pathLength=1` + `dasharray 1 1` 的 `strikeIn`；文字同时压到 #8d95a8） | 这个写法**已经被否掉**：判错那一拍红笔从左往右划掉，之后每一步都划着——旧结论不是"换个颜色"而是被划掉 |
+| 磁吸迎手（0.27.0，`magMove` / `magClear`） | 指针在按钮盒边外 `--mag-r` 的场里时，按钮按 `sin(πd/r)` 朝手挪最多 `--mag-pull`；只写独立 `translate`，时长/缓动在 CSS | 门禁按钮在按下之前就**迎手**："它在那里、可以按"这件事不需要靠 hover 变色才成立（触屏 / 键盘 / 减动效一律不动） |
 
 建档即入场，所以**要动的东西在它该动的那一步才建档**：早一步建好压着
 `opacity:0`，动画会在没人看见的那一步跑完，轮到时只剩淡入。
@@ -1293,7 +1296,63 @@ getComputedStyle 读（口径同 --par-far），数值在代码里只出现一�
 上踩过同一个坑的 transition 孪生兄弟），橡皮筋那两行必须是 `transition:none`；写短一档
 等于给晕动用户演一次更快的动效。
 
-**别这么干（0.23.0 实测否决）**：① **`box-shadow` 用在 SVG 图元上**——上面那条对拍是这一族的
+**批注与迎手（0.27.0 三条一组）**：0.26.0 把"什么时候出现"补齐之后，画面里还剩一种
+信息只靠颜色承载——**哪一句是结论、哪一句已经被否掉**。琥珀色说"重要"却不是一个动作；
+红色说"错"可错写法还完整地立着。前沿批注式排版（highlighter annotation / red-pen
+strike-through）和门禁按钮的磁吸迎手（magnetic button）给的启发是同一条：**让标记成为
+动词**。三条都在真实 Chrome（CDP）里量过：
+
+- **荧光笔标记（`.mark` + `markBehind()`，结论被"划"出来）**：范本消费者是 seg-4 s4 的
+  结论行「只看符号：负 / 0 / 正，数值本身不参与」。色带**从目标文本的 `getBBox()` 现量**：
+  实测文本 364.88×22.79 → 带 372.87×12.09（宽 +8、高 ×.55、起点 y+45%、左缘 x−4），
+  换字号 / 换句长都不用改坐标。四条口径：① **色带必须 `insertBefore` 到文字节点之前**——
+  SVG 没有 z-index，绘制顺序就是文档顺序；盖在字上等于把字色与带色按 alpha 再混一次，
+  整行糊成一块平色；② **只有琥珀字配亮带**：按 §8 合成口径，琥珀 #f5a623 衬 .14 琥珀带
+  仍是 6.09:1（舞台顶）/ 6.64:1（`--panel`），同一支红 #ef4d4d 只剩 3.43 / 3.74，跌破
+  4.5:1——红字那一路必须换划线 + 压暗；③ 斜度走**独立 `rotate`**（`--mark-tilt:-.6deg`），
+  `transform` 只留给 `markIn` 的 `scaleX(0)`：写进 keyframes 的 from 端会在 to 端丢掉
+  rotate，独立属性不参与补间、导出切掉 animation 后它还在；④ 终态写在元素自己身上
+  （base `transform:none`），减少动效 / 导出截图两种兜底都落在**整条带**。s5 不再调用，
+  `sweep()` 按 key 收掉——标记是一次性的"现在看这句"，不是永久高亮。
+
+- **反证划线（`.strike` + `strikeThrough()`，反证被"划"掉）**：消费者是 seg-5 的错写法
+  `(a, b) => a < b`：s0 完整摆出来，s1 判错那一拍红笔从左往右划掉，文字同时压到 #8d95a8
+  （对红 tint 盒 5.37:1，仍是正文读数），红只留给线（4.48:1，图形 3:1 档）。三条口径：
+  ① **斜率算进端点**——水平 `<line>` 的 fill-box 高为 0，`transform-box:fill-box` 上的
+  rotate 没有稳定的旋转盒；按 `Math.tan(--strike-tilt)` 把 y1/y2 算成左高右低（实测文本
+  bbox 162.44×21.55 → 线 172.39 宽、y 142.66→147.28，中心正好在 bbox 的 52% 处）；
+  ② 与 `.mark` 相反，划线 append 在文字**之后**（压过笔画才读得出作废）；③ 归一单位与
+  `.draw` 同族（`pathLength=1` + `dasharray 1 1`），但**不挂 `.draw`**：划线要的是"每一步
+  都在"（s1 划掉之后到 s5 仍划着），所以自建 `strikeIn`、不继承入场的错峰参数。线宽
+  `max(2, bbox高×.09)`——18px 字号得 2px，是笔尖不是删除线字符。
+
+- **磁吸迎手（`magMove` / `magClear`，按钮在按下之前就迎手）**：指针进到门禁按钮**盒边**
+  外 `--mag-r`（34px）的场里，按钮朝指针挪最多 `--mag-pull`（6px）；位移按 `sin(πd/r)`
+  衰减：贴边 0、半程峰值、场缘回 0。实测 88.65×35.46 的提交键：盒边外 17px 得 6px、
+  贴边 2px 得 1.1px、40px 归零。五条口径：① 只写**独立 `translate`**（`:active` 的
+  `scale` 是另一个属性，两者相乘），时长 / `--ease-spring` 全在 CSS；② 事件委托在
+  `#gate`（卡片每次开题重建，逐个绑会丢线），每帧只扫可见的 `.go`；③ 场半径从**盒边**
+  算，量场时扣掉上一帧位移（否则按钮迎 6px、场也挪 6px，指针没动它却来回找位）；④ 只认
+  鼠标 / 笔，触屏没有 hover 语义；`mqReduce` / `__coursewareShotMode` 下**一个字节都不写**
+  ——不是补一个更短的时长，而是根本不启动；⑤ 键盘路径一个字节都不碰：`focusin` /
+  `pointerdown` / `pointerleave` 即清位移，`translate` 不改布局盒（实测 rect 宽高不变），
+  点击落点仍按原盒判定。
+
+**别这么干（0.27.0 实测否决）**：① **给已入树的 SVG 节点每步 `appendChild`（或对已就位
+节点重复 `insertBefore`）**——DOM 插入会先把节点摘下再插回，浏览器**重放 CSS 动画**：
+划线在 s3 / s5 每一步都重新划一遍、荧光笔在同一句上划两次，而所有静态断言仍然全绿
+（本轮就是这么踩到的）。helper 必须只在"位置不对"时才搬节点；首创建时 `put()` 已经把它
+追加在同一父层，别再补一次 `appendChild`。② **把 `--mark-tilt` / `--strike-tilt` 注册成
+`@property`**——它们是静态几何读数，注册后反而会被逐帧插值（口径同 `--cam-pan` /
+`--trail-r`）。③ **拿 `transform:rotate()` 做荧光笔斜度**——`transform` 已被 `scaleX`
+入场占用，把 rotate 塞进 keyframes 的 from 端会在 to 端丢掉它；斜度必须走独立 `rotate`。
+④ **给红字配荧光带**——合成后 3.43 / 3.74:1，跌破正文 4.5 线；红字只能划线 + 压暗。
+⑤ **把磁吸位移写进 `transform`**——按钮本来就有 `.nt` 的 transform 补间与 `:active` 的
+`scale`，再写一份会互相顶掉；而且几何一挪，`getBoundingClientRect` 驱动的场就会自己
+找位。⑥ **每帧重算磁吸场**——只在 `pointermove` 里算，不挂 rAF / 计时器：指针不动时按钮
+也不该动。
+
+
 通用陷阱：计算值读得到不代表画得出来（`backdrop-filter` 0.22.0 同课，但 box-shadow 更阴，因为它
 连"没生效"都不肯告诉你）。② **`perspective()` + `translateZ()` 抬 SVG**——`getScreenCTM()` 的
 `a`/`d` 分量纹丝不动、屏幕 0 个像素变；要 3D 得走 `.flip` 那条函数列表写全的路（0.20.0），
@@ -1582,6 +1641,7 @@ rect / bbox 的影响其实相同（都不会让 `getClientRects().length` 变 0
 - [ ] 读**补间进行中**的数一律读 computed，不读 `el.style`：`--band` / `translate` 这类写在样式属性上的位移，`el.style` 拿到的是刚写进去的**目标值**，插值中的那一格只有 `getComputedStyle` 读得到（0.26.0 橡皮筋本轮就踩在这里——读 `tipEl.style` 时十一格全等于终值，"回弹"这条断言永远测不到自己想测的东西）；同理 `CSSTransition` **没有** `.delay`，delay 在 `effect.getComputedTiming()` 上，读错的字段会被 `JSON.stringify` 整个吃掉、下游只剩 `KeyError`；要验"晚一格"这类先后，把补间 `pause()` 后按 `currentTime` 钉格采样，跑真实时钟会先被 runner 快慢骗一次；
 - [ ] 量 SVG 文字宽度分清**推进量**与**墨盒**：钉 `textLength`、算容器该多宽都读 `getComputedTextLength()`（排版推进量），`getBBox().width` 是 tight 墨盒，`lengthAdjust="spacingAndGlyphs"` 下逐字重排边距、它会随字面自己抖（0.26.0 实测同一串 69.994 vs 70.134，解码途中那格读到 56.467 而推进量恒为 56.0）；拿墨盒钉宽度等于把整串压窄到容器边上；
 - [ ] **手感类**补间（越界橡皮筋、拖尾跟随、逐字解码）一律不改证据读数：`currentTime` / 字幕字面 / 门禁判定按夹过与落定之后的值走，画面只许在"到手感为止"这一侧多演（0.26.0 口径：向右越过 12–200px 五格 `currentTime` 全部钉在 115.201s，向左越 40px 落 0s——时间轴一个字都不许多说）；
+- [ ] 用了批注 / 磁吸（`.mark` / `.strike` / `magMove`）的：色带与划线几何从目标文本 `getBBox()` 现推、`markBehind` 插到文字前而 `strikeThrough` 留在文字后、斜度与斜率都从令牌读（`--mark-tilt` 走独立 `rotate`、`--strike-tilt` 算进端点）、**对已入树节点只在位置不对时才 `appendChild` / `insertBefore`**（重复搬会摘下再插回、重放 CSS 动画：划线每步重划、荧光笔同句划两次，而静态断言全绿——0.27.0 实测踩过）、`--mark-tilt` / `--strike-tilt` 故意不注册、红字不许配荧光带（合成后 3.43 / 3.74:1）、磁吸只写独立 `translate` 且 `mqReduce` / 截图模式 / 触屏 / `focusin` 一律清位、场半径从盒边量并扣掉当前位移、不挂 rAF / 计时器；
 - [ ] 动效终态落在属性上（`fill-mode: backwards`、循环动画 `0%` = 静止态），单独一帧也讲得清；
 - [ ] 没有第二份字幕正文；
 - [ ] 图元文字是必要的短标注；

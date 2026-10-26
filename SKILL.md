@@ -263,7 +263,28 @@ reduce 与截图模式一律直接落完整词——未定住的那些格本来�
 `--ease-spring` 弹回，端头 `.bar::after` 随呈现档位 `data-band="l|r"` 亮一圈且
 `pointer-events:none`；**时钟不跟手指走**——实测向右越界 12–200px 五格 `currentTime`
 全部钉在时间轴末尾、向左越 40px 落 0s。回弹那一格只有 **computed** 读数测得到，
-`el.style` 拿到的是刚写的目标值）。
+`el.style` 拿到的是刚写的目标值）。这一轮把**批注的手势**接上（highlighter annotation /
+red-pen strike-through / magnetic button）：
+**荧光笔标记**（`markBehind(parent, key, textNode)` 把色带按目标文本的 `getBBox()` **量出来**
+垫在字后面：带宽 = 文本宽+8、带高 = 文本高×.55、起点在 y+45%，所以换字号换句长都不用改坐标。
+色带必须 `insertBefore` 到文字节点之前——SVG 没有 z-index，盖在字上会把字色与带色按 alpha
+再混一次、整行糊成平色。斜度走**独立 `rotate`** 属性（`--mark-tilt:-.6deg`），`transform`
+只留给 `markIn` 的 `scaleX(0)`，二者互不顶掉；终态写在元素身上，减少动效 / 导出都落整条带。
+**只有琥珀字配亮带**：按 §8 合成口径，琥珀 #f5a623 衬 .14 琥珀带是 6.09 / 6.64:1，红字
+#ef4d4d 只剩 3.43 / 3.74，所以红字那一路只能走划线 + 压暗）、
+**反证划线**（`strikeThrough(parent, key, textNode)` 在文字上压一笔红线：水平 `<line>` 的
+fill-box 高为 0、rotate 没有稳定旋转盒，所以斜率按 `Math.tan(--strike-tilt)` **算进端点**
+（左高右低），中心落在文本 bbox 的 52% 处；`pathLength=1` + dasharray `1 1` 与 `.draw` 同族，
+但自建 `strikeIn`、不继承入场错峰——划线要的是"每一步都在"（s1 划掉之后到 s5 仍划着）。
+与 `.mark` 相反，它 append 在文字之后（压过笔画才读得出作废），文字同时压到 #8d95a8
+（对红 tint 盒 5.37:1），红只留给线；线宽 `max(2, bbox高×.09)` 是笔尖不是删除线字符）、
+**磁吸迎手**（`magMove` / `magClear`：指针进到门禁按钮**盒边**外 `--mag-r` 的场里，按钮朝
+指针挪最多 `--mag-pull`，位移按 `sin(πd/r)` 衰减（贴边 0 / 半程峰值 / 场缘回 0）。只写
+独立 `translate`，时长与 `--ease-spring` 全在 CSS；事件委托在 `#gate`、只扫可见的 `.go`；
+量场扣掉上一帧位移（否则场跟着按钮挪）；只认鼠标/笔，`mqReduce` 与截图模式**根本不写**；
+`focusin` / `pointerdown` / `pointerleave` 即清位，键盘路径与点击落点都不受影响）。
+**别这么干**：给已入树的 SVG 节点每步 `appendChild`（或对已就位节点重复 `insertBefore`）
+会摘下再插回、**重放 CSS 动画**——划线每一步重新划、荧光笔同一句划两次；只在位置不对时搬。
 ——见 stage.md §3.4。每个视觉步先过
 stage.md §8 的来源判断与对比度自查（其中的「检索」「生图」指当前环境任一可用能力，
 本 skill 不内置）；emoji 是默认装饰层，三条禁区以 stage.md §7 为准。
