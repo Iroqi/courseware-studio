@@ -3,6 +3,43 @@
 本仓库的变更记录。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循语义化版本；未打 tag 前以 0.x 递增，随迭代推进。
 
+## [0.28.0] - 2026-10-26
+
+### 新增（动效目的审计 + 磁吸延伸到选项药丸）
+
+本轮先把全部动效按四类目的过了一遍——**引导视线 / 展示变化 / 推进叙事 / 操作
+反馈**——砍掉与当前重点无关的干扰，再补上磁吸迎手缺失的那半截（选项药丸）：
+
+- **磁吸延伸（0.27.0 磁吸迎手的另一半）**：choice 门禁的选项药丸也"迎手"。
+  复用远端 `--mag-r/--mag-pull/--dur-mag` 与 magMove 的场（盒边距离 + sin(πd/r)
+  衰减 + _mag 补偿），选择器扩到 `#gate-block .mag` 包装层。药丸本体挂着
+  `transition:var(--dur-fast)` 全属性简写，同节点再写一条 transition 会把前一条
+  整个顶掉（0.19.0 / 0.23.0 老账），所以位移写在外层 `span.mag` 上——这一个只演
+  translate，时长缓动与放行键同款。best-k 单选天然只回应近的那一颗；边缘归零 =
+  天然死区，指针在盒内时场为 0（.hot 辉光的盒内坐标不受影响）；答对后按钮被
+  运行时禁用，包装层不再迎接（已放行的题面不"迎手"）。reduce 双保险：JS 侧
+  mqReduce 清场 + 媒体块 `.mag{transition:none}`。
+- **一屏一个话头（renderB 收窄）**：审计发现 seg-2 的逐位比较在 s0 就把两对
+  字符串全部满亮度建档进场——而第二对（"10","9"）s4 才被旁白点名。修法：第二行
+  在 s0–s3 挂 data-dim + opacity .45 退居参照（"在但不在重点上"），s4 换组时才
+  升为话头。为什么不是删掉它：flip 包装需要节点 s0 就在场（翻面是"两个状态之间的
+  过渡"，补间开始前必须已建档）。与 renderG 的 `step < g.from` 同一口径：没轮到的
+  内容压暗，不跟当前重点抢淡入的注意力。
+
+### 测试与文档
+
+- 新增 `test_mag_extends_to_options_pills_primitives_present`（静态契约：.mag
+  只写 translate 一条 transition、buildChoice 包 span.mag、magMove/magClear 选择器
+  含 #gate-block .mag、包装层内按钮禁用跳过、媒体块关闭、令牌只在 :root）、
+  `test_mag_options_pills_greet_the_pointer`（CDP：盒边 17px 峰值 6px 朝指针、
+  best-k 只动近的那颗、盒内死区 0、场外 0、pointerleave 清场、.opt 全属性简写
+  原样未被顶掉）与 `test_focus_audit_unreached_row_stays_dimmed`（renderB 未轮到
+  行退居参照的静态契约）。
+- 文档：stage.md §3.4 词汇表补 `.mag` 包装层一行 + 磁吸延伸长条；SKILL.md §5 补
+  磁吸延伸段落；README 回归清单补 0.28.0 条目。
+- 本机全量 **434 passed / 2 skipped**（decode 墨盒抖动 0.905px 为本机 Chromium 146
+  字体渲染环境性差异，基线同样失败，以 CI runner Chrome 155 为准）。
+
 ## [0.27.1] - 2026-10-26
 
 ### 修复（测试口径：0.27.0 的划线局部坐标断言在 CI 3.12 档假失败）

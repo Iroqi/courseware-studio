@@ -9172,3 +9172,138 @@ def test_annotation_magnet_reduced_motion_and_export(full_lesson):
             f"导出定格上划线是完整的一笔：{shot2}"
     finally:
         _kill(chrome)
+
+
+# ── 0.28.0 磁吸延伸：选项药丸迎手 ──────────────────────────────────────────────
+
+def test_mag_extends_to_options_pills_primitives_present():
+    """0.28.0 静态契约：药丸磁吸是 0.27.0 迎手的延伸——同一套令牌、包装层持位移。
+
+    锁的口径：
+      · .mag 只写 `translate var(--dur-mag) var(--ease-spring)` 一条 transition，
+        没有 :hover / transform（.opt 自己的全属性简写不许被顶掉，0.19/0.23 老账）；
+      · buildChoice 给每颗选项包 span.mag；
+      · magMove / magClear 的选择器都含 #gate-block .mag，且 magMove 有"包装层内
+        按钮被禁用就跳过"的分支（答对后题面不再迎接）；
+      · 媒体块里有 .mag{transition:none}（与 .go 同款双保险）；
+      · --mag-r / --mag-pull / --dur-mag 只在 :root 一处，JS 读 computed 求值。
+    """
+    src = TEMPLATE_HTML.read_text(encoding="utf-8")
+
+    mags = [g for g in re.finditer(r"\.mag\{([^}]+)\}", src)]
+    assert mags, "需要 .mag 规则"
+    base = [m.group(1) for m in mags if "translate" in m.group(1)]
+    assert base and base[0] == "transition:translate var(--dur-mag) var(--ease-spring)", base
+    assert "transform" not in base[0] and ":hover" not in base[0]
+
+    assert re.search(r"m\.className = 'mag'; m\.appendChild\(b\);", src), \
+        "buildChoice 要包 span.mag"
+    assert "gateOpts.appendChild(m);" in src
+
+    assert src.count("gateEl.querySelectorAll('.gate-next .go, .act-row .go, #gate-block .mag')") == 2, \
+        "magClear 与 magMove 的清理循环都要扫 #gate-block .mag"
+    assert "#gate-block .mag')" in src and "b.matches('#gate-block .mag')" in src
+    assert "btn.disabled" in src, "包装层内按钮禁用要跳过（已放行的题面不迎接）"
+
+    assert re.search(r"\.mag\{transition:none\}", src), "媒体块要关药丸包装层的过渡"
+
+    # 令牌只在 :root 一处定义（带值定义，不含 JS 引用处的字符串）
+    root_block = re.search(r":root\{([^}]+)\}", src)
+    assert root_block, "需要 :root 块"
+    for tok in ("--mag-r:", "--mag-pull:", "--dur-mag:"):
+        assert root_block.group(1).count(tok) == 1, f"{tok} 要在 :root 且只出现一次"
+    assert "parseFloat(rootCS.getPropertyValue('--mag-r'))" in src, \
+        "JS 必须读 computed，不得写死半径"
+
+
+def test_mag_options_pills_greet_the_pointer(full_lesson):
+    """CDP：选项药丸复用 0.27.0 的场——盒边 17px 处峰值 6px、指针在盒内为 0
+    （天然死区，.hot 辉光不抢）、场外不动、只有近的一颗动、离开清场。
+
+    验证口径与 0.27.0 的放行键同一条：场从**盒边**算、sin(π·d/R) 衰减、
+    translate 写包装层且不改布局盒、focusin/pointerdown/pointerleave 清位。
+    """
+    chrome, ev, send = _cdp(full_lesson, "mag28")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-3', 0)")
+        _gate_open(ev, "#gate-block [data-choice-id=\"b\"]")
+        time.sleep(0.8)   # 卡片入场落定后再量
+        base = json.loads(ev("""(function(){
+          var ms = document.querySelectorAll('#gate-block .opt').length;
+          var w = document.querySelector('#gate-block .mag');
+          var r = w.getBoundingClientRect();
+          var btn = w.querySelector('button.opt');
+          return JSON.stringify({ms:ms, l:r.left, t:r.top, w:r.width, h:r.height,
+            cy:r.top+r.height/2, r:r.left+r.width, cp:getComputedStyle(btn).transitionProperty});
+        })()"""))
+        assert base["ms"] >= 2, "选项药丸没露面"
+        half = base["w"] / 2
+
+        def read(i):
+            return json.loads(ev("""(function(i){
+              var ws = document.querySelectorAll('#gate-block .mag');
+              var w = ws[i]; var r = w.getBoundingClientRect();
+              var o = w.querySelector('button.opt');
+              return JSON.stringify({tr:w.style.translate||'', mag:w.dataset.mag||'',
+                w:r.width, h:r.height, dis:o.disabled,
+                wp:getComputedStyle(w).transitionProperty});
+            })(%d)""" % i))
+
+        def nums(tr):
+            vals = [float(x) for x in re.findall(r"-?[\d.]+", tr)]
+            return (vals + [0.0, 0.0])[:2]
+
+        # ① 半程峰值：盒边外 17px（= --mag-r/2）→ sin(π/2)=1 → 6px，方向朝指针
+        _mouse(send, base["r"] + 17, base["cy"])
+        time.sleep(0.5)
+        p0 = read(0)
+        px, py = nums(p0["tr"])
+        assert p0["mag"] == "1", f"近的那颗要标 data-mag：{p0}"
+        assert px == pytest.approx(6, abs=0.5) and abs(py) <= 0.4, \
+            f"药丸半程峰值 6px 朝指针：{p0['tr']}"
+        assert p0["w"] == pytest.approx(base["w"], abs=0.6), \
+            "translate 不改布局盒：宽高与静止时一致"
+
+        # ② 只有近的一颗动：邻丸（盒内）与远丸都不被回应
+        assert read(1)["tr"] == "" and read(2)["tr"] == "", \
+            "best-k 单选：邻丸盒内死区 0、远丸场外 0"
+
+        # ③ 指针落进盒内（天然死区）：d 钳 0 → 无位移；辉光盒内坐标不漂
+        _mouse(send, base["l"] + half + 5, base["cy"])
+        time.sleep(0.4)
+        assert read(0)["tr"] == "" and read(0)["mag"] == "", \
+            "指针在盒内：磁吸场为 0（辉光不抢、药丸不追）"
+
+        # ④ 场外：盒边外 40px（>34）→ 无位移
+        _mouse(send, base["r"] + 40, base["cy"])
+        time.sleep(0.4)
+        assert read(0)["tr"] == "", "场外不动"
+
+        # ⑤ 离开卡片：清场（pointerleave → magClear）
+        _mouse(send, base["l"] - 60, base["cy"] - 120)
+        time.sleep(0.35)
+        assert read(0)["tr"] == "" and read(0)["mag"] == "", "pointerleave 清位移"
+
+        # ⑥ 药丸本体 transition 未被顶掉（包装层的存在意义）
+        assert base["cp"] == "all", f".opt 自己的全属性简写要原样：{base['cp']}"
+    finally:
+        _kill(chrome)
+
+
+def test_focus_audit_unreached_row_stays_dimmed():
+    """0.28.0 动效目的审计：一屏一个话头，没轮到的行退居参照（材质弱化）。
+
+    renderB（seg-2 逐位比较）里第二对（"10","9"）s4 才被旁白点名，但 flip 包装
+    需要节点 s0 就在场（翻面是两个状态之间的过渡，补间开始前必须已建档）——
+    所以不是删掉它，而是让它在 s0–s3 整行挂 data-dim + opacity .45："在但不在
+    重点上"，同一拍不跟第一对抢淡入的注意力。锁的口径：
+      · renderB 的 offRow 表达式中含 `(ri === 1 && step < 4)`；
+      · 弱化与 0.13.0 的焦点弱化同一条路（data-dim + opacity），不新开档位。
+    """
+    src = TEMPLATE_HTML.read_text(encoding="utf-8")
+    assert "(ri === 1 && step < 4)" in src, \
+        "第二对 s4 前要退居参照（renderB offRow 含未轮到分支）"
+    assert "var offRow = (ri !== cur && step >= 4) || (ri === 1 && step < 4);" in src, \
+        "两分支并进一条 offRow：换组弱化与未轮到弱化同一档位"
+    assert "数据被搞乱" in src or "messed" in src, "renderD 的混乱动作仍在场（审计无漏项）"

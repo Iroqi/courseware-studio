@@ -642,6 +642,14 @@ python -m pytest tests/ -q
   `mqReduce` / `__coursewareShotMode` 下一个字节都不写。本轮量出的读法错误写进 stage.md：
   **对已入树节点重复 `appendChild` / `insertBefore` 会摘下再插回、重放 CSS 动画**（划线
   在 s3/s5 每一步重新划一遍，静态断言全绿）。本机全量 **432 passed / 2 skipped**；
+- 0.28.0 的回归：磁吸延伸到选项药丸——`test_mag_extends_to_options_pills_primitives_present`
+  锁 `.mag` 只写 translate 一条 transition（无 :hover / transform）、buildChoice 包
+  span.mag、magMove / magClear 选择器含 `#gate-block .mag`、包装层内按钮禁用跳过、
+  媒体块 `.mag{transition:none}`、令牌只在 :root；`test_mag_options_pills_greet_the_pointer`
+  CDP 量真实指针（盒边 17px → sin(π/2) → 6px 朝指针、邻丸在盒内死区 0、场外 0、
+  pointerleave 清场、.opt 的 transitionProperty 仍是 all = 全属性简写未被顶掉）；
+  `test_focus_audit_unreached_row_stays_dimmed` 锁 renderB 的"未轮到行退居参照"
+  （offRow 含 `(ri === 1 && step < 4)` 分支，一屏一个话头，与 0.13.0 弱化同一档位）。
 - 0.27.1 的修复（只动测试与文档）：CI 复按 3.11 档全绿（**432 passed / 2 skipped**），
   3.12 档红在 `test_strike_line_draws_over_wrong_comparator` 的 s3 局部坐标断言——
   同一条划线两次 `getBBox()` 的端点差 **0.0495px**（Chrome 155 的文字度量亚像素抖动），

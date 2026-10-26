@@ -1837,6 +1837,8 @@
            关的是"根本不写位移"，两头都认同一个偏好；关掉后按钮原地不动，"按得到"
            这件事一格不少（与 #spot / .tilt / .ride 同一判断：位置信息不连档位一起关）。 */
     .mark,.strike{animation:none}
+    /* 0.28.0：药丸包装层同款关闭（基础 .mag 规则源序在本块之前，(0,1,0) 靠源序压过） */
+    .mag{transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -1930,6 +1932,13 @@
   .opt{background:var(--panel);color:var(--fg);border:1px solid #333b4d;border-radius:999px;
        padding:7px 15px;cursor:pointer;font-size:13.5px;transition:var(--dur-fast)}
   .opt:hover:not(:disabled){border-color:var(--key);color:var(--key);background:#1e2431}
+  /* 选项药丸的磁吸（0.28.0，0.27.0 磁吸迎手的延伸）：.opt 自己挂着
+     `transition:var(--dur-fast)` 那条**全属性**简写——同节点再写一条 transition 会把前
+     一条整个顶掉（0.19.0 / 0.23.0 老账），所以药丸的位移写在外层 span.mag：这一个只演
+     translate，时长与缓动跟放行键同款（--dur-mag + --ease-spring）。JS 写法与 .go 完全
+     一致（style.translate + _mag 补偿，见 §⑦ 磁吸那一段）；静止时无 translate = 无
+     containing block，.hot 辉光的盒内坐标不受影响（指针在盒内时磁场本来就为 0）。 */
+  .mag{transition:translate var(--dur-mag) var(--ease-spring)}
   /* 按压手感（0.13.0）：按下去缩一点——指尖/鼠标按下那一下必须有形变，否则"点没
      点上"只能等两百毫秒后的反馈文字。用**独立 scale 属性**而不是 transform：
      transform 常常已经被控件自己的定位占着，写上去会顶掉位移（.pop 那条注释就是
@@ -3351,7 +3360,12 @@
       // 换组时上一行不"消失"：挂焦点弱化档位（降饱和 + 微压暗）+ 退到 .45——
       // 它还在那儿当参照，但明显不是这一步的话头（原写法只压 opacity，读起来像
       // "淡出到一半卡住了"；材质变化才是"退居背景"）。
-      var offRow = (ri !== cur && step >= 4);
+      // 0.28.0 动效目的审计：**还没轮到的第二对也一样**——s0–s3 旁白只讲第一对
+      // （"1","10"），第二对（"10","9"）s4 才被点名；但 flip 包装需要 s0 就在场
+      // （翻面是"两个状态之间的过渡"，节点必须在补间开始前已经建档），所以不是
+      // 删掉它，而是让它整行退居参照（data-dim + .45）——"在但不在重点上"，
+      // 同一拍不跟第一对抢淡入的注意力（一屏一个话头，其余压暗，见 renderG 同款）。
+      var offRow = (ri !== cur && step >= 4) || (ri === 1 && step < 4);
       var g = put('b-body', 'g', 'b-row' + ri,
         {'data-dim': offRow ? 1 : 0, opacity: offRow ? .45 : 1});
       r.forEach(function(s, cx){
@@ -4184,7 +4198,10 @@
     g.opts.forEach(function(o){
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'opt hot'; b.textContent = o.t; b.dataset.choiceId = o.id;
-      gateOpts.appendChild(b);
+      // 磁吸延伸（0.28.0）：药丸外包 span.mag——位移归包装层，药丸自己的
+      // transition:var(--dur-fast) 全属性简写不许被顶掉（0.19.0 / 0.23.0 老账，见 §③）
+      var m = document.createElement('span'); m.className = 'mag'; m.appendChild(b);
+      gateOpts.appendChild(m);
     });
   }
   function buildHotspot(g, c){
@@ -4868,10 +4885,14 @@
           Tab 到按钮上它原地不动。translate 不改布局盒、不改命中区（实测 rect 宽高
           不变、点击落点仍按原盒判定），所以"迎手"永远不会让点击落空。
      量场用**扣掉当前位移**的矩形：否则按钮迎过来 6px，场也跟着挪 6px，指针没动
-     按钮却会来回找位。上一帧的位移记在元素自己身上（`_mag`），几何就稳定了。 */
+     按钮却会来回找位。上一帧的位移记在元素自己身上（`_mag`），几何就稳定了。
+     0.28.0 延伸：同一套场与令牌也接**选项药丸**（#gate-block .mag 包装层）——学习者
+     在几颗选项之间定位时，近的那颗迎一下、远的原地不动（best-k 单选天然只回应一颗）；
+     药丸本体挂着自己的全属性 transition，所以位移写在 span 上而不是按钮上（见 §③
+     .mag 那条注释）。答对后按钮被禁用，包装层不再迎接——放行键出现前题面已经"过期"。 */
   function magClear(){
     Array.prototype.forEach.call(
-      gateEl.querySelectorAll('.gate-next .go, .act-row .go'), function(b){
+      gateEl.querySelectorAll('.gate-next .go, .act-row .go, #gate-block .mag'), function(b){
         if (b.style.translate) b.style.translate = '';
         if (b.dataset.mag) delete b.dataset.mag;
         b._mag = null;
@@ -4887,9 +4908,15 @@
     var P = parseFloat(rootCS.getPropertyValue('--mag-pull')) || 6;
     var best = null, bestK = 0, bestX = 0, bestY = 0;
     Array.prototype.forEach.call(
-      gateEl.querySelectorAll('.gate-next .go:not(:disabled), .act-row .go:not(:disabled)'),
+      gateEl.querySelectorAll('.gate-next .go:not(:disabled), .act-row .go:not(:disabled), #gate-block .mag'),
       function(b){
         if (!b.offsetWidth) return;
+        // 药丸包装层（0.28.0）：答对后按钮被运行时禁用（span 没有 disabled），
+        // 已放行的题面不许再迎接（口径同辉光 [data-locked] 那一条）
+        if (b.matches('#gate-block .mag')){
+          var btn = b.querySelector('button');
+          if (!btn || btn.disabled) return;
+        }
         var cur = b._mag || {x:0, y:0};
         var r = b.getBoundingClientRect(), w = r.width, h = r.height;
         var cx = r.left + w/2 - cur.x, cy = r.top + h/2 - cur.y;
@@ -4905,7 +4932,7 @@
         bestX = vx / len * P * k; bestY = vy / len * P * k;
       });
     Array.prototype.forEach.call(
-      gateEl.querySelectorAll('.gate-next .go, .act-row .go'), function(b){
+      gateEl.querySelectorAll('.gate-next .go, .act-row .go, #gate-block .mag'), function(b){
         if (b === best) return;
         if (b.style.translate) b.style.translate = '';
         if (b.dataset.mag) delete b.dataset.mag;
