@@ -612,7 +612,11 @@ python -m pytest tests/ -q
   只能读 computed（`el.style` 是刚写进去的目标值，探针因此把 `want` / `comp` 一起取；
   `CSSTransition` 没有 `.delay`，要 `effect.getComputedTiming()`），以及**推进量 ≠ 墨盒**
   （`getBBox().width` 在 `spacingAndGlyphs` 下随噪声字抖到 56.467，拿它钉宽等于把整串压窄
-  到药丸边上）。本机全量 **426 passed / 2 skipped**；
+  到药丸边上）。本机全量 **426 passed / 2 skipped**，CI 复按三档 Python（3.10 / 3.11 / 3.12）
+  全部 `completed success`、runner（Chrome 155，本机 152）读数同为 **426 passed / 2 skipped**——
+  本轮钉死的那批数（拖尾 70 / 140 / 210 三格、解码推进量 56.0 与药丸底宽 77.413、橡皮筋
+  4.80 → 19.35px 与越界五格同一个 115.201s）跨版本逐值不变，因为量的全是属性上的读数与
+  相对几何，而回弹 / 落定两处一律轮询事实不等毫秒（0.23.1 / 0.25.1 那条口径第三次兑现）；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴
