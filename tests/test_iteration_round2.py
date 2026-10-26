@@ -8976,8 +8976,10 @@ def test_strike_line_draws_over_wrong_comparator(full_lesson):
             x1:+s.getAttribute('x1'), x2:+s.getAttribute('x2'),
             off:getComputedStyle(s).strokeDashoffset});})()"""))
         assert s3["g"] == "translate(0,0)", f"s3 右段长出后整条管线归位：{s3['g']}"
-        assert s3["x1"] == pytest.approx(x1, abs=0.01) and \
-               s3["x2"] == pytest.approx(x2, abs=0.01), "划线是组内局部坐标：跟着管线走，不另算"
+        # 组内局部坐标：s3 若改成世界坐标会差 93px。getBBox 的文字度量在 Chrome 155
+        # 上有亚像素抖动（CI 3.12 实测 x1 差 0.0495px），容差放到 0.5px 仍抓得住错法。
+        assert s3["x1"] == pytest.approx(x1, abs=0.5) and \
+               s3["x2"] == pytest.approx(x2, abs=0.5), "划线是组内局部坐标：跟着管线走，不另算"
         assert float(s3["off"].replace("px", "")) == 0
         ev("window.__jump('seg-5', 5)")
         assert ev("!!document.getElementById('d-src-x')"), \

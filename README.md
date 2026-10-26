@@ -642,6 +642,11 @@ python -m pytest tests/ -q
   `mqReduce` / `__coursewareShotMode` 下一个字节都不写。本轮量出的读法错误写进 stage.md：
   **对已入树节点重复 `appendChild` / `insertBefore` 会摘下再插回、重放 CSS 动画**（划线
   在 s3/s5 每一步重新划一遍，静态断言全绿）。本机全量 **432 passed / 2 skipped**；
+- 0.27.1 的修复（只动测试与文档）：CI 复按 3.11 档全绿（**432 passed / 2 skipped**），
+  3.12 档红在 `test_strike_line_draws_over_wrong_comparator` 的 s3 局部坐标断言——
+  同一条划线两次 `getBBox()` 的端点差 **0.0495px**（Chrome 155 的文字度量亚像素抖动），
+  原容差 0.01px。断言本意是区分组内局部坐标与世界坐标（后者在 s3 会差 93px），容差
+  放到 0.5px，仍抓得住那种错法；
 - **真实时钟浏览器回归**（默认跳过）：check_gates 的浏览器冒烟用确定性时钟桩，
   从不真实播放音频；`REALCLOCK=1` 时额外用无头 Chrome + CDP 驱动真实
   `audio.currentTime`，在 4× 播放下验证字幕翻句延迟有界、任意采样点字幕与时间轴
