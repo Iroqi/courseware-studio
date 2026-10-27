@@ -292,6 +292,11 @@
        位移走 sin(πd/r) 衰减：中心 0、半程 6px、边缘回 0，所以指针划过不会
        把按钮"拽走"再硬弹回来。 */
     --mag-r:34px; --mag-pull:6px; --dur-mag:.34s;
+    /* 对位镜（0.30.0）：--dur-scope 是尺子换位的行程。它比镜头（--dur-move .5s /
+       --cam-dur .5–.78s）短一档：注解先到位、运镜随后到，眼睛先知道"该看哪一对"。
+       --scope-ink 沿用主色的 .78 浓度——一根 1.5px 的细尺压在深底上刚读得清，
+       再浓就成了"又一个高亮"。 */
+    --dur-scope:.3s; --scope-ink:rgba(245,166,35,.78);
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -1619,6 +1624,37 @@
      仍然明写——与 #spot / 涟漪 同一口径，装饰层一律不许当事件对象。 */
   #depth .wash{fill:var(--tint);opacity:var(--tint-wash);pointer-events:none}
 
+  /* 对位镜（0.30.0，前沿做法：technical-drawing dimension line / 两级取景）：
+     0.22.0 的 #spot 说的是"看画面上的哪一块"（导演的灯，罩在整块画布上），
+     0.13.0 的 [data-dim] 说的是"哪一块退到背景"（材质）。这两条都在改变被看
+     东西的**亮度**；但"这一步在比哪两个字符"是一个**关系**，灯和压暗都说不出来
+     ——两个字符都亮着，它们之间那条"正在被放在一起量"的线仍然不存在。这一条
+     把摄影/工程制图里的**量规**借过来：一条细尺架在两个被比的字符上方，两端
+     落点、中间读数（i=0 / i=1），换位时整把尺平移一格。
+     四条口径（都是这套页面的老纪律，换了个对象）：
+       ① **只做注解，不碰内容**：尺子画在单元格上方（y = 行基线 −36），两端落在
+          格心外 24 单位——不压字、不压 vs、不抢已有点亮的 fill；它的 stroke / 字
+          色只取 --scope-ink 一支，不与"对/错"语义色混用。读数写 `i=0` 这种短
+          记号，不写句子（纪律 3）。
+       ② **换位走 transition、换行走重建**：同一行内 i 变 0→1 是**同一把尺平移**
+          （transform 补间，--dur-scope）；换到另一行比较时旧尺撤走、新尺从零
+          **量过去**（`.draw` 只在新建档那一下跑）——两件事的语义不同，动法也不
+          同：同一行的位置是连续的，换行是一次新的测量。
+       ③ **两端落点由格距推、不量 bbox**：格宽 42、列距 46 是 renderB 自己的
+          坐标声明（与 b-c-.. 的 rect 同一个数），尺子从它们推；字幕带那种两套
+          字号、要跟着文本长的东西才必须现量（0.14.0 / 0.15.0）。这里没有第二套
+          字号，量 bbox 只会把测量口径又抄一遍。
+       ④ **纯装饰层**：pointer-events:none，不参与命中；它不进 #world（视差层），
+          几何也恒在 stB 既有包围盒内（标题 y=52 压着顶、格列 309–697 压着左右），
+          contentBox 的兜底取景读数不会因为多一把尺而变。`.scope` 与 `.nt` 同节点
+          时，这一条会把 .nt 的整串 transition 清单换成只补 transform（0.19.0 /
+          0.23.0 的简写老账）——正是想要的：尺子只该平移，子图元各归各的入场。 */
+  .scope{pointer-events:none;
+         transition:transform var(--dur-scope) var(--ease-out)}
+  .scope path{fill:none;stroke:var(--scope-ink);stroke-width:1.5;
+              stroke-linecap:round;stroke-linejoin:round}
+  .scope text{fill:var(--scope-ink);letter-spacing:.02em}
+
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
      关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
@@ -1839,6 +1875,10 @@
     .mark,.strike{animation:none}
     /* 0.28.0：药丸包装层同款关闭（基础 .mag 规则源序在本块之前，(0,1,0) 靠源序压过） */
     .mag{transition:none}
+    /* 0.30.0 对位镜：关的是平移补间，`.draw` 已被上面那条 `.draw{animation:none}`
+       收掉；尺子仍落在这一拍该在的位置上，读数一格不少（基础规则源序在本块之前，
+       (0,1,0) 靠源序压过）。 */
+    .scope{transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -2843,6 +2883,29 @@
     if (n.parentNode !== h) h.appendChild(n);
     return n;
   }
+  /** 对位镜（0.30.0）：一条量规架在这一步正在比的两个位置之间。
+   *  调用方只给行基线 baseY 与槽位 k，其余几何从比较列自己的坐标声明推：
+   *  两端落在两个被比格的**内侧**外缘再让 3 单位（格半宽 21 → 330+24 / 630−24），
+   *  读数取两端中点。三条接线口径：
+   *   ① **同一行内换位只推 transform**：整组带 data-k，k 0→1 时 CSS 补间平移
+   *      一格（--dur-scope）——"同一把尺被挪到下一对位置上"，位置关系是连续的；
+   *   ② **换行/换对是重新量过去**：新 key 从零起笔（.draw 只在新建档那一下跑），
+   *      旧尺由 sweep() 撤走——"这是一次新的测量"，不是上一把尺滑过去；
+   *   ③ 线 + 两端 tick 写成**一条 path**（M…V…H…V…）：.draw 的 dash 按整条
+   *      路径归一（pathLength=1），多子路径会各画各的、接头处闪断；
+   *   ④ 纯注释层：group/路径都不吃指针（CSS .scope），读数只写 `i=0` 短记号
+   *      （纪律 3），墨色只取 --scope-ink 一支，不碰"对/错"语义色。 */
+  function scopeFrame(parent, key, baseY, k){
+    var gap = 46, a = 354, b = 606, y = -36, t = 6;   // 354=330+24 / 606=630−24
+    var g = put(parent, 'g', key, {class:'scope', 'data-k':k,
+      transform:'translate(' + (k * gap) + ',' + baseY + ')'});
+    put(g, 'path', key + '-m', {class:'draw', pathLength:1,
+      d:'M' + a + ' ' + (y + t) + 'L' + a + ' ' + (y - t) +
+        'H' + b + 'V' + (y + t)});
+    txt(g, key + '-lab', {class:'in', x:(a + b) / 2, y:y - 15,
+      'text-anchor':'middle', 'font-size':10, 'font-family':MONO}, 'i=' + k);
+    return g;
+  }
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
    *  才有"的那个小挂件不再被引用时，也必须跟着掉——只扫容器一层会把它留在台上。
    *  没有退场动画：要淡出就把 opacity 写成 0 让它再停一步，下一步不再引用它收尾。 */
@@ -3421,6 +3484,12 @@
       txt(fv, 'b-' + ri + '-vs-b', {class:'face faceB', x:480, y:baseY + 10,
         'text-anchor':'middle', 'font-size':30, 'font-weight':'700', fill:'#2ecc71'}, '<');
     });
+    // 对位镜（0.30.0）：旁白这一句在比哪两位，尺子就架在哪一对位置上。
+    // s1 比首位（i=0）；s2/s3 比第二位（同一把尺平移一格，k=1）；s4 换到第二对
+    // 的首位——旧尺随 sweep 撤走、新尺从零量过去。s0 还没有比较、s5 已是结论，
+    // 都不架尺（没有"正在被放在一起量"的东西）。
+    if (step >= 1 && step <= 3) scopeFrame('b-body', 'b-scope0', 165, step >= 2 ? 1 : 0);
+    else if (step === 4) scopeFrame('b-body', 'b-scope1', 300, 0);
     // s5「串起来」：把两行的结论并成一行记法（记号不是句子，纪律 3）。
     // 擦除揭示挂在**包装 g** 上（0.15.0）：这一行是从两行比较里"串"出来的，
     // 左→右扫出来读作"顺着往下推"，比一次淡入多说了半步。内层写字不给 .in

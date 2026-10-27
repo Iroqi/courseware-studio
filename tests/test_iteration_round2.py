@@ -9343,3 +9343,188 @@ def test_focus_audit_result_cards_stagger_into_place():
     src = TEMPLATE_HTML.read_text(encoding="utf-8")
     assert "style: col === 1 ? '--delay:' + (i * .06).toFixed(2) + 's' : null" in src,         "右列卡按 i 错峰 0/.06/.12s，左列保持整体揭晓"
     assert "--delay:.06s" in src, "错峰档位用现成 --delay 机制"
+
+
+# ── 10. 对位镜：比较关系有自己的原语（0.30.0）──
+
+def test_scope_primitives_present():
+    """模板结构契约：对位镜长在范本里，且五条口径都落在源码上（无浏览器也可锁）。
+
+    0.22.0 的 #spot 管"看哪一块"，0.13.0 的 [data-dim] 管"哪一块退后"——两者
+    改的都是**亮度**；"这一句在比哪两个字符"是一个**关系**，此前没有原语能说。
+    对位镜借工程制图的量规：一条细尺 + 两端 tick + 中间读数，换位平移一格。
+    锁的口径：
+      · 令牌一支墨色、一支行程，时长比运镜短一档（注解先到位）；
+      · 同一行换位只推 transform（.scope 的 transition 清单只留 transform，
+        .nt 的整串简写让位）；换行/换对是旧尺撤走 + 新尺 .draw；
+      · 线 + 两端 tick 合成一条 path（单子路径，.draw 的归一 dash 不跨子路径）；
+      · 纯注释层 pointer-events:none，读数只写 i=0 短记号（纪律 3）；
+      · s1–s3 第一对（s2 起 k=1），s4 第二对首位；s0/s5 不架尺；
+      · reduced-motion 收掉平移补间，终态（这一拍该在的位置）仍完整。
+    """
+    src = TEMPLATE_HTML.read_text(encoding="utf-8")
+    assert "--dur-scope:.3s; --scope-ink:rgba(245,166,35,.78);" in src
+    assert ".scope{pointer-events:none;" in src
+    assert "transition:transform var(--dur-scope) var(--ease-out)}" in src
+    assert ".scope path{fill:none;stroke:var(--scope-ink);stroke-width:1.5;" in src
+    assert "function scopeFrame(parent, key, baseY, k){" in src
+    # 几何从 renderB 的格距推：354 = 330 + 24，606 = 630 − 24；一条 path 走完
+    # 左 tick → 上横 → 右 tick。
+    assert "var gap = 46, a = 354, b = 606, y = -36, t = 6;" in src
+    assert "'H' + b + 'V' + (y + t)" in src
+    assert "'data-k':k" in src
+    # 接线：s1 首位、s2/s3 第二位（同一把尺 k=0→1）、s4 第二对首位。
+    assert "if (step >= 1 && step <= 3) scopeFrame('b-body', 'b-scope0', 165, step >= 2 ? 1 : 0);" in src
+    assert "else if (step === 4) scopeFrame('b-body', 'b-scope1', 300, 0);" in src
+    # 减少动效：只关平移补间；.draw 已由同块的全局规则收掉，尺子仍落在终态。
+    assert ".scope{transition:none}" in src
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_scope_tracks_compared_column(full_lesson):
+    """真实浏览器：对位镜跟着"这一句在比哪两位"走，且两种换法的动法不同。
+
+    seg-2 的旁白逐位推进：s1 比首位（i=0），s2/s3 比第二位（i=1），s4 换到
+    第二对。锁的口径：
+      · 同一行内 k 0→1：**同一个节点**的 transform 补间平移一格（46 单位），
+        .draw 不重放——"同一把尺被挪到下一对位置上"，位置关系是连续的；
+      · 换到第二对：旧尺扫掉、新尺重新 .draw——"这是一次新的测量"；
+      · 读数中点始终等于两个被比格中心的连线中点（几何由格距推，不靠眼看）；
+      · 尺子压在格子上方（不压字），pointer-events:none；
+      · s0（还没有比较）与 s5（已是结论）都不架尺；
+      · reduced-motion / 导出截图口径：补间与动画全停，尺子直接落在这一拍
+        该在的位置，读数与完整线形都在（终态不依赖动效）。
+    """
+    chrome, ev, send = _cdp(full_lesson, "scope")
+    try:
+        ev(_SEEK)
+        ev("""(function(){
+          window.__scope = function(key){
+            var g = document.getElementById(key);
+            if (!g) return {present:false};
+            var p = document.getElementById(key + '-m');
+            var lab = document.getElementById(key + '-lab');
+            var r = p.getBoundingClientRect();
+            return {present:true, k:g.getAttribute('data-k'),
+              tr:g.getAttribute('transform'), lab:lab.textContent,
+              d:p.getAttribute('d'), mid:(r.left + r.right) / 2,
+              bottom:r.bottom, pe:getComputedStyle(g).pointerEvents,
+              tp:getComputedStyle(g).transitionProperty,
+              off:getComputedStyle(p).strokeDashoffset,
+              same:g === window.__scopeNode,
+              an:g.getAnimations({subtree:true}).map(function(a){
+                return a.transitionProperty || a.animationName || '';})};
+          };
+          window.__geo = function(key, a, b){
+            var p = document.getElementById(key + '-m');
+            var r = p.getBoundingClientRect();
+            function m(id){
+              var q = document.getElementById(id).getBoundingClientRect();
+              return {cx:(q.left + q.right) / 2, top:q.top,
+                      left:q.left, right:q.right};
+            }
+            return {mid:(r.left + r.right) / 2, bottom:r.bottom,
+                    left:r.left, right:r.right, a:m(a), b:m(b)};
+          };
+          return 1;
+        })()""")
+
+        def read(key):
+            return json.loads(ev("JSON.stringify(window.__scope('%s'))" % key))
+
+        # s1：比首位 —— 尺子架在 "1" 与 "10" 的首位之间，读数 i=0
+        ev("window.__jump('seg-2', 1)")
+        s1 = read("b-scope0")
+        assert s1["present"] and s1["k"] == "0" and s1["lab"] == "i=0", s1
+        assert s1["d"] == "M354 -30L354 -42H606V-30", s1
+        assert s1["tr"] == "translate(0,165)", s1
+        assert s1["pe"] == "none", f"量规是注释层，不吃指针：{s1}"
+        assert "transform" in s1["tp"], f".scope 只补 transform：{s1['tp']}"
+        assert "ntDraw" in s1["an"], f"新尺要'量过去'：{s1}"
+        ev("window.__scopeNode = document.getElementById('b-scope0')")
+        assert not _wait_idle(ev, "#b-scope0-m"), "量规画完应落定在满线"
+
+        g1 = json.loads(ev("JSON.stringify(window.__geo('b-scope0','b-000','b-010'))"))
+        assert g1["mid"] == pytest.approx((g1["a"]["cx"] + g1["b"]["cx"]) / 2, abs=1.5), \
+            f"读数中点应落在两个被比格的中间：{g1}"
+        assert g1["a"]["cx"] < g1["left"] and g1["right"] < g1["b"]["cx"], \
+            f"尺子两端只落在两个被比位置之间：{g1}"
+        assert g1["bottom"] < g1["a"]["top"], \
+            f"尺子要压在格子上方，不压字：{g1['bottom']} vs {g1['a']['top']}"
+
+        # s2：比第二位 —— 同一把尺平移一格（transition），不重建、不重画
+        ev("window.__jump('seg-2', 2)")
+        s2 = read("b-scope0")
+        assert s2["present"] and s2["same"], "换位是同一把尺，不是新节点"
+        assert s2["k"] == "1" and s2["lab"] == "i=1", s2
+        assert s2["tr"] == "translate(46,165)", s2
+        assert "transform" in s2["an"], f"换位要走 transition：{s2}"
+        assert "ntDraw" not in s2["an"], f"同一行换位不该重新量一次：{s2}"
+        assert not _wait_idle(ev, "#b-scope0"), "平移应在 --dur-scope 内落定"
+
+        g2 = json.loads(ev("JSON.stringify(window.__geo('b-scope0','b-00-x','b-011'))"))
+        assert g2["mid"] == pytest.approx((g2["a"]["cx"] + g2["b"]["cx"]) / 2, abs=1.5), \
+            f"第二位是空位 vs 第二位字符：{g2}"
+        assert g2["a"]["cx"] < g2["left"] and g2["right"] < g2["b"]["cx"], \
+            f"换位后两端仍贴着两个被比位置：{g2}"
+
+        # s3：判决句仍比第二位 —— 没有换位就没有补间
+        ev("window.__jump('seg-2', 3)")
+        s3 = read("b-scope0")
+        assert s3["k"] == "1" and s3["tr"] == "translate(46,165)", s3
+        assert s3["an"] == [], f"没有换位就没有补间：{s3}"
+
+        # s4：换到第二对的首位 —— 旧尺撤走，新尺从零量过去（新的测量）
+        ev("window.__jump('seg-2', 4)")
+        assert not read("b-scope0")["present"], "换对后旧尺应撤走"
+        s4 = read("b-scope1")
+        assert s4["present"] and s4["k"] == "0" and s4["lab"] == "i=0", s4
+        assert s4["tr"] == "translate(0,300)", s4
+        assert "ntDraw" in s4["an"], f"换行是一次新的测量（.draw 重跑）：{s4}"
+        g4 = json.loads(ev("JSON.stringify(window.__geo('b-scope1','b-100','b-110'))"))
+        assert g4["mid"] == pytest.approx((g4["a"]["cx"] + g4["b"]["cx"]) / 2, abs=1.5), \
+            f"第二对的尺子同样居中：{g4}"
+
+        # s5：结论句不架尺
+        ev("window.__jump('seg-2', 5)")
+        assert ev("document.querySelectorAll('.scope').length") == 0, \
+            "s5 已是结论，不该还有'正在量'的尺"
+
+        # s0：还没有比较，也不架尺
+        ev("window.__jump('seg-2', 0)")
+        assert ev("document.querySelectorAll('.scope').length") == 0, \
+            "s0 还没开始比较，不该架尺"
+
+        # reduced-motion：补间与 .draw 全停，终态仍完整（这一拍该在的位置 + 满线）
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev("window.__jump('seg-2', 1)")
+        r1 = read("b-scope0")
+        assert r1["present"] and r1["tr"] == "translate(0,165)", r1
+        assert r1["an"] == [], f"减少动效下不量、不平移，直接落位：{r1}"
+        ev("window.__jump('seg-2', 2)")
+        r2 = read("b-scope0")
+        assert r2["tr"] == "translate(46,165)", r2
+        assert r2["an"] == [], f"减少动效下换位是瞬时的：{r2}"
+        g5 = json.loads(ev("JSON.stringify(window.__geo('b-scope0','b-00-x','b-011'))"))
+        assert g5["mid"] == pytest.approx((g5["a"]["cx"] + g5["b"]["cx"]) / 2, abs=1.5), g5
+        assert r2["off"] in ("0px", "0"), f"切掉动画后尺子是完整的：{r2['off']}"
+
+        # 导出截图口径（export_video 注入的同一条规则）：动画/补间全关，几何仍在
+        ev("""(function(){
+          var st = document.createElement('style');
+          st.textContent = '*,*::before,*::after{transition:none!important;' +
+                           'animation:none!important}';
+          document.head.appendChild(st);
+          return 1;
+        })()""")
+        ev("window.__jump('seg-2', 4)")
+        shot = read("b-scope1")
+        assert shot["present"] and shot["tr"] == "translate(0,300)", shot
+        assert shot["an"] == [], f"截图模式不该有动画：{shot}"
+        assert shot["off"] in ("0px", "0"), f"截图里尺子是满线：{shot['off']}"
+    finally:
+        _kill(chrome)

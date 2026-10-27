@@ -642,6 +642,13 @@ python -m pytest tests/ -q
   `mqReduce` / `__coursewareShotMode` 下一个字节都不写。本轮量出的读法错误写进 stage.md：
   **对已入树节点重复 `appendChild` / `insertBefore` 会摘下再插回、重放 CSS 动画**（划线
   在 s3/s5 每一步重新划一遍，静态断言全绿）。本机全量 **432 passed / 2 skipped**；
+- 0.30.0 的回归：对位镜（比较关系有了自己的原语）——`test_scope_primitives_present`
+  锁静态口径（令牌 `--dur-scope` / `--scope-ink`、`.scope` 只补 transform、`scopeFrame()`
+  的 354/606 格距几何与单 path、s1–s3 k=0→1 与 s4 换对的接线、reduced-motion 只关平移）；
+  `test_scope_tracks_compared_column` 用 CDP 量真实页：s1 尺子中点 = 两个被比格中心的
+  中点、压在格子上方、新尺 ntDraw 在跑；s2 同一节点 `translate(46,165)`、只有 transform
+  过渡、ntDraw 不重放；s4 旧尺撤走、新尺从零重画；s0/s5 无尺；reduce 与导出风格的一刀切
+  下位置/满线/零动画。
 - 0.29.0 的回归：右列结果卡错峰落位（一屏一话头续）——`test_focus_audit_result_cards_stagger_into_place`
   锁 renderE 右列 `col === 1` 卡片挂 inline `--delay` 按 i 错峰（0/.06/.12s，用现成
   var(--delay)）、左列不加；`test_rider_arrives_and_stays_at_the_destination` 增补
