@@ -32,6 +32,8 @@
   段落；README 回归清单补 0.31.0 条目。
 - 本机全量 **438 passed / 2 skipped**（decode 墨盒抖动 0.905px 为本机 Chromium 146
   字体渲染环境性差异，基线同样失败，以 CI runner Chrome 155 为准）。
+- CI 复按：三档全绿（REALCLOCK 首跑 3.12 档红 205ms——共享 VM 上 GC/CPU steal 可让
+  单帧任意延迟，0.28.0 同款抖动，本地通过；rerun-failed-jobs 后三档一致绿）。
 
 ## [0.30.0] - 2026-10-27
 
