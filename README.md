@@ -649,6 +649,9 @@ python -m pytest tests/ -q
   中点、压在格子上方、新尺 ntDraw 在跑；s2 同一节点 `translate(46,165)`、只有 transform
   过渡、ntDraw 不重放；s4 旧尺撤走、新尺从零重画；s0/s5 无尺；reduce 与导出风格的一刀切
   下位置/满线/零动画。
+- 0.31.0 的回归：未轮到的 diff 行退居参照（声画对齐）——`test_focus_audit_diff_row_stays_dimmed_until_called`
+  锁 renderG dim 表达式含 `(step === 2 && gi === 1)` 分支；focus-dim CDP 用例增补：
+  seg-3 s2 的 diff 行 data-dim=1 + saturate + .45、same 行话头不弱化，s3 反转。
 - 0.29.0 的回归：右列结果卡错峰落位（一屏一话头续）——`test_focus_audit_result_cards_stagger_into_place`
   锁 renderE 右列 `col === 1` 卡片挂 inline `--delay` 按 i 错峰（0/.06/.12s，用现成
   var(--delay)）、左列不加；`test_rider_arrives_and_stays_at_the_destination` 增补

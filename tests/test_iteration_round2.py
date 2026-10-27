@@ -1040,6 +1040,33 @@ def test_focus_dim_tweens_filter_not_opacity(full_lesson):
                           " return JSON.stringify({attr: r.getAttribute('data-dim'),"
                           " f: cs.filter, o: cs.opacity}); })()"))
         assert g["attr"] == "1" and g["f"].startswith("saturate(") and g["o"] == "0.45", g
+
+        # 0.31.0 声画对齐：seg-3 s2 旁白讲"位数相同恰好一致"（话头 = same 行），
+        # diff 行（红色"位数不同"标签）同拍满亮淡入就抢话头——s2 的 diff 行必须
+        # 退居参照（data-dim + .45），s3 才升为话头。
+        ev("window.__jump('seg-3', 2)")
+        time.sleep(0.7)
+        g = json.loads(ev("(function(){ var r = document.getElementById('g-diff');"
+                          " var cs = getComputedStyle(r);"
+                          " return JSON.stringify({attr: r.getAttribute('data-dim'),"
+                          " f: cs.filter, o: cs.opacity}); })()"))
+        assert g["attr"] == "1" and g["f"].startswith("saturate(") and g["o"] == "0.45", \
+            f"s2 话头是 same 行，diff 行该退居参照：{g}"
+        g2 = json.loads(ev("(function(){ var r = document.getElementById('g-same');"
+                           " var cs = getComputedStyle(r);"
+                           " return JSON.stringify({attr: r.getAttribute('data-dim'),"
+                           " f: cs.filter, o: cs.opacity}); })()"))
+        assert g2["attr"] == "0" and g2["f"] == "none" and g2["o"] == "1", \
+            f"s2 的 same 行是话头，不该弱化：{g2}"
+        # s3 反转：diff 行升为话头，same 行让位
+        ev("window.__jump('seg-3', 3)")
+        time.sleep(0.7)
+        g = json.loads(ev("(function(){ var r = document.getElementById('g-diff');"
+                          " var cs = getComputedStyle(r);"
+                          " return JSON.stringify({attr: r.getAttribute('data-dim'),"
+                          " f: cs.filter, o: cs.opacity}); })()"))
+        assert g["attr"] == "0" and g["f"] == "none" and g["o"] == "1", \
+            f"s3 的 diff 行升为话头：{g}"
     finally:
         _kill(chrome)
 
@@ -9528,3 +9555,18 @@ def test_scope_tracks_compared_column(full_lesson):
         assert shot["off"] in ("0px", "0"), f"截图里尺子是满线：{shot['off']}"
     finally:
         _kill(chrome)
+
+
+def test_focus_audit_diff_row_stays_dimmed_until_called():
+    """0.31.0 动效目的审计续：声画对齐，未轮到的 diff 行退居参照。
+
+    renderG（seg-3）s2 旁白讲"当所有元素位数相同时…恰好一致"——话头是 same 行
+    （1/2/3 位数相同）。但 diff 行（红色"位数不同"标签 + 1/2/10 三卡）from:2
+    起建档，若同一拍满亮淡入就跟话头抢注意力，与 0.28.0 的 renderB 同构
+    （没轮到的内容不该满亮度登场）。修法同一套：s2 的 diff 行走弱化档位
+    （data-dim + opacity .45，"在但不在重点上"），s3「位数不同就破了」才升为话头。
+    锁的口径：dim 表达式中含 s2 分支 `(step === 2 && gi === 1)`；s3 的
+    `(step === 3 && gi === 0)` 保持原样（same 行让位）。
+    """
+    src_html = TEMPLATE_HTML.read_text(encoding="utf-8")
+    assert "var dim = (step === 3 && gi === 0) || (step === 2 && gi === 1);" in src_html,         "s2 的 diff 行走弱化档位、s3 才升话头（一屏一个话头，声画对齐）"

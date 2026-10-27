@@ -3818,7 +3818,12 @@
       var oy = two ? 232 + gi * 120 : 258;
       // s3「位数不同就破了」：聚焦翻车那行——另一行走焦点弱化档位
       // （filter 材质 + opacity 同步退档），镜头不管，靠明暗分主次。
-      var dim = step === 3 && gi === 0;
+      // 0.31.0 动效目的审计续（声画对齐）：s2 旁白讲的是"位数相同时恰好一致"
+      // （话头 = same 行 1/2/3），diff 行（红色"位数不同"标签 + 1/2/10 三卡）
+      // 这时候**也建档淡入**就抢话头——与 0.28.0 renderB 同构（没轮到的内容
+      // 不该满亮度登场）。修法同一套：s2 的 diff 行走弱化档位（在但不在重点上），
+      // s3「位数不同就破了」才升为话头。
+      var dim = (step === 3 && gi === 0) || (step === 2 && gi === 1);
       var G = put('g-body', 'g', 'g-' + g.k, {transform:'translate(0,' + oy + ')',
         'data-dim': dim ? 1 : 0, opacity: dim ? .45 : 1});
       txt(G, 'g-' + g.k + '-lab', {x:500, y:-50, 'text-anchor':'middle', 'font-size':13,
