@@ -45,6 +45,13 @@
   `prefers-reduced-motion` 兜底段补第四行，§9 清单补 `.wake` 项；SKILL.md §5 补
   行进余像段；README 特性段与回归清单补 0.32.0 条目。
 - 本机全量 **441 passed / 2 skipped**。
+- CI 复按：首推 3.11 档在**收集期**红——`test_iteration_round2.py:9800` 的 f-string
+  表达式里直接写了 `'\u5c0f\u660e'`，PEP 701 之前的 f-string 不许表达式含反斜杠；
+  本机 3.12 能跑，3.10/3.11 连 import 都过不去（`ast.parse(feature_version=(3,11))`
+  扫全仓 .py 为 0 处后修正，判词一个字节未动）。修后三档绿：3.10 / 3.11 / 3.12
+  同为 **441 passed / 2 skipped**，真实时钟回归同为 2 passed / 4 deselected；
+  3.12 档 REALCLOCK 首跑 218ms 超限（0.31.0 同款共享 VM 抖动），
+  rerun-failed-jobs 后一致绿。3.12 才有的语法在旧档等于零覆盖，这条只能靠矩阵兜。
 
 ## [0.31.0] - 2026-10-28
 
