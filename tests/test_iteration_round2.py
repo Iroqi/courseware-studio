@@ -8339,6 +8339,35 @@ def _jsround(x):
     return math.floor(x + 0.5)
 
 
+def test_decode_ease_out_contract_present():
+    """模板结构契约：0.33.0 的 decode 落定节奏缓出 + 噪声不许撞真字（无浏览器也可锁）。
+
+    `.dec` 说的是"术语从噪声里逐字定住"。0.33.0 前落定是线性等距
+    `round(k/lead × 字数)`——每字一视同仁，正是动效目的审计要点名砍的"机械逐字蹦出"。
+    这一轮改为缓出 `round((1-(1-k)²) × 字数)`，且噪声字不许提前"看起来定了"：
+      · decodeWrite 里出现缓出公式字面（`var e = 1 - (1 - k) * (1 - k)`），
+        老的线性式 `Math.round(k * len)` 不得回潮；
+      · decGlyph 里噪声算到目标字就顺延一格（`pool.charAt(idx) === ch` 分支）——
+        未定的字不该显示成真字（四字词 .45/.455/.46 的噪声池曾恰巧落在"则"上，
+        画面里"默认规则"提前假完整）；
+      · :root 的 --decode-lead 注释与 decodeArm 注释④同步缓出口径（末字落定点
+        `lead × (1 − sqrt(.5/字数))`，四字 .465 / 五字 .492）。
+    """
+    src = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # ① 缓出公式在 decodeWrite 里，线性式不回潮
+    assert "var e = 1 - (1 - k) * (1 - k);" in src, "decodeWrite 必须是缓出公式"
+    assert "var res = Math.min(len, Math.round(k * len));" not in src, \
+        "老的线性等距落定（打字机感）不许回潮"
+    assert "var res = Math.min(len, Math.round(e * len));" in src
+    # ② 噪声≠真字：池子算到目标字就顺延一格
+    assert "if (pool.charAt(idx) === ch) idx = (idx + 1) % pool.length;" in src, \
+        "噪声不许撞真字（未定的字不该提前'看起来定了'）"
+    # ③ 注释口径同步：:root 与 decodeArm 都写缓出，末字落定点公式在
+    assert "0.33.0 起落定节奏是缓出" in src, ":root 的 --decode-lead 注释要同步缓出"
+    assert "`lead × (1 − sqrt(.5/字数))`" in src, "decodeArm 注释④的末字落定点公式"
+    assert "四字词" in src and ".492" in src, "四字 .465 / 五字 .492 的实测口径"
+
+
 @pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
 @pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
 @pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
@@ -8353,9 +8382,10 @@ def test_decode_locks_the_term_while_the_line_says_it(full_lesson):
         别的字，不钉住就会抖）；反面口径也钉住：`getBBox().width` 量的是墨盒，
         `spacingAndGlyphs` 下会随噪声字自己抖（实测「较」那一格 56.467 vs 56.0），
         所以它只能被容忍、不能当钉的对象——拿它钉会把整串压窄到药丸边上；
-      · 落定节奏是 `round(k / lead × 字数)`：每一格的前 res 个字与真字逐位相同、
-        其余全是**同一字符类**的噪声（CJK 换 CJK）；末字在 `lead × (字数 − .5) / 字数`
-        就定了（四字词实测 .63、五字词 .65），lead=.72 只是最晚上限；
+      · 落定节奏是缓出 `round((1-(1-k/lead)²) × 字数)`（0.33.0：不再线性逐字蹦，
+        前几字快定、末字从容沉底）：每一格的前 res 个字与真字逐位相同、
+        其余全是**同一字符类**的噪声（CJK 换 CJK）；末字在 `lead × (1 − sqrt(.5/字数))`
+        就定了（四字词实测 .465、五字词 .492），lead=.72 只是最晚上限；
       · 确定性：同一个 k 采两次逐字符相同，中间夹一次别的 k 也照样复现（导出是每帧
         一次冷启动 seek，随机一次就等于同一秒的两帧是不同的字）；
       · 解码是**逐枚徽标 opt-in** 的：同屏没传 dec 的徽标（seg-3 的「巧合」）在任何
@@ -8402,7 +8432,11 @@ def test_decode_locks_the_term_while_the_line_says_it(full_lesson):
         # ②③ 落定节奏 + 字符类 + 单调 + 确定性
         prev = -1
         for row in d["rows"]:
-            res = min(len(want), _jsround(row["k"] / lead * len(want)))
+            # 0.33.0 缓出：res = round((1-(1-kd)²) × 字数)，kd 与实现同一套夹取
+            #（decodeWrite 里 k = min(1, 句内进度/lead)——采样 k=1 时 kd 钳在 1）
+            kd = min(1, row["k"] / lead)
+            e = 1 - (1 - kd) ** 2
+            res = min(len(want), _jsround(e * len(want)))
             assert len(row["txt"]) == len(want), f"解码不改字数：{row}"
             assert row["txt"][:res] == want[:res], f"前 {res} 格已定住：{row}"
             for c in row["txt"][res:]:
@@ -8416,9 +8450,9 @@ def test_decode_locks_the_term_while_the_line_says_it(full_lesson):
         assert again["rows"][2]["txt"] == again["rows"][0]["txt"] == k0, \
             f"同一个 k 永远同一个串（导出每帧冷启动）：{k0} vs {again['rows'][2]['txt']}"
 
-        # 末字落定点：lead × (字数 − .5) / 字数（四字词 = .63）
-        edge = read("a-rule", "seg-1", 2, ks="[.6,.63]")
-        last_at = lead * (len(want) - 0.5) / len(want)
+        # 末字落定点：lead × (1 − sqrt(.5/字数))（0.33.0 缓出，四字词 = .465）
+        edge = read("a-rule", "seg-1", 2, ks="[.46,.47]")
+        last_at = lead * (1 - math.sqrt(0.5 / len(want)))
         assert edge["rows"][0]["txt"] != want and edge["rows"][1]["txt"] == want, \
             f"末字在 {round(last_at, 3)} 落定（lead=.72 是最晚上限不是那一拍）：{edge['rows']}"
 
@@ -8429,7 +8463,7 @@ def test_decode_locks_the_term_while_the_line_says_it(full_lesson):
         # 没钉 textLength 的徽标：字面恒等 → 墨盒与推进量都恒等（同一串同一宽）
         assert len({r["w"] for r in g["rows"]}) == 1 and len({r["adv"] for r in g["rows"]}) == 1
 
-        # 五字词同一套节奏（另一次建档，另一句长）
+        # 五字词同一套节奏（另一次建档，另一句长）；末字在 .492 落定，.72 处已满
         s = read("a-str", "seg-1", 3, ks="[0,.5,.65,.72,1]")
         assert s["rows"][0]["txt"] != "转成字符串" and s["rows"][3]["txt"] == "转成字符串"
         assert len({r["adv"] for r in s["rows"]}) == 1, f"五字词同样钉住推进量：{s['rows']}"
