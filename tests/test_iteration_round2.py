@@ -9796,8 +9796,9 @@ def test_wake_trails_behind_rider_and_stacks_at_arrival(full_lesson):
         ev("window.__jump('seg-6', 0)")
         time.sleep(0.15)
         shot0 = json.loads(ev(_WAKE_PROBE))
-        assert shot0["\u5c0f\u660e"]["w1"]["dist"] == "0%", \
-            f"导出帧 s0 落在路头（作者写的档位）：{shot0['\u5c0f\u660e']['w1']}"
+        ming = "\u5c0f\u660e"  # 3.10/3.11 的 f-string 表达式里不能出现反斜杠，先落到变量
+        assert shot0[ming]["w1"]["dist"] == "0%", \
+            f"导出帧 s0 落在路头（作者写的档位）：{shot0[ming]['w1']}"
         ev("window.__jump('seg-6', 1)")
         time.sleep(0.15)
         shot1 = json.loads(ev(_WAKE_PROBE))
