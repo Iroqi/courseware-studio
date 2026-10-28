@@ -215,12 +215,15 @@
        **跟随与重叠**（overlapping action：一个物体的各部分不在同一瞬间停住），第二条
        把"跟着嘴"从字幕带引进画面里的字（kinetic typography 的解码读法），第三条管的是
        **边界的手感**——拖到头了要读得出"到头"，而不是"跟不上了"。
-         · --trail-step .07s：拖尾的档距，只此一处的**先后**（不是新时长档）。实测见
-           stage.md §3.4（把三条补间一起 pause() 后按 currentTime 采样）：主角身体先走，
+         · --trail-step .07s：拖尾的档距，**先后只有这一处尺度**（不是新时长档；
+           .trail 的让位与 .wake 的余像都从这里派生）。实测见 stage.md §3.4（把三条
+           补间一起 pause() 后按 currentTime 采样）：主角身体先走，
            晚一格的框在 t=70ms 还停在原位、t=140ms 才动，晚两格的字在 t=140ms 仍不动、
            t=210ms 才动；三档总行程 .5 + .14 = .64s（主角 500ms 落位，两张跟随的卡
            640ms 落位），仍短于沿线抵达（--dur-ride .8s）——再长就读成
-           "三个各走各的"而不是"一串被带着走"；
+           "三个各走各的"而不是"一串被带着走"；0.32.0 的余像用的同一档：
+           70/140ms 在 .8s 行程上是 8.75%/17.5%，头尾间距 ~22px，两枚尾巴
+           读成"一串"而不断成三个标记；
          · --decode-lead .72：逐字解码在一句旁白的**前 72%** 走完。这个 72% 是"最后一个
            字最晚在此定住"的上限而不是它定住的那一拍：四字词按 round(k/.72×4) 逐字落定，
            末字实测在 63% 处就成了"默认规则"（0.60 还是"默认规后"），五字词在 65%。
@@ -934,6 +937,35 @@
   .ride{offset-path:var(--route);offset-rotate:auto;offset-distance:0%;
         transition:offset-distance var(--dur-ride) linear}
   .ride[data-go="1"]{offset-distance:100%}
+  /* 行进余像（`.wake`，0.32.0，motion trail / afterimage）：`.ride` 说的是"人到
+     了那一格"，这一条补的是**路上留下了速度**——同一枚标记的几枚余像各晚一格
+     出发，行程中拖在头后，到站后依次叠回头下。它与 `.ride` 是**同一条路线上的
+     两层**（`class:'ride wake'`），路线、时长、linear 都只有 `.ride` 那一处定义，
+     这一层只加先后与遮挡。六条口径：
+       ① **余像不是第二个标记**：只描圆环（`fill:none`）、不描箭头、不写字、
+           `pointer-events:none`，透明度逐枚递减——读作"刚从这里经过"，不读作
+           "还有一个人"；
+       ② **终态仍在 `data-go` 上**：余像与头共用同一条 `--route`、同一个档位；到站
+           100% 后全部叠在头下（两环 r 5.2 / 4.4、描边 1.4，外沿 5.9 / 5.1 < 头的
+           6，一像素不露头）。导出那一刀（`transition:none!important`）与
+           reduced-motion 归零落得都是"到站"这一格，画面不多一笔——与 `.ride`
+           同一判断：关的是补间不是终态；
+       ③ **先后只从 --trail-step 一处派生**（`calc(var(--trail-step) * var(--wake-i))`，
+           与 `.trail` 同源，不新开时长档）：`--wake-i` 是排位（1、2），写在节点
+           `style` 上；档距的尺度仍在 :root 一处；
+       ④ **余像建在头之前**（DOM 顺序）：同一位置叠着时头压住尾——终态靠遮挡，
+           不靠 opacity:0 收场，于是不需要"演完隐藏"的第二套状态；
+       ⑤ **只给走得够长的路挂**：行程短于两段拖距（= 行程 × 2 × --trail-step /
+           --dur-ride ≈ 17.5%）时，尾巴还没拉开就已到站，只会在原地糊出一圈毛边——
+           消费者按路线长度决定挂不挂（与 `.swap` 的 --swap-min 同一判断：几何不够
+           就别演）；
+       ⑥ reduced-motion 关的是**这一层的先后**（媒体块里 `.wake` 归零 delay）：
+           时长钳制（`transition-duration:.01ms!important`）管不到 delay，这一行
+           让"关先后"写在本原语自己的清单里、不依赖消费者带不带 `.nt`——范本节点
+           都带，实测删掉该行仍是 0s（`.nt{transition:none}` 顺带复了位），
+           **别把别人的简写当依托**； */
+  .wake{transition-delay:calc(var(--trail-step) * var(--wake-i, 1));
+        pointer-events:none}
   /* 圆形绽开（0.20.0 之三，前沿做法：`clip-path: circle()` 关键帧）：.reveal 是直边
      扫描、.featherR 是软边掠出，这一条是**从中心推开一个圆**。用在"这个位置本来该有
      个东西、它空着"的场合（模板拿它开比较式里的空缺格 ∅）：圆从中心长出来读作
@@ -1760,11 +1792,16 @@
          · 沿线抵达关 **transition**：`data-go` 在属性上，关掉即落 100%，标记停在
            路线终点——它承担的是"这个人已经到了这一行"的位置信息，不能连位置一起关，
            与划重点那条 #cap-hl 同一判断（关的是补间不是终态）；
+         · 行进余像（0.32.0）只归零 **delay**：那一层的位移由 `.ride` 的同一份
+           transition 管，本块前面已一刀关掉；`transition-delay` 是另一条长档，
+           时长钳制管不到它（与 `.trail` 边界⑥同一本账）。归零之后余像与头同拍
+           落 100%，叠在头下——"到站"那一格一像素不多；
          · 圆形绽开关 **animation**：静止态 `clip-path:circle(75%)` 已在元素自己身上
            （实测与完全不裁逐像素相同），关掉即整格全显，与 .reveal / .featherR
            "关掉落在完整揭示"同一条纪律③。 */
     .flip,.flip .face,.flip .faceB{transition:none}
     .ride{transition:none}
+    .wake{transition-delay:0s}
     .bloom{animation:none}
     /* 定盘与成形（0.21.0）三条同口径，兜底落的都正是终态：
          · 倾侧关 **transition**：`data-pan` 本就在呈现属性上，一刀下去直接落
@@ -3773,9 +3810,23 @@
        箭头（`M 4 -5 L 10 0 L 4 5`）朝 +x：`offset-rotate:auto` 会把它对准路线方向，
        不用 JS 反解角度（实测那条 292×72 的斜线上自动转了 13.86°）。 */
     [['小明',150,222], ['小红',222,294]].forEach(function(p){
+      var route = "--route:path('M 354 " + p[1] + " L 646 " + p[2] + "')";
+      /* 行进余像（0.32.0）：先建尾巴、后建头——同位置时头压住尾（CSS 口径 ④）。
+         两枚余像各晚 --trail-step 的 1 / 2 倍出发；行程 ~300 单位，0.07s/0.8s
+         = 8.75%，实测（三条补间一起 pause 到 t=400ms）头 50%、尾 41.25% / 32.5%，
+         屏幕间距 23.8 / 22.1px——够读成"一串"而不断成"三个东西"。余像只描圆环
+         （不带箭头、不带字），透明度递减；到站两环收在头下（5.9 < 6）。 */
+      [1, 2].forEach(function(i){
+        var wk = put('e-body', 'g', 'e-wake-' + p[0] + '-' + i,
+          {class:'ride wake', 'data-go': step >= 1 ? '1' : '0',
+           style: route + ';--wake-i:' + i});
+        put(wk, 'circle', 'e-wake-' + p[0] + '-' + i + '-c',
+          {r: i === 1 ? 5.2 : 4.4, fill:'none', stroke:'#2ecc71',
+           'stroke-width':1.4, opacity: i === 1 ? .5 : .25});
+      });
       var rd = put('e-body', 'g', 'e-ride-' + p[0],
         {class:'ride', 'data-go': step >= 1 ? '1' : '0',
-         style: "--route:path('M 354 " + p[1] + " L 646 " + p[2] + "')"});
+         style: route});
       put(rd, 'circle', 'e-ride-' + p[0] + '-c', {r:6, fill:'#2ecc71'});
       put(rd, 'path', 'e-ride-' + p[0] + '-a', {d:'M 4 -5 L 10 0 L 4 5', fill:'none',
         stroke:'#2ecc71', 'stroke-width':2});

@@ -8037,7 +8037,8 @@ def test_trail_decode_band_primitives_present():
       · **拖尾只有一条长档**：`.trail` 整条规则里不许出现 `transition` 简写（写了就把 `.nt`
         那十七项顶掉，0.19.0 / 0.23.0 同一课），且基础规则源序在 `.nt` 之后、同为 (0,1,0)；
         `--trail-r` **故意不注册**（它是排位的读数不是要补间的行程，口径同 --cam-pan）；
-        档距 `--trail-step` 全 CSS 只被消费**一次**，`.07s`/`.14s` 不许抄成两份字面量；
+        档距 `--trail-step` 全 CSS 只有**一把尺**（0.26.0 的 `.trail` 与 0.32.0 的 `.wake`
+        都写派生式），`.07s`/`.14s` 不许抄成两份字面量；
       · **解码不许是第二路字幕**：字面由 `badge(..., dec)` 逐枚 opt-in，写的是变量
         （`d.n.textContent = out`），全模板没有第二处 `textContent = '...'` 字面量赋值；
         噪声**没有随机数**——`Math.random` 在整个范本与运行时里一次都不许出现（导出是每帧
@@ -8064,7 +8065,7 @@ def test_trail_decode_band_primitives_present():
         assert re.search(re.escape(tok) + r"\s*:", root), \
             f"{tok} 没长在 :root 里（被注释语法吃掉过一次，见 _css_comment_problems）"
 
-    # ① 拖尾：一条长档、一个来源、一个消费者，且 `--trail-r` 不注册
+    # ① 拖尾：一条长档、一个来源（0.32.0 起两个消费者共用同一尺度），`--trail-r` 不注册
     assert ".trail{transition-delay:calc(var(--trail-step) * var(--trail-r, 0))}" in css
     trail = re.search(r"\.trail\{(.*?)\}", css, flags=re.S).group(1)
     assert "transition:" not in trail, \
@@ -8073,8 +8074,10 @@ def test_trail_decode_band_primitives_present():
         "两条同为 (0,1,0)，先后靠源序：兜底与归零都写在后面才压得住"
     assert "@property --trail-r" not in html, \
         "--trail-r 是排位的读数（常量替换进 calc），注册了就去补间它（口径同 --cam-pan）"
-    assert css.count("var(--trail-step)") == 1, \
-        "档距只在 .trail 一处被消费：抄出第二个消费者就再也不是'只此一处'"
+    assert css.count("var(--trail-step)") == 2, \
+        "档距只有一把尺：.trail 的让位与 .wake 的余像都从它派生（第二个消费者也只能写派生式）"
+    assert ".wake{transition-delay:calc(var(--trail-step) * var(--wake-i, 1))" in css, \
+        "0.32.0 的余像从同一支令牌派生先后，不新开时长档"
     assert ".14s" not in css and "0.14s" not in css, \
         "把 rank×档距的第二格抄成字面量就是第二个数（口径同 --wind-hold / --par-far）"
     assert "style: rank[hi] ? '--trail-r:' + rank[hi] : null" in html, \
@@ -9570,3 +9573,238 @@ def test_focus_audit_diff_row_stays_dimmed_until_called():
     """
     src_html = TEMPLATE_HTML.read_text(encoding="utf-8")
     assert "var dim = (step === 3 && gi === 0) || (step === 2 && gi === 1);" in src_html,         "s2 的 diff 行走弱化档位、s3 才升话头（一屏一个话头，声画对齐）"
+
+
+# ── 11. 行进余像：沿线抵达的拖尾（0.32.0）──
+
+def test_wake_echo_trail_primitives_present():
+    """模板结构契约：行进余像长在范本里，边界逐条落在源码上（无浏览器也可锁）。
+
+    `.ride` 说的是"人到了那一格"，`.wake` 补的是"路上留下了速度"：同一枚标记的
+    两枚圆环余像各晚 --trail-step 的 1 / 2 倍出发，行程中拖在头后、到站叠回头下。
+    锁的口径：
+      · 余像是 `.ride` 的修饰层（`class:'ride wake'`）：路线、时长、linear 都只有
+        `.ride` 一处定义，这一层只加 `transition-delay` 与 `pointer-events:none`；
+      · 先后只从 `--trail-step` 一处派生（`--wake-i` 是排位，不注册 @property）；
+      · 余像建在头之前（DOM 顺序即遮挡关系）；只描圆环、不带箭头；
+      · 到站两环外沿 < 头的 6（r 5.2/4.4 + 描边 1.4 的一半 = 5.9/5.1），一像素不露头；
+      · reduced-motion 只归零 delay（基础规则源序在媒体块之前，同 .ride 不需抬特异度）。
+    """
+    src = TEMPLATE_HTML.read_text(encoding="utf-8")
+    # ① 修饰层：不重述路线/时长（同一份 .ride 定义），只加先后与命中
+    assert (".wake{transition-delay:calc(var(--trail-step) * var(--wake-i, 1));\n"
+            "        pointer-events:none}") in src
+    assert src.count("transition:offset-distance var(--dur-ride) linear}") == 1, \
+        "行程补间只有 .ride 一处定义，余像不许抄第二份时长"
+    assert "@property --wake-i" not in src, \
+        "--wake-i 只是排位读数（常量替换进 calc），注册成 <number> 只会多一条可补间的路"
+    # ② 余像建在头之前：同位置时头压住尾，终态靠遮挡不靠 opacity:0
+    i_wake = src.index("put('e-body', 'g', 'e-wake-' + p[0] + '-' + i,")
+    i_head = src.index("put('e-body', 'g', 'e-ride-' + p[0],", i_wake)
+    assert i_wake < i_head, "尾巴必须先建档：DOM 顺序就是遮挡顺序"
+    wall = src[i_wake:i_head]
+    assert "put(wk, 'circle', 'e-wake-' + p[0] + '-' + i + '-c'," in wall
+    assert "put(wk, 'path'" not in wall, "余像不描箭头（它不是第二个标记）"
+    assert "'stroke-width':1.4, opacity: i === 1 ? .5 : .25" in wall
+    assert "r: i === 1 ? 5.2 : 4.4" in wall
+    assert 5.2 + 1.4 / 2 <= 6 and 4.4 + 1.4 / 2 <= 6, \
+        "两环连描边外沿都不超过头的 6，到站一像素不露头"
+    # ③ 路线与头同一组坐标、同一份字符串（两处各抄一遍就会跑偏）
+    assert 'var route = "--route:path(\'M 354 " + p[1] + " L 646 " + p[2] + "\')";' in src
+    assert "style: route + ';--wake-i:' + i" in src
+    assert "style: route});" in src, "头复用同一条路线"
+    assert "'data-go': step >= 1 ? '1' : '0'" in src
+    # ④ reduced-motion：只归零这一层的先后；路线与档位不是动效，不进兜底清单
+    rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n  \}", src, re.S).group(1)
+    assert ".wake{transition-delay:0s}" in rm
+    assert ".ride{transition:none}" in rm
+    rm_rules = re.sub(r"/\*.*?\*/", "", rm, flags=re.S)
+    assert "offset-path" not in rm_rules and "--route" not in rm_rules, \
+        f"路线与档位是读数，不随动效一起关：{rm_rules}"
+
+
+_WAKE_PROBE = r"""(function(){
+  function one(id){
+    var n = document.getElementById(id);
+    if (!n) return null;
+    var cs = getComputedStyle(n), m = n.getScreenCTM();
+    var c = n.firstChild, ccs = getComputedStyle(c);
+    return {dist:cs.offsetDistance, delay:cs.transitionDelay, tp:cs.transitionProperty,
+      tdur:cs.transitionDuration, pe:cs.pointerEvents, cls:n.getAttribute('class'),
+      parent:n.parentNode.id, ax:+m.e.toFixed(2), ay:+m.f.toFixed(2),
+      tag:c.tagName, r:+c.getAttribute('r'), sw:+c.getAttribute('stroke-width'),
+      fill:ccs.fill, op:+ccs.opacity,
+      kids:[].slice.call(n.children).map(function(k){ return k.tagName; })};
+  }
+  var o = {order:[].slice.call(document.getElementById('e-body').children)
+             .map(function(n){ return n.id; })};
+  ['\u5c0f\u660e','\u5c0f\u7ea2'].forEach(function(nm){
+    o[nm] = {head:one('e-ride-' + nm), w1:one('e-wake-' + nm + '-1'),
+             w2:one('e-wake-' + nm + '-2')};
+  });
+  return JSON.stringify(o);
+})()"""
+
+_WAKE_SAMPLE = r"""(function(){
+  var ids = [];
+  ['\u5c0f\u660e','\u5c0f\u7ea2'].forEach(function(nm){
+    ids.push('e-ride-' + nm, 'e-wake-' + nm + '-1', 'e-wake-' + nm + '-2');
+  });
+  var n = 0;
+  ids.forEach(function(id){
+    (document.getElementById(id).getAnimations() || []).forEach(function(a){
+      if (a.transitionProperty !== 'offset-distance') return;
+      a.pause(); a.currentTime = MS; n++;
+    });
+  });
+  var frames = ids.map(function(id){
+    var el = document.getElementById(id), cs = getComputedStyle(el), m = el.getScreenCTM();
+    return {id:id, dist:+parseFloat(cs.offsetDistance).toFixed(2),
+            x:+m.e.toFixed(2), y:+m.f.toFixed(2)};
+  });
+  return JSON.stringify({paused:n, frames:frames});
+})()"""
+
+_WAKE_CANCEL = r"""(function(){
+  var ids = [];
+  ['\u5c0f\u660e','\u5c0f\u7ea2'].forEach(function(nm){
+    ids.push('e-ride-' + nm, 'e-wake-' + nm + '-1', 'e-wake-' + nm + '-2');
+  });
+  var n = 0;
+  ids.forEach(function(id){
+    (document.getElementById(id).getAnimations() || []).forEach(function(a){
+      if (a.transitionProperty === 'offset-distance'){ a.cancel(); n++; }
+    });
+  });
+  var frames = ids.map(function(id){
+    var el = document.getElementById(id), cs = getComputedStyle(el), m = el.getScreenCTM();
+    return {id:id, dist:+parseFloat(cs.offsetDistance).toFixed(2),
+            x:+m.e.toFixed(2), y:+m.f.toFixed(2)};
+  });
+  return JSON.stringify({stopped:n, frames:frames});
+})()"""
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_wake_trails_behind_rider_and_stacks_at_arrival(full_lesson):
+    """真实浏览器：余像拖在头后、到站叠回头下（0.32.0）。
+
+    锁的口径：
+      · s0 余像与头**同点**（都还在路头），两枚尾巴被头完全遮住（同锚点 + 外沿 < 6）；
+      · s1 把三条补间一起 pause 到 t=400ms：头 50%、尾 41.25% / 32.5%（延迟 70/140ms
+        在 .8s 行程上就是 8.75%/17.5%），屏幕上前头 > 尾 1 > 尾 2，间距 15–30px——
+        "一串"而不是三个独立标记；
+      · 到站（cancel 后落 100%）三枚同锚点（±0.6px），尾巴回到头下，画面不多一笔；
+      · 头的 children 仍是"圆 + 箭头"两项：余像是**兄弟节点**，不改头的身位；
+      · reduced-motion：只归零 delay；transition 由 .nt 那一刀关掉，直接落 100%；
+      · 导出截图：一刀切掉 transition 后 s0 落 0%、s1 落 100%，与作者写的档位逐值相同。
+    """
+    chrome, ev, send = _cdp(full_lesson, "wake")
+    try:
+        ev(_SEEK)
+        ev("window.__jump('seg-6', 0)")
+        time.sleep(0.5)
+        st = json.loads(ev(_WAKE_PROBE))
+        order = st["order"]
+        for nm in ("\u5c0f\u660e", "\u5c0f\u7ea2"):
+            head, w1, w2 = st[nm]["head"], st[nm]["w1"], st[nm]["w2"]
+            assert head and w1 and w2, f"两枚余像与头都在场：{st[nm]}"
+            assert order.index("e-wake-%s-1" % nm) < order.index("e-wake-%s-2" % nm) \
+                < order.index("e-ride-%s" % nm), \
+                f"DOM 顺序必须是尾、尾、头（遮挡关系）：{order}"
+            for k in ("parent", "cls", "tp", "tdur", "pe"):
+                assert w1[k] == w2[k], f"两条尾巴同一口径 {k}：{w1[k]} / {w2[k]}"
+            assert w1["parent"] == "e-body", f"不挂在收拢层里：{w1}"
+            assert w1["cls"] == "nt ride wake", w1
+            assert w1["tp"] == "offset-distance" and w1["tdur"] == "0.8s", \
+                f"余像复用 .ride 的行程补间（不新开时长）：{w1}"
+            assert w1["delay"] == "0.07s" and w2["delay"] == "0.14s", \
+                f"先后从 --trail-step 派生：{w1['delay']} / {w2['delay']}"
+            assert w1["pe"] == "none", f"余像是视觉层，不吃指针：{w1}"
+            assert w1["kids"] == ["circle"] and w2["kids"] == ["circle"], \
+                f"只有一枚圆环（没有箭头、没有字）：{w1['kids']} / {w2['kids']}"
+            assert head["kids"] == ["circle", "path"], \
+                f"余像是兄弟不是孩子，头的结构一项不改：{head['kids']}"
+            assert w1["tag"] == "circle" and w1["fill"] == "none" \
+                and w1["r"] == 5.2 and w1["sw"] == 1.4, w1
+            assert w2["r"] == 4.4, w2
+            assert abs(w1["op"] - .5) < .01 and abs(w2["op"] - .25) < .01, \
+                f"透明度逐枚递减：{w1['op']} / {w2['op']}"
+            assert w1["r"] + w1["sw"] / 2 <= 6 and w2["r"] + w2["sw"] / 2 <= 6
+            assert w1["dist"] == "0%" and w2["dist"] == "0%", \
+                f"s0 尾巴停在路头（和头一样不出发）：{w1} / {w2}"
+            assert abs(w1["ax"] - head["ax"]) <= 0.6 and abs(w2["ax"] - head["ax"]) <= 0.6 \
+                and abs(w1["ay"] - head["ay"]) <= 0.6, \
+                f"s0 三枚同锚点，尾巴被头遮住：{w1} {w2} {head}"
+
+        ev("window.__jump('seg-6', 1)")
+        time.sleep(0.12)
+        mid = json.loads(ev(_WAKE_SAMPLE.replace("MS", "400")))
+        assert mid["paused"] == 6, f"两个头 + 四条尾巴都要在路上：{mid}"
+        f = {x["id"]: x for x in mid["frames"]}
+        for nm in ("\u5c0f\u660e", "\u5c0f\u7ea2"):
+            h, a, b = (f["e-ride-" + nm], f["e-wake-" + nm + "-1"], f["e-wake-" + nm + "-2"])
+            assert abs(h["dist"] - 50) <= 0.6, f"头半程：{h}"
+            assert abs(a["dist"] - 41.25) <= 0.6, f"尾巴晚 70ms：{a}"
+            assert abs(b["dist"] - 32.5) <= 0.6, f"尾巴晚 140ms：{b}"
+            assert 15 <= h["x"] - a["x"] <= 30 and 15 <= a["x"] - b["x"] <= 30, \
+                f"屏幕间距 ~22px：{h['x']} / {a['x']} / {b['x']}"
+
+        rest = json.loads(ev(_WAKE_CANCEL))
+        assert rest["stopped"] == 6, rest
+        f = {x["id"]: x for x in rest["frames"]}
+        for nm in ("\u5c0f\u660e", "\u5c0f\u7ea2"):
+            h, a, b = (f["e-ride-" + nm], f["e-wake-" + nm + "-1"], f["e-wake-" + nm + "-2"])
+            assert h["dist"] == a["dist"] == b["dist"] == 100.0, \
+                f"到站三枚都落 100%：{h} {a} {b}"
+            assert abs(a["x"] - h["x"]) <= 0.6 and abs(b["x"] - h["x"]) <= 0.6 \
+                and abs(a["y"] - h["y"]) <= 0.6, \
+                f"到站尾巴叠回头下（一像素不露头）：{h} {a} {b}"
+
+        # reduced-motion：只归零 delay，transition 由 .nt 那一刀关掉
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev("window.__jump('seg-6', 0)")
+        time.sleep(0.2)
+        ev("window.__jump('seg-6', 1)")
+        time.sleep(0.2)
+        rm = json.loads(ev(_WAKE_PROBE))
+        for nm in ("\u5c0f\u660e", "\u5c0f\u7ea2"):
+            head = rm[nm]["head"]
+            for wk in (rm[nm]["w1"], rm[nm]["w2"]):
+                assert wk["delay"] == "0s", \
+                    f"减少动效必须归零 delay（否则余像各晚 70/140ms 才落）：{wk}"
+                assert wk["tp"] == "none", f"补间整个关掉：{wk}"
+                assert wk["dist"] == "100%" and head["dist"] == "100%", \
+                    f"直接落那一拍该在的位置：{wk} / {head}"
+                assert abs(wk["ax"] - head["ax"]) <= 0.6, \
+                    f"关掉之后尾巴与头同点（画面不多一笔）：{wk}"
+
+        # 导出截图：一刀切掉 transition（与 export_video 注入的规则同文）
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "no-preference"}]})
+        ev("""(function(){
+          var st = document.createElement('style');
+          st.textContent = '*,*::before,*::after{transition:none!important;' +
+                           'animation:none!important}';
+          document.head.appendChild(st);
+          return 1;
+        })()""")
+        ev("window.__jump('seg-6', 0)")
+        time.sleep(0.15)
+        shot0 = json.loads(ev(_WAKE_PROBE))
+        assert shot0["\u5c0f\u660e"]["w1"]["dist"] == "0%", \
+            f"导出帧 s0 落在路头（作者写的档位）：{shot0['\u5c0f\u660e']['w1']}"
+        ev("window.__jump('seg-6', 1)")
+        time.sleep(0.15)
+        shot1 = json.loads(ev(_WAKE_PROBE))
+        for nm in ("\u5c0f\u660e", "\u5c0f\u7ea2"):
+            head = shot1[nm]["head"]
+            for wk in (shot1[nm]["w1"], shot1[nm]["w2"]):
+                assert wk["dist"] == "100%" and abs(wk["ax"] - head["ax"]) <= 0.6, \
+                    f"导出定格是抵达之后那一格：{wk} / {head}"
+    finally:
+        _kill(chrome)

@@ -57,7 +57,8 @@
   讲完的那一行不再"啪"地消失，而是沿自己来时的方向收出去（收拢退场）；
   中文正文行首那个全角标点的半格留白也收掉了。比大小的那一格判决不是换个颜色，
   而是当着观众翻过来（`vs` 翻成 `<`，真 3D 翻面）；一个人对上一列，可以让一枚标记
-  顺着那条连线走过去停在右端（沿线抵达）；本来该有东西却空着的那一格，从中心推开
+  顺着那条连线走过去停在右端（沿线抵达），身后拖着两圈渐隐的余像、到站后叠回脚下
+  ——走过这一路留下了速度（行进余像）；本来该有东西却空着的那一格，从中心推开
   一个圆亮出来（圆形绽开）。比较函数的契约落到画面上那一下，天平朝读数那一侧倾过去、
   弹簧略微越过去再定住（倾侧定盘，只有 −1 / 0 / +1 三档）；按下选项的那一点立刻泛起
   一圈涟漪说"收到了"（触点涟漪——键盘那条路没有触点，就不给它编一个圆心）；换到新的
@@ -652,6 +653,14 @@ python -m pytest tests/ -q
 - 0.31.0 的回归：未轮到的 diff 行退居参照（声画对齐）——`test_focus_audit_diff_row_stays_dimmed_until_called`
   锁 renderG dim 表达式含 `(step === 2 && gi === 1)` 分支；focus-dim CDP 用例增补：
   seg-3 s2 的 diff 行 data-dim=1 + saturate + .45、same 行话头不弱化，s3 反转。
+- 0.32.0 的回归：行进余像（`.ride` 的拖尾）——`test_wake_echo_trail_primitives_present`
+  锁静态口径（路线与时长不重述：`transition:offset-distance var(--dur-ride) linear` 全仓只有
+  `.ride` 一处；`--wake-i` 故意不注册；余像节点建在头之前、只描圆环；到站外沿
+  5.9/5.1 < 头的 6；reduced-motion 只归零 delay）。`test_wake_trails_behind_rider_and_stacks_at_arrival`
+  用 CDP 量真实页：s0 余像与头同锚点（被头完全遮住）；s1 六条 `offset-distance`
+  补间一起 pause 到 t=400ms，头 50%、两尾 41.25% / 32.5%、屏幕间距 23.8 / 22.1px；
+  到站三枚同锚点（±0.6px）；头的 children 仍是"圆 + 箭头"两项（余像是兄弟）；
+  reduce 下 delay 归零、直落 100%；导出式一刀切后 s0 落 0%、s1 落 100%。
 - 0.29.0 的回归：右列结果卡错峰落位（一屏一话头续）——`test_focus_audit_result_cards_stagger_into_place`
   锁 renderE 右列 `col === 1` 卡片挂 inline `--delay` 按 i 错峰（0/.06/.12s，用现成
   var(--delay)）、左列不加；`test_rider_arrives_and_stays_at_the_destination` 增补
