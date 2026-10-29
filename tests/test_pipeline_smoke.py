@@ -205,7 +205,7 @@ class TestPipelineBrowser:
 # ── 真实时钟浏览器回归（可选）──────────────────────────────────────
 # 第三轮实例验证的固化：check_gates 的浏览器冒烟用确定性时钟桩（从不真实播放
 # 音频）；这里用无头 Chrome + CDP + 真实 audio.currentTime 推进，验证：
-#   * 真实播放下字幕翻句延迟有界（rAF 驱动，<= 200ms 墙钟）
+#   * 真实播放下字幕翻句延迟有界（rAF 驱动，<= 200ms 媒体时间；4× 下约 50ms 墙钟）
 #   * 任意采样点字幕文本与时间轴逐句一致（20ms 采样）
 #   * 门禁真实开/锁/继续，答对后音频真实恢复（首道门禁与下一门禁锚点过近时
 #     允许被下一门禁再次暂停——范本 seg-2 末锚点与 seg-3 首锚点仅隔 0.5s）
@@ -230,13 +230,23 @@ _REALCLOCK_PROBE = r"""
   (function rafLoop(){ rafCount++; requestAnimationFrame(rafLoop); })();
   setInterval(() => { report.rafHz = Math.round(rafCount / 3); rafCount = 0; }, 3000);
   let lastTxt = '';
+  function noteFlip(txt, t){
+    const cur = idx.find(e => txt === capNorm(e.text));
+    if (cur && t >= cur.t0) report.flipLatency.push(+((t - cur.t0) * 1000).toFixed(0));
+  }
+  // 翻句延迟在字幕**真正改字**的那一刻量（0.34.0 复按·二）：MutationObserver 在
+  // 同一个 rAF 任务的微任务检查点触发，读到的是翻句当帧的 currentTime；旧的 20ms
+  // 轮询在 4× 下每格 ≈ 80ms 媒体时间，把量化误差整块加进每个样本（p90 217ms 里
+  // 约 72ms 是量化），200ms 阈值因此周期性假阳（0.31/0.32 各复按过一次，本轮
+  // 3.11 档再次）。
+  new MutationObserver(() => {
+    const txt = capNorm(caption.textContent);
+    if (txt === lastTxt) return;
+    lastTxt = txt;
+    noteFlip(txt, audio.currentTime);
+  }).observe(caption, {childList:true, characterData:true, subtree:true});
   setInterval(() => {
     const t = audio.currentTime, txt = capNorm(caption.textContent);
-    if (txt !== lastTxt){
-      lastTxt = txt;
-      const cur = idx.find(e => txt === capNorm(e.text));
-      if (cur && t >= cur.t0) report.flipLatency.push(+((t - cur.t0) * 1000).toFixed(0));
-    }
     // 采样窗口起点 = 允许翻句延迟 + 一个采样步长（0.34.0 复按）：翻句延迟契约是
     // p90 ≤ 200ms（见用例断言），4× 播放下 20ms 墙钟采样 ≈ 80ms 媒体时间——起点
     // 若早于 200ms，一次"合法晚翻"就会被记成不一致。旧值 0.15 正好踩在这条上：
