@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780" role="img" aria-labelledby="title desc">
+  <title id="title">Courseware Studio 页面结构</title>
+  <desc id="desc">深色单页课件：左侧为章节头、SVG 舞台、画布内字幕与播放器行，右侧为参考资料侧栏。</desc>
+  <defs>
+    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#2b3342"/>
+    </pattern>
+    <linearGradient id="stageGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2130"/>
+      <stop offset="1" stop-color="#11151d"/>
+    </linearGradient>
+    <linearGradient id="barFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f5a623"/>
+      <stop offset="1" stop-color="#ffc85c"/>
+    </linearGradient>
+    <style>
+      text { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Hiragino Sans GB", sans-serif; }
+      .label { fill: #8d95a8; font-size: 12px; letter-spacing: .04em; }
+      .body { fill: #e9ecf3; font-size: 14px; }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .badge { fill: #1c212c; stroke: #f5a623; stroke-width: 1.2; }
+      .badge-num { fill: #f5a623; font-size: 11px; }
+    </style>
+  </defs>
+
+  <rect x="8" y="8" width="1184" height="764" rx="18" fill="#0d0f14" stroke="#252b37"/>
+
+  <!-- ① 章节头 -->
+  <circle cx="44" cy="90" r="11" class="badge"/>
+  <text x="44" y="94" text-anchor="middle" class="badge-num">1</text>
+  <rect x="64" y="54" width="78" height="24" rx="12" fill="#f5a623" fill-opacity=".12" stroke="#f5a623" stroke-opacity=".4"/>
+  <text x="103" y="70" text-anchor="middle" fill="#f5a623" font-size="12">第 3 节</text>
+  <text x="64" y="108" fill="#e9ecf3" font-size="24" font-weight="600">为什么 sort() 按字符串排序</text>
+  <text x="64" y="134" fill="#8d95a8" font-size="14">10、9、1 的排序陷阱</text>
+
+  <!-- ② 舞台 -->
+  <circle cx="44" cy="182" r="11" class="badge"/>
+  <text x="44" y="186" text-anchor="middle" class="badge-num">2</text>
+  <rect x="64" y="156" width="740" height="396" rx="14" fill="url(#stageGlow)" stroke="#252b37"/>
+  <rect x="64" y="156" width="740" height="396" rx="14" fill="url(#dots)" opacity=".55"/>
+
+  <!-- 原始数组 -->
+  <text x="170" y="196" class="label">原始数组</text>
+  <g>
+    <rect x="170" y="210" width="150" height="86" rx="10" fill="#1c212c" stroke="#2c3442"/>
+    <rect x="360" y="210" width="150" height="86" rx="10" fill="#1c212c" stroke="#2c3442"/>
+    <rect x="550" y="210" width="150" height="86" rx="10" fill="#1c212c" stroke="#2c3442"/>
+    <text x="245" y="262" text-anchor="middle" fill="#e9ecf3" font-size="30" font-weight="600">10</text>
+    <text x="435" y="262" text-anchor="middle" fill="#e9ecf3" font-size="30" font-weight="600">9</text>
+    <text x="625" y="262" text-anchor="middle" fill="#e9ecf3" font-size="30" font-weight="600">1</text>
+  </g>
+
+  <!-- 排序动作 -->
+  <path d="M435 312 L435 348" stroke="#f5a623" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M427 340 L435 350 L443 340" fill="none" stroke="#f5a623" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="450" y="336" fill="#f5a623" font-size="13" class="mono">sort()</text>
+
+  <!-- 排序后 -->
+  <text x="170" y="382" class="label">排序后（字典序）</text>
+  <g>
+    <rect x="170" y="396" width="150" height="86" rx="10" fill="#f5a623" fill-opacity=".10" stroke="#f5a623" stroke-width="1.4"/>
+    <rect x="360" y="396" width="150" height="86" rx="10" fill="#1c212c" stroke="#2c3442"/>
+    <rect x="550" y="396" width="150" height="86" rx="10" fill="#1c212c" stroke="#2c3442"/>
+    <text x="245" y="448" text-anchor="middle" fill="#f5a623" font-size="30" font-weight="600">1</text>
+    <text x="435" y="448" text-anchor="middle" fill="#e9ecf3" font-size="30" font-weight="600">10</text>
+    <text x="625" y="448" text-anchor="middle" fill="#e9ecf3" font-size="30" font-weight="600">9</text>
+  </g>
+
+  <!-- 括注：同属字典序 -->
+  <path d="M160 494 Q160 504 170 504 L425 504 Q435 504 435 512 Q435 504 445 504 L690 504 Q700 504 700 494"
+        fill="none" stroke="#2ecc71" stroke-opacity=".65" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="435" y="530" text-anchor="middle" fill="#2ecc71" font-size="12">按字符串逐位比较："1" &lt; "10" &lt; "9"</text>
+
+  <!-- ③ 画布内字幕 -->
+  <circle cx="44" cy="596" r="11" class="badge"/>
+  <text x="44" y="600" text-anchor="middle" class="badge-num">3</text>
+  <line x1="88" y1="572" x2="780" y2="572" stroke="#252b37"/>
+  <text x="88" y="602" font-size="17">
+    <tspan fill="#ffffff">它不传比较函数时，</tspan><tspan fill="#7f889b">所有值会先转成字符串。</tspan>
+  </text>
+  <line x1="88" y1="614" x2="420" y2="614" stroke="#f5a623" stroke-width="2" stroke-linecap="round" opacity=".8"/>
+
+  <!-- ④ 播放器行 -->
+  <circle cx="44" cy="668" r="11" class="badge"/>
+  <text x="44" y="672" text-anchor="middle" class="badge-num">4</text>
+  <circle cx="92" cy="668" r="18" fill="#f5a623"/>
+  <path d="M87 660 L105 668 L87 676 Z" fill="#0d0f14"/>
+  <path d="M139 659 A12 12 0 1 0 145 673" fill="none" stroke="#8d95a8" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M145 667 L145 675 L137 673" fill="none" stroke="#8d95a8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="176" y="665" width="420" height="6" rx="3" fill="#252b37"/>
+  <rect x="176" y="665" width="262" height="6" rx="3" fill="url(#barFill)"/>
+  <g fill="#3a4353">
+    <rect x="281" y="659" width="2" height="18" rx="1"/>
+    <rect x="365" y="659" width="2" height="18" rx="1"/>
+    <rect x="449" y="659" width="2" height="18" rx="1"/>
+    <rect x="533" y="659" width="2" height="18" rx="1"/>
+  </g>
+  <rect x="365" y="659" width="2" height="18" rx="1" fill="#f5a623" opacity=".75"/>
+  <text x="616" y="674" fill="#8d95a8" font-size="13">3/8 · 00:12</text>
+  <rect x="708" y="655" width="42" height="26" rx="13" fill="#1c212c" stroke="#2c3442"/>
+  <text x="729" y="673" text-anchor="middle" fill="#e9ecf3" font-size="12">1×</text>
+  <g fill="none" stroke="#8d95a8" stroke-width="1.6" stroke-linecap="round">
+    <path d="M772 660 L772 654 L778 654"/>
+    <path d="M788 660 L788 654 L782 654"/>
+    <path d="M772 678 L772 684 L778 684"/>
+    <path d="M788 678 L788 684 L782 684"/>
+  </g>
+
+  <!-- ⑤ 参考资料 -->
+  <circle cx="812" cy="78" r="11" class="badge"/>
+  <text x="812" y="82" text-anchor="middle" class="badge-num">5</text>
+  <rect x="828" y="44" width="308" height="684" rx="14" fill="#181c25" stroke="#252b37"/>
+  <text x="852" y="86" fill="#e9ecf3" font-size="16" font-weight="600">参考资料</text>
+  <line x1="852" y1="104" x2="1112" y2="104" stroke="#252b37"/>
+
+  <text x="852" y="136" class="label">要点</text>
+  <text x="852" y="158" class="body">不传比较函数 → 字符串序</text>
+  <line x1="852" y1="180" x2="1112" y2="180" stroke="#252b37"/>
+
+  <text x="852" y="208" class="label">术语</text>
+  <text x="852" y="230" class="body">字典序（Unicode 码位）</text>
+  <line x1="852" y1="252" x2="1112" y2="252" stroke="#252b37"/>
+
+  <text x="852" y="280" class="label">示例</text>
+  <rect x="852" y="294" width="260" height="54" rx="8" fill="#11151d" stroke="#252b37"/>
+  <text x="866" y="316" fill="#e9ecf3" font-size="12" class="mono">[10,9,1].sort()</text>
+  <text x="866" y="336" fill="#6b748a" font-size="12" class="mono">// [1,10,9]</text>
+  <line x1="852" y1="368" x2="1112" y2="368" stroke="#252b37"/>
+
+  <text x="852" y="396" class="label">实验</text>
+  <text x="852" y="418" class="body">把 10 改成 "10" 再排一次</text>
+
+  <text x="852" y="700" fill="#6b748a" font-size="12">不参与播放与评分</text>
+
+  <!-- 图例 -->
+  <text x="64" y="748" fill="#6b748a" font-size="11">① 章节头　② 舞台　③ 画布内字幕　④ 播放器行　⑤ 参考资料</text>
+</svg>
