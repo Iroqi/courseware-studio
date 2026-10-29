@@ -157,7 +157,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 类别 | 原语 |
 |---|---|
 | 入场与节拍 | `.in`（`--delay` / `.st1–.st3`）、`.pop`、`.pulse`、`.draw`、`.stag`（自动错峰）、`.gather`（字距归位）、`.chFlip`（章节头翻场）、`.el.swF/.swB`（换节方向感） |
-| 位置与状态 | `.nt`（transform / 几何 / 颜色补间）、`#cam` + `camRun()`（位移定拍）、`#depth`（远景视差）、`#cam.blurpass`（运镜模糊）、`[data-dim="1"]`（焦点弱化） |
+| 位置与状态 | `.nt`（transform / 几何 / 颜色补间）、`#cam` + `camRun()`（位移定拍）、`#depth`（远景视差）、`#cam.blurpass`（运镜模糊）、对焦（`#depth` 随推近失焦）、`[data-dim="1"]`（焦点弱化） |
 | 揭示与退场 | `.reveal/.revealL`（硬边擦除）、`.featherR/.featherL`（羽化揭示）、`.tuckR/.tuckL`（收拢退场）、`.bloom`（圆形绽开）、`.flip`（当面翻面）、`.pregate`（浮层离散进出） |
 | 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
 | 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随） |

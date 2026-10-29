@@ -157,7 +157,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 族 | 回答的问题 | 代表原语 |
 |---|---|---|
 | 入场与节拍 | 新东西怎么上台 | `.in`、`--delay` / `.st1–3`、`.stag`、`.pop`、`.pulse`、`.draw` |
-| 位置与状态 | 已在台上的东西怎么变 | `.nt`、几何补间、`#cam`、`#depth`、`.swF/.swB`、`--cam-dur` |
+| 位置与状态 | 已在台上的东西怎么变 | `.nt`、几何补间、`#cam`、`#depth`、`.swF/.swB`、`--cam-dur`、对焦 |
 | 揭示与退场 | 怎么长出来 / 怎么让位 | `.reveal`、`.featherR/L`、`.tuckR/L`、`.bloom` |
 | 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`.flow`、`.halo`、`.crisp` |
 | 行进与换位 | 谁走到哪儿、谁先动 | `.ride`、`.wake`、`.swap`、`.trail` |
@@ -239,6 +239,17 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   `--par-far` **同向**漂一小段、**不放大**。位移取 `camTo()` 回传的 `tx/ty`，不要在
   别处重算钳位公式；系数从令牌读（改名时 `parseFloat` 得 NaN，落回默认档）。位移挂
   父层 `transform`，不改子节点 `getBBox()`。
+- **对焦**（`depthFocus()` / `--defocus`，0.35.0）：镜头推近的确认拍。取景窗只回答
+  "框住哪儿"，失焦把"该看哪儿"从构图升级成景深：`#depth` 远景层按取景窗倍率失焦
+  （超过 `--defocus-in` 开始、到 1.8× 封顶 `--defocus-max`），推回即复原。三条边界：
+  - 状态由 `camSet()` 每步现算写进 `--defocus`（与 `depthShift` 同一调用点），作者
+    零负担；参数只从令牌读（`--defocus-in` / `--defocus-max`），改名删名
+    `parseFloat` 得 NaN 落回默认档；
+  - 只对**声明过的取景窗**演：窄屏 `contentBox` 兜底取景是自适应不是叙事推近，不虚；
+    FULL 与中等景别（k ≤ `--defocus-in`）恒锐；
+  - filter 与 transform 共用派生时长 `--cam-dur`——对焦和运镜是一回事，不引入第二套
+    时钟；擦洗与运镜同一节奏地追，reduced-motion / 导出截图切掉补间后落当步真实
+    档位；只挂 `#depth`（远景装饰层），命中 / QA 几何不受影响。
 - `.el.swF` / `.swB`：方向感换场——换节时新画面从行进方向一侧进场。判据是**换节**
   不是换句（`lastSceneIdx` 比对）；冷启动第一步、擦洗、截图模式不演。位移写独立
   `translate`。退场那一幕要在 `only()` 里把 class 摘干净，否则下次入镜重放旧动画
@@ -471,7 +482,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 |---|---|---|
 | animation + `backwards` | 擦除 / 羽化揭示、`.gather`、`.settle` | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
 | animation 无 `forwards`，静止态即全开 | `.bloom`、`.ffwd`、`.opt.rip`、`.flow` | 切掉后落"看不见"或"全开"，不留半截 |
-| transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur` | 落到 after-change style，即那一秒的真实档位 |
+| transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦 | 落到 after-change style，即那一秒的真实档位 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
 口径：
@@ -741,6 +752,9 @@ emoji 只是记号的点睛。
 - [ ] `.gather`：两端 `<length>`、只在换节重放、按最坏句选档、窄屏按余量关；
 - [ ] `#spot`：洞心从 `camBox()`、`<length>` 注册且只写 viewBox 单位、外接圆半径、
       幕深合成反推、bleed 三处同改、`begin()` 归零、主角句不打灯；
+- [ ] 对焦：`--defocus` 由 `camSet` 按取景窗倍率现算、只对声明过的窗演；参数只从
+      令牌读；与运镜共用 `--cam-dur`；窄屏兜底与 FULL 恒锐；reduced-motion /
+      导出落当步真实档位；
 - [ ] `#ffwd`：帧间差过 `--ff-min`、`linear` 不写 `forwards`、方向与箭头同号、四道
       不演；
 - [ ] `.pregate`：`display` 进清单、`transition-behavior` 单独一行、`@supports`、

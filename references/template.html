@@ -264,7 +264,14 @@
                     calc(var(--cam-pan) * var(--dur-cam-pan)
                        + var(--cam-zoom) * var(--dur-cam-zoom)),
                     var(--dur-cam-max));
-    /* ② 触点辉光：--dur-hot 借按压那一档（--dur-hover .16s）的读数，不新立一档——
+    /* ② 对焦（0.35.0）：镜头推近的确认拍。取景窗只回答"框住哪儿"，失焦把"该看
+       哪儿"从构图升级成景深——远景层 #depth 随取景窗倍率失焦，推回即复原。
+       --defocus-in 是开始失焦的倍率（FULL=1×）：范本 18 个非 FULL 取景窗实测，
+       11 个 ≤1.29× 是中等景别（seg-4/seg-5 那些 1.13–1.29×），不虚；7 个 ≥1.40×
+       （1.40/1.48/1.69/1.75×2/1.80×2）才是真推近，虚。--defocus-max 是 1.8×
+       （camCalc 的钳位上限）封顶的失焦半径。推导与口径见 stage.md §3.4「对焦」。 */
+    --defocus-in:1.30; --defocus-max:2px;
+    /* ③ 触点辉光：--dur-hot 借按压那一档（--dur-hover .16s）的读数，不新立一档——
        光跟着手的速度和"按下去了"是同一件事。--hot-r 是光的半径（本地盒单位，跟着
        按钮自己的尺寸走，见 .hot），--hot-ink 是光的墨色：主色一档压到 .22，比涟漪
        （--rip-ink .26）还轻，因为这一层**不停留**（指针在的时候一直在）。 */
@@ -1261,7 +1268,14 @@
      两层速度差才说明"画布是有深度的空间"。#depth 与 #cam 是兄弟节点、同一个坐标
      空间，位移量因此就是世界坐标；不放进 #cam 是因为那里已经有一层 transform
      属性值，再叠 CSS transform 会互相顶掉。背景是纯装饰（不进 contentBox，不承载信息）。 */
-  #depth{transition:transform var(--cam-dur) var(--ease-out)}
+  /* 对焦（0.35.0）：镜头推近的确认拍。取景窗只回答"框住哪儿"，失焦把"该看哪儿"
+     从构图升级成景深——#depth 是远景层（点阵 + 柔光），镜头推得越深它越虚，推回
+     即复原。状态由 camSet() 按取景窗倍率现算写进 --defocus，CSS 只补间过程；
+     filter 与 transform 共用派生时长 --cam-dur——对焦和运镜是一回事，不引入第二套
+     时钟。reduced-motion 与导出截图切掉补间后落当步真实档位（锐 = 0px / 虚 = 当步值）。 */
+  #depth{--defocus:0px;filter:blur(var(--defocus));
+         transition:transform var(--cam-dur) var(--ease-out),
+                    filter var(--cam-dur) var(--ease-out)}
 
   /* ── 落点与过场（0.22.0）：移动聚光 / 快进掠擦 / 浮层离散进出 ─────────────
      三条都在回答"下一步该看哪儿、刚才到这儿来路变了没有、这块浮层正在进出"，
@@ -3322,6 +3336,30 @@
     p.setAttribute('transform',
       'translate(' + (now.tx * f).toFixed(1) + ',' + (now.ty * f).toFixed(1) + ')');
   }
+  /** 对焦（0.35.0）：取景窗推到多深，远景就虚多少（浅景深 / rack focus）。
+     状态 = (取景窗倍率) 的纯函数，由 camSet 每步现算写进 --defocus；CSS 只补间
+     过程（与运镜共用 --cam-dur）。三条边界：
+       ① 只对**声明过的取景窗**演：窄屏 contentBox 兜底取景是自适应不是叙事推近，
+          不虚；FULL 与中等景别（k ≤ --defocus-in）恒锐；
+       ② 参数只从令牌读（--defocus-in 阈值 / --defocus-max 上限），改名删名
+          parseFloat 得 NaN 落回范本默认档（1.30 / 2px）；
+       ③ 只挂 #depth（远景装饰层）：命中、QA 几何与取景判定都不受影响；擦洗时
+          与镜头同一节奏地追（--cam-dur 地板档），导出截图切掉补间后落当步值。 */
+  function depthFocus(now, declared){
+    var p = el('depth');
+    if (!p) return;                            // 页面没建远景层：不替它编一个
+    var blur = 0;
+    if (declared){
+      var cs = getComputedStyle(document.documentElement);
+      var in0 = parseFloat(cs.getPropertyValue('--defocus-in'));
+      var max0 = parseFloat(cs.getPropertyValue('--defocus-max'));
+      if (!isFinite(in0)) in0 = 1.30;
+      if (!isFinite(max0)) max0 = 2;
+      // 1.8 与 camCalc 的钳位上限同源：失焦只跟"这一趟推得多深"走，不另立倍率。
+      if (now.k > in0) blur = Math.min(1, (now.k - in0) / (1.8 - in0)) * max0;
+    }
+    p.style.setProperty('--defocus', blur.toFixed(2) + 'px');
+  }
   function camCalc(f){
     var k = Math.max(0.85, Math.min(VIEW.w / f[2], VIEW.h / f[3], 1.8));
     // 平移量算一次、回传一次：视差层要用的就是这个数，让它在 depthShift 里
@@ -3452,6 +3490,7 @@
     }
     camRun(camAt, now);           // 先写行程读数再写 transform：见 camRun 边界 ①
     depthShift(now);              // 远景跟着漂一小段（视差），与镜头同一个坐标系
+    depthFocus(now, declared);    // 对焦：推到多深，远景就虚多少（只对声明过的窗演）
     // 运镜模糊：只在**真的发生一次大幅运镜**时重触发（判据见 camBlurOK）。
     // 重触发口径与字幕翻句同款：remove → 读一次几何 → add；不达标的这一步必须
     // 主动 remove——否则上一次模糊的 class 还挂着，下一步小移动会再跑一遍动画。
