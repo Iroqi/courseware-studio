@@ -1,213 +1,282 @@
 # Courseware Studio
 
-把一段讲稿变成**一页会讲话的课件**：旁白音频是唯一时钟，画面、字幕、章节、门禁全部跟着
-`audio.currentTime` 走，也可以顺手导出一条线性视频。
+把讲稿转换为**音频驱动的单页 HTML 课件**：旁白音频的 `currentTime` 是唯一时钟，
+画面、字幕、章节与门禁全部由它派生；也可以导出线性 MP4 与标准字幕。
 
+```text
+讲稿 ──► 逐句旁白 ──► 音频 + 逐句时间轴 ──► 单页 HTML ──►（可选）MP4 / SRT / VTT
 ```
-讲稿 ──► 逐句朗读 ──► 音频 + 逐句时间轴 ──► 一个 HTML 页面
-```
 
-不需要服务器、不需要构建、不需要账号——成品是一个目录，双击 `index.html` 就能放。
+成品是静态目录，播放不需要服务器、构建流程或账号，双击 `index.html` 即可。
 
+本仓库是一个 Claude Code / Agent 环境的 skill：`SKILL.md` 是给模型读的契约，
+本 README 面向使用者，说明输入、产物、命令与配置。
 
-这是一个 Claude Code / Agent 环境的 **skill**：`SKILL.md` 是给模型读的契约，本 README 是
-给人的。你不需要理解它内部怎么拼页面，只需要知道**该给它什么信息**。
+## 1. 产物
 
----
+### 1.1 页面结构
 
-## 做出来是什么
-
-一个左右两栏的单页课件。左边是"会跟着旁白变的舞台 + 播放条"，右边是可查的参考资料：
-
-```
+```text
 ┌───────────────────────────────────────────┬────────────────────┐
-│     A counter-intuitive result            │  ▪ reference       │
-│      string order, not numeric order      │   · key point      │
-│                                           │   · term           │
-│   ┌───────────────────────────────────┐   │   · hands-on demo  │
-│   │             SVG stage             │   │                    │
-│   │       one step per sentence       │   │  (sidebar is not   │
-│   │                                   │   │   played or scored)│
-│   ├───────────────────────────────────┤   │                    │
-│   │  ▪ [10,9,1].sort() → [1,10,9]     │   │                    │
-│   │  the subtitle line                │   │                    │
-│   └───────────────────────────────────┘   │                    │
-│   ▸  ◂  ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬  3/8 00:12  1× □ │                    │
+│  章节头（标题 + 副标题）                    │  参考资料           │
+│  ┌─────────────────────────────────────┐  │  · 要点             │
+│  │            SVG 舞台                  │  │  · 术语             │
+│  │      一句 = 一个视觉步                │  │  · 示例             │
+│  ├─────────────────────────────────────┤  │                     │
+│  │  画布内字幕（位置、字号固定）          │  │  （不参与播放与评分）│
+│  └─────────────────────────────────────┘  │                     │
+│  播放 / 倒回 / 进度条 + 章节刻度 / 倍速 / 全屏 │                     │
 └───────────────────────────────────────────┴────────────────────┘
 ```
 
-图里：左栏上块是章节头；中间框是 stage（内联 SVG 场景，一句一个视觉步，框底那行是画布内字幕）；
-最下面是 rack 播放条（播放 / 倒回 / 进度条兼章节刻度 / 第几句 / 时间 / 倍速 / 全屏）；
-右栏是参考资料（要点 · 术语 · 手感实验），不参与播放与评分。
+左栏包含章节头、舞台、画布内字幕、播放层与播放器行；右栏只放可查询的参考资料。
+窄屏退化为单栏。
 
-**它给你的东西：**
+### 1.2 能力
 
-- **逐句同步的幻灯片**：一句话一个画面步，走到哪句播到哪句，空档停在上一句不闪白；
-- **画布内字幕**：字幕长在画面里，位置和字号固定，文案不用你维护第二份；
-  多人对话（问答 / 情景剧）时左侧显示说话人标签；念过的字是满墨、没念到的略微压暗，
-  一道 18% 宽的软过渡带跟着旁白往右推（跟读点亮）；
-- **进度条兼章节地图**：每节起点一根刻度，悬停报段名，可点可拖；指针落上来那一刻
-  轨道与刻度一起变厚（"现在可以拖"画在你正指的地方），字幕下面还有一条细线跟着
-  旁白走完这一句；
-- **0.75× 到 2× 倍速、全屏**：画面字幕门禁全是时钟的纯函数，变速只是时钟走快些；
-- **键盘可达**：空格播放/暂停、←→ 快擦、F 全屏、**M 静音**之外，进度条本身是
-  可聚焦的 slider（←/→ 细调 1s、Home/End 到头/尾）；课程结束点 ▶ 即从头重播；
-- **可选门禁**：在真正的认知转折点拦一下，答对才放行继续（选择题 / 图上点选 /
-  归类拖放 / 排序 / 复述对照五种）；
-- **一条 mp4**：不需要录屏，逐句截帧拼成线性视频，旁白同步；`--no-audio` 出
-  纯画面成片（预览 / 后期自行配音 / 去掉占位音轨）；
-- **标准字幕（SRT / WebVTT）**：把逐句时间轴序列化成字幕文件——无障碍跟随阅读、
-  剪辑 / 压制软件后期、多语言与复习的交换格式，一行命令导出。
-- **机器可读检查报告**：`check_gates --json` 把交付检查结果（verdict / 静态 /
-  浏览器 / exit_code）作为一个 JSON 文档输出，CI 与 agent 可直接消费。
+- **逐句同步**：一句旁白对应一个视觉步；换场与句间空档保留上一句画面与字幕。
+- **画布内字幕**：文本只来自时间轴，位置与字号固定；多人对话显示说话人标签；
+  已念过的字满墨、未念到的字压暗（跟读点亮）。
+- **章节进度条**：每节起点一根刻度，悬停显示段名与时间，可点击、可拖动；
+  支持 0.75×–2× 倍速、全屏与键盘操作。
+- **门禁**：在认知转折点插入 `choice / hotspot / bucket / sequence / recall`
+  五种交互，答对后放行。
+- **导出**：逐句截帧生成 MP4（无需录屏），或从同一时间轴导出 SRT / WebVTT。
+- **机器可读检查**：`check_gates.py --json` 输出 `verdict` / `static` / `browser` /
+  `note` / `exit_code`，供 CI 与 agent 消费。
 
-**它不管的事：** 掌握度、学习进度、复习排期、题库系统——那些是平台层的事。门禁放行
-只代表"这堂课继续往下"，不代表"已掌握"。
+### 1.3 不负责的范围
 
----
+掌握度、学习进度、复习排期与题库系统属于平台层，不在本 skill 范围内。门禁放行
+只表示"这堂课可以继续"，不表示"已掌握"；页面不会出现"已通关"之类的表述。
 
-## 你要给 agent 什么
+播放位置同样不保存：关闭页面后从头播放，中途回看依赖进度条上的章节刻度。
 
-用一句话提需求，skill 会在这些场景自动接管：把讲稿/文稿/演讲稿做成带旁白音频的网页课件、
-生成 TTS 与字幕时间轴、或把成品课件导出成 mp4。
+## 2. 输入与输出
 
-**四种典型输入：**
+### 2.1 输入类型
 
-| 你说 | 你给 | 结果 |
-|---|---|---|
-| "把这份讲稿做成课件" | 一份讲稿（粘贴 / 文件） | 完整课件目录 |
-| "用这份材料做一节课" | 文档 / 网页 / 粘贴文本 | agent 自己写讲稿，再做课件 |
-| "把这个主题讲成一节课" | 一个主题 + 你希望讲到的点 | 同上 |
-| "我有现成音频，帮我做成课件" | 音频 + 每句文本 | 不调 TTS，直接做页面 |
-
-**可以顺带指定（不说就按默认来）：**
-
-- **音色 / 语速**：默认「冰糖」1.0×，八种音色可选，不同段落可以不同语速
-  （想先看全表：`python scripts/narration.py --list-voices`，无需 key）；
-- **门禁**：默认按内容在认知转折点加 1–2 道。想多加就说"多出几道题"，不想要就说"不要门禁"；
-- **导不导出视频**：默认只给网页，要 mp4 需要显式说一句；
-- **讲稿结构**：分几段、每段讲什么、开场抛什么问题——这部分决定课件质量。你可以全权交给
-  agent，也可以自己逐段写好再交给它。
-
-**最值得你自己判断的一条：开场抛什么问题。** 它应该是学习者大概率会答错的那个，不是讲师
-自己关心的那个——如果学习者一开口就答对，这场就没有信息增量。这个判断 Agent 替不了你。
-
----
-
-## agent 会替你做的几步
-
-了解即可，你不需要操作任何一步。如果你给的只有主题或素材、还没有讲稿，agent 会先把讲稿
-写出来跟你确认，再往下走。
-
-```
-讲稿 → 逐句旁白 → 音频 + 逐句时间轴 → HTML 页面 → 交付检查 →（可选）mp4
-```
-
-1. **分句**：一条作者句子 = 一个视觉步 = 一个字幕步，先给你看分句结果再往下走；
-2. **合成语音**：每句独立合成后拼成一条音轨，同时记下每句的起止时间；
-3. **生成时间轴**：把逐句时间压成页面内联的数据，页面不再 fetch 外部 JSON；
-4. **做页面**：以内联 SVG 逐句画场景、配字幕、在转折点放门禁、排侧栏参考资料；
-5. **交付检查**：跑通用检查器验证字幕同步、门禁放行、页面无 JS 错误，有问题会自己修到过；
-6. **导出视频**（可选）：逐句截帧拼接，旁白同步混入。
-
-步骤 2–3 只在用内置 TTS 时发生；你提供现成音频时从第 4 步开始。
-
----
-
-## 需要准备的东西
-
-| 需要 | 用途 |
+| 输入 | 处理方式 |
 |---|---|
-| 一个 MiMo TTS API key | 把讲稿合成语音（**用现成音频则不需要**） |
-| Python 3.10+ | agent 跑脚本 |
-| `ffmpeg` 在 PATH 上 | 合成音频、导出 mp4 |
+| 完整讲稿（粘贴或文件） | 直接分句、合成并制作页面 |
+| 文档、网页或素材 | 先写讲稿，确认后再制作 |
+| 一个主题与讲解要点 | 先写讲稿，确认后再制作 |
+| 已有的音频与逐句文本 | 跳过 TTS；使用现成时间轴，或先由外部工具生成 |
 
-key 只有一个是必需的：
+使用内置 TTS 时，讲稿需整理为旁白脚本 JSON；字段定义与多人对话写法见
+`references/script.md` §1。最小结构如下：
+
+```json
+{
+  "title": "主题",
+  "segments": [
+    {"id": "seg-1", "title": "第一段", "text": "第一句。第二句。"}
+  ]
+}
+```
+
+`text` 同时是朗读正文与字幕后唯一文本来源。可选字段包括 `opening` / `closing`、
+段级 `hl`（结论句）、`beat`（句级停顿与语速）以及 `speakers` + `dialogue`
+（多人对话）。
+
+### 2.2 可指定的参数
+
+- **音色与语速**：默认「冰糖」1.0×；内置八种音色（冰糖、茉莉、苏打、白桦、Mia、
+  Chloe、Milo、Dean）。查看完整列表：
+
+  ```bash
+  python scripts/narration.py --list-voices
+  ```
+
+- **门禁数量**：默认按内容在认知转折点安排 1–2 道，长课最多 3 道；可要求增加或关闭。
+- **导出格式**：默认只生成网页；MP4 与字幕需显式指定。
+- **讲稿结构**：分段方式、每段内容与开场问题由作者决定，也可完全交给 agent 起草。
+
+开场问题是影响课件质量的关键判断：它应当针对学习者大概率会答错的点，而不是讲师
+自己关心的问题。这个判断无法由工具替代。
+
+### 2.3 输出目录
 
 ```text
-MIMO_API_KEY
+lesson/
+├── index.html                 # 成品页面，可双击打开
+├── interactive_runtime.js     # 交互手势与门禁 runtime
+└── audio/
+    ├── combined.wav           # 完整旁白音轨
+    └── narration_timing.json  # 逐句起止时间
 ```
 
-推荐写成用户级配置，一次配好所有课件通用：
+## 3. 工作流与命令
 
-```ini
-# Windows：C:\Users\<你>\.config\courseware-studio\.env
-# macOS / Linux：~/.config/courseware-studio/.env
+| 步骤 | 命令 | 输出 |
+|---|---|---|
+| 1. 整理讲稿 | 人工或 agent | `narration-source.json` |
+| 2. 合成旁白 | `narration.py` | `audio/combined.wav` + `audio/narration_timing.json` |
+| 3. 生成时间轴 | `build_timeline.py` | 内联时间轴 `<script>` |
+| 4. 组装页面 | `build_page.py` | `index.html` + `audio/` + `interactive_runtime.js` |
+| 5. 交付检查 | `check_gates.py` | 检查报告 |
+| 6. 导出视频（可选） | `export_video.py` | `<课件目录名>.mp4` |
+| 7. 导出字幕（可选） | `export_subtitles.py` | `<课件目录名>.srt` / `.vtt` |
 
+完整命令行流程：
+
+```bash
+# 2. 旁白：逐句合成并拼接，输出音频与时间轴
+python scripts/narration.py --source narration-source.json -o audio/
+
+# 3. 时间轴：压成可内联的 <script> 片段
+python scripts/build_timeline.py \
+  --timing audio/narration_timing.json \
+  --source narration-source.json \
+  -o timeline.html
+
+# 4. 页面：只替换时间轴、音频与 runtime，页面内容来自本课草稿
+python scripts/build_page.py \
+  --template page-draft.html \
+  --timeline timeline.html \
+  --audio audio/combined.wav \
+  --timing audio/narration_timing.json \
+  -o lesson/index.html
+
+# 5. 检查：静态检查 + 浏览器冒烟
+python scripts/check_gates.py lesson
+```
+
+使用已有音频时跳过第 2 步：若同时已有逐句时间轴，直接从第 3 步开始；
+若只有音频与文本，则先由外部工具生成符合 `narration_timing.json` 形状的时间轴。
+
+可选导出：
+
+```bash
+python scripts/export_video.py lesson                   # 默认输出 lesson.mp4
+python scripts/export_video.py lesson --no-audio        # 纯画面，便于后期配音
+python scripts/export_subtitles.py lesson               # 同时生成 .srt 与 .vtt
+python scripts/export_subtitles.py lesson --format srt --speaker --hl-mark
+```
+
+如果页面尚未改写、只想查看成品结构与效果，可用范本讲稿直接构建一份样例课件
+（占位音轨，不调用 TTS、不需要 key）：
+
+```bash
+python scripts/demo_lesson.py --out ./demo
+```
+
+### 3.1 页面组装约束
+
+`build_page.py` **只替换三样资源**：内联时间轴、音频路径与 runtime；页面内容
+（SVG 场景、`RENDER`、`GATES`、侧栏）不会被修改。
+
+因此页面草稿必须按本课改写。直接照抄 `references/template.html`、只替换时间轴会
+导致场景 id 对不上：旧 renderer 不会触发，`GATES` 引用不存在的场景，交付检查必然
+失败。场景与动效写法见 `SKILL.md` §5 与 `references/stage.md`。
+
+## 4. 环境与配置
+
+### 4.1 依赖
+
+| 依赖 | 用途 | 何时需要 |
+|---|---|---|
+| Python 3.10+ | 运行全部脚本 | 始终 |
+| `ffmpeg`（PATH 中） | 合成音频、导出 MP4 | 内置 TTS、导出视频、样例课件 |
+| Python `openai` 包 | MiMo TTS 客户端（`pip install openai`） | 仅内置 TTS |
+| `MIMO_API_KEY` | 语音合成鉴权 | 仅内置 TTS |
+| Chrome / Edge | 浏览器冒烟、逐帧导出 | 交付检查的浏览器部分、导出 MP4 |
+
+### 4.2 TTS 配置
+
+只需要一个环境变量：
+
+```text
 MIMO_API_KEY=sk-你的key
 ```
 
-也可以放在课件工程目录下的 `.env`（agent 从讲稿所在目录往上找，走到当前工作目录为止），
-或者设成系统环境变量。优先级：命令行参数 > 环境变量 > 工程 `.env` > 用户 `.env`。
+推荐写入用户级配置文件，对所有课件生效：
 
 ```ini
-# 可选，不配就用默认值
+# Windows: C:\Users\<用户>\.config\courseware-studio\.env
+# macOS / Linux: ~/.config/courseware-studio/.env
+
+MIMO_API_KEY=sk-你的key
+# 可选
 # MIMO_TTS_MODEL=mimo-v2.5-tts
 # MIMO_BASE_URL=https://api.xiaomimimo.com/v1
 ```
 
-两条提醒：
-
-- **别让 key 出现在命令行参数里**（`--api-key sk-xxx`）——它会进进程列表和 shell 历史。
-- **`.env` 用 UTF-8 保存**。记事本默认可能存成 GBK，PowerShell 5.1 的 `>` 会写出
-  UTF-16，两种情况的表现都是"明明配了 key，却报没有 key"。
-
----
-
-## 案例
-
-**你给的：** 一份讲 `JavaScript sort()` 的三页笔记，要求"做成一节课，段首出个小题，
-最后导个视频方便发群里"。
-
-**你拿到的：** 一个 `lesson/` 目录
+也可放在项目级 `.env`（从讲稿所在目录向上查找，到当前工作目录为止），或使用系统
+环境变量。优先级为：
 
 ```text
-lesson/
-├── index.html                 # 成品页，双击就能放
-├── interactive_runtime.js     # 交互内核
-└── audio/
-    ├── combined.wav           # 整条旁白
-    └── narration_timing.json  # 逐句时间
+命令行参数 > 系统环境变量 > 项目级 .env > 用户级 .env
 ```
 
-打开后：开场先问"把 10、9、1 排序结果是什么"（多数人会答错）→ 六段递进讲解，每句旁白
-配一屏图 → 段首有"先想一想"，答对才出「继续」→ 结尾回到开场那个问题 → 另外附一个
-`lesson.mp4`，同样的内容，没有题目，纯线性播放。
+注意事项：
 
-想给听障学习者或后期剪辑配标准字幕，同一份时间轴还能一行导出 SRT / WebVTT
-（默认 `lesson.srt` + `lesson.vtt` 放在课件目录根）：
+- **不要把 key 写进命令行参数**（`--api-key sk-xxx`）：它会进入进程列表与 shell
+  历史。
+- **`.env` 必须使用 UTF-8 编码**。Windows 记事本可能保存为 GBK，PowerShell 5.1
+  的 `>` 会写出 UTF-16，表现均为"已配置 key 却提示缺少 key"。
+- 讲稿内容会上传到配置的 TTS 服务。涉密或隐私内容应先确认数据策略，或改用本地
+  已有音频 / `--dry-run`。
 
-```bash
-python scripts/export_subtitles.py lesson
-python scripts/export_subtitles.py lesson --format srt --speaker --hl-mark
+## 5. 质量与边界
+
+`check_gates.py` 保证课件**不会坏**：时间轴与字幕一致、门禁可放行、页面无 JS 错误、
+`audio/` 无多余文件、音频时长与时间轴匹配。它不评价课程讲得好不好；讲稿质量取决于
+素材与作者判断，交付前应逐条执行 `references/script.md` §2 的讲稿自检。
+
+其他约束：
+
+- **音频与时间轴必须同批生成**。两者混用会串句；`combined.wav` 比时间轴结束点短
+  超过 1.5 秒会判 error，长超过 1.5 秒只告警（尾部余音）。
+- **`audio/` 是交付目录**，只应包含 `combined.wav` 与 `narration_timing.json`；
+  逐句缓存位于同级 `.courseware-cache/`，不应随成品拷贝。
+- **合成失败默认阻断**。单句反复失败时管线默认中止；只有显式选择 `--on-fail silence`
+  才会写入静音占位句，并在时间轴中标记 `synth_failed`。这类降级产物在下游
+  `build_timeline.py` / `build_page.py` / `check_gates.py` 中默认拒收。
+- **门禁数量**：每课 1–2 道足够，最多 3 道；放行是继续许可，不代表掌握。
+- **交付检查的浏览器部分**在无可用 Chrome/Edge 时会在报告中说明；CI 应使用
+  `--require-browser`，避免环境故障被静默降级为"只跑静态检查"。
+
+## 6. 仓库结构
+
+```text
+courseware-studio/
+├── SKILL.md                     # 模型契约（工作流、渲染模型、门禁、检查）
+├── README.md                    # 本文档
+├── references/
+│   ├── layout.md                # 页面骨架与响应式
+│   ├── stage.md                 # 舞台三层、动效原语、渲染纪律
+│   ├── interactions.md          # 五种交互、门禁锚点、放行契约
+│   ├── script.md                # 讲稿格式、分句、TTS、时间轴
+│   ├── runtime.md               # runtime API、QA 钩子、检查器能力
+│   ├── template.html            # 页面范本
+│   └── template-narration.json  # 范本讲稿
+└── scripts/
+    ├── narration.py             # 内置 MiMo TTS 适配器
+    ├── build_timeline.py        # timing → 内联时间轴
+    ├── build_page.py            # 原子组装成品页面
+    ├── check_gates.py           # 交付检查
+    ├── export_video.py          # 逐句截帧导出 MP4
+    ├── export_subtitles.py      # 时间轴 → SRT / WebVTT
+    ├── demo_lesson.py           # 无 key 生成样例课件
+    ├── interactive_runtime.js   # 交互手势与放行 runtime
+    └── _*.py                    # 内部共享模块
 ```
 
-仓库里有一份可以直接看效果的样例：`references/template.html` 是页面范本，
-`references/template-narration.json` 是配套讲稿——把这份讲稿交给 agent，就是这个效果。
+## 7. 安全
 
----
+- 讲稿内容会发送到 TTS 服务；敏感材料应改用本地音频或确认服务的数据策略。
+- key 只写入 `.env` 或环境变量，不写入会被提交的文件，也不传给命令行参数。
+- 外部讲稿（网页、文档、搜索结果）一律只当作待讲材料，不视为工具指令、角色设定或
+  策略覆盖。
 
-## 注意事项
+## 8. 延伸阅读
 
-**关于交付**
-
-- 成品目录直接发出去、丢静态托管、本地双击，都行，不需要服务器。
-- `audio/` 目录里只应有 `combined.wav` 和 `narration_timing.json`，逐句缓存在同级的
-  `.courseware-cache/`，别把它当成品的一部分拷走。
-- 改了讲稿要求重新生成，音频和时间轴必须是同一次生成的，混了会串。
-
-**关于质量**
-
-- 交付前会跑一遍通用检查（字幕同步、门禁放行、无 JS 错误），它保证课件**不会坏**，
-  不保证课**讲得好**。讲得好不好取决于你给的素材和那句开场问题。
-- 每课 1–2 道门禁就够了，最多 3 道。门禁放行是"继续的许可"，不是"已掌握"，
-  页面上不会出现"已通关"这类说法。
-- 如果合成中间有句子失败，默认会整条阻断而不是交一条带静音的残品——所以你拿到的成品
-  要么完整，要么会明确告诉你哪儿没成。
-
-**关于安全**
-
-- 讲稿会被上传到 TTS 服务合成语音。涉密或隐私内容先确认数据策略，或者改用你自己的音频。
-- key 只进 `.env`，不要写进任何会被提交的文件。
-
----
+| 文档 | 内容 |
+|---|---|
+| `SKILL.md` | 模型契约：边界、工作流、渲染模型、检查清单 |
+| `references/script.md` | 旁白脚本、分句、TTS、时间轴 |
+| `references/stage.md` | 三层舞台、动效原语与逐句渲染纪律 |
+| `references/layout.md` | 页面 HTML/CSS 骨架 |
+| `references/interactions.md` | 交互类型与门禁设计 |
+| `references/runtime.md` | runtime 契约与 `check_gates.py` 能力 |
