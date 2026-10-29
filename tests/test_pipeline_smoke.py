@@ -237,7 +237,12 @@ _REALCLOCK_PROBE = r"""
       const cur = idx.find(e => txt === capNorm(e.text));
       if (cur && t >= cur.t0) report.flipLatency.push(+((t - cur.t0) * 1000).toFixed(0));
     }
-    const cur = idx.find(e => t >= e.t0 + 0.15 && t < e.t1 - 0.02);
+    // 采样窗口起点 = 允许翻句延迟 + 一个采样步长（0.34.0 复按）：翻句延迟契约是
+    // p90 ≤ 200ms（见用例断言），4× 播放下 20ms 墙钟采样 ≈ 80ms 媒体时间——起点
+    // 若早于 200ms，一次"合法晚翻"就会被记成不一致。旧值 0.15 正好踩在这条上：
+    // 共享 VM 上偶发一次晚翻即假阳（本轮 3.11 档首跑 ok=false 而 errors 为空，
+    // 正是这条会造成的形状）。
+    const cur = idx.find(e => t >= e.t0 + 0.30 && t < e.t1 - 0.02);
     if (cur && txt !== capNorm(cur.text)) report.captionMismatch++;
   }, 20);
   const gate = q('#gate'), go = q('#gate-go');
@@ -371,8 +376,14 @@ class TestRealClockBrowser:
             time.sleep(22)
             rep = ev("window.__rlReport")
             assert rep is not None, "探针未产出报告"
-            assert rep["ok"], f"真实时钟回归失败: {json.dumps(rep['errors'], ensure_ascii=False)}"
-            assert rep["captionMismatch"] == 0, "存在字幕与时间轴不一致的采样点"
+            # 聚合 ok 拆成逐项断言（0.34.0 复按）：只打印 errors 的失败消息在
+            # errors=[] 时等于什么都没说——3.11 档首跑就卡在这里，分不清是
+            # "晚翻被记成不一致"还是"18s 内没碰到门禁"。
+            assert not rep["errors"], \
+                f"真实时钟回归出现页面错误: {json.dumps(rep['errors'], ensure_ascii=False)}"
+            assert rep["captionMismatch"] == 0, (
+                "存在字幕与时间轴不一致的采样点：%d 个（finalT=%s rafHz=%s gates=%s）"
+                % (rep["captionMismatch"], rep["finalT"], rep["rafHz"], rep["gates"]))
             assert rep["finalT"] > 10, f"真实播放未推进（finalT={rep['finalT']}）"
             assert len(rep["gates"]) >= 1, "未遇到任何门禁"
             lats = rep["flipLatency"]
