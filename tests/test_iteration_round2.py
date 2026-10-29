@@ -9843,3 +9843,257 @@ def test_wake_trails_behind_rider_and_stacks_at_arrival(full_lesson):
                     f"导出定格是抵达之后那一格：{wk} / {head}"
     finally:
         _kill(chrome)
+
+
+# ── 12. 集合括注：一组东西有自己的括（0.34.0）──
+
+def test_group_brace_primitives_present():
+    """模板结构契约：集合括注长在范本里，四条口径落在源码上（无浏览器也可锁）。
+
+    0.19.0 的收拢（.tuck）管"这一堆要退场"，0.13.0 的弱化（[data-dim]）管"哪一块
+    退后"，0.30.0 的对位镜管"这两个在比"——"这几枚属于同一组"（chunking）此前
+    没有原语。集合括注借排版里的花括线：两段 dash 从外端收到共用括尖，标签晚半拍
+    落。锁的口径：
+      · 令牌一支墨色（绿 .55，与 s1 那两条同分连线同档），不新开行程——合拢复用
+        .draw 的 --dur-draw；
+      · 两半各画各的（各一条 path、各从外端起笔、同一枚括尖收笔）：写成一条 path
+        会从头扫到尾，读成"划线"而不是"总括"；
+      · 标签 --delay 取 --dur-draw 的 .6，只写短记号（纪律 3）；
+      · 纯注释层 pointer-events:none；静止态就是终态，减少动效/导出截图不需要
+        为它单开规则；
+      · 消费者：seg-6 s3 只括同分的那两张结果卡（小明/小红），不是整列；旧的
+        e-note 事实注解撤掉——一个镜头只留一个话头。
+    """
+    src = TEMPLATE_HTML.read_text(encoding="utf-8")
+    assert "--brace-ink:rgba(46,204,113,.55);" in src
+    assert ".brace{pointer-events:none}" in src
+    assert ".brace path{fill:none;stroke:var(--brace-ink);stroke-width:1.5;" in src
+    assert ".brace text{fill:var(--ok);letter-spacing:.02em}" in src
+    assert "function boxIn(node, stop){" in src
+    assert "function braceUnder(parent, key, nodes, label){" in src
+    assert "var pad = 12, gap = 16, d = 10, n = 6, k = 9;" in src
+    # 两臂同收于括尖（cx, y+d+n）；两行各一条、镜像出号
+    assert "'L' + f(cx - k) + ' ' + f(y + d) +" in src
+    assert "'L' + f(cx + k) + ' ' + f(y + d) +" in src
+    assert src.count("'Q' + cx + ' ' + f(y + d) + ' ' + cx + ' ' + f(y + d + n)});") == 2
+    assert "style:'--delay:calc(var(--dur-draw) * .6)'" in src
+    # 量法读 transform 属性（baseVal = 目标位），不是 getScreenCTM（补间半途）
+    assert "n.transform && n.transform.baseVal" in src
+    # 消费者：括的是两张 90 分卡，不是整列/整屏
+    assert "braceUnder('e-body', 'e-brace'," in src
+    assert "['小明', '小红'].map(function(nm){ return 'e-r-' + nm; })" in src
+    assert "'同分 · 顺序不变'" in src
+    assert "'e-note'" not in src, "旧的事实注解应撤掉，画面只留一个话头"
+
+
+@pytest.mark.skipif(not HAVE_CHROME, reason="需要 Chrome/Edge")
+@pytest.mark.skipif(not HAVE_WEBSOCKET, reason="需要 websocket-client")
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="需要 ffmpeg")
+def test_group_brace_closes_around_tied_pair(full_lesson):
+    """真实浏览器：seg-6 s3 的括注括住同分的两张结果卡，两端合拢、标签后落。
+
+    锁的口径：
+      · s0/s2 没有括；s3 才出现，只在 s3；
+      · 几何从两张卡的坐标声明现推：并集外扩 12、下移 16；两臂各自从外端起笔，
+        收在同一枚括尖（中点、再落 10 + 6）；标签居中挂在括尖下 16；
+      · 两臂同拍 .draw（ntDraw、无 delay），标签晚 --dur-draw 的 .6（330ms）；
+        暂停到 200ms 时字还没露（backwards 填 from），700ms 时线已满、字已亮；
+      · 括线在卡片下方、标签在括尖下方、整组在字幕带上沿之上（不遮不压）；
+      · 纯注释层 pointer-events:none；括线 --brace-ink、标签满浓度 --ok；
+      · 退回上一步整棵撤走，再进重演一次（新节点、ntDraw 重新跑）；
+      · reduced-motion / 导出截图：动画全停，dash 满线、标签可见、几何仍在。
+    """
+    probe = """(function(key){
+      var g = document.getElementById(key);
+      if (!g) return {present:false};
+      var l = document.getElementById(key + '-l');
+      var r = document.getElementById(key + '-r');
+      var lab = document.getElementById(key + '-lab');
+      function cardBox(id){
+        var c = document.getElementById(id);
+        var q = c.querySelector('rect');
+        var m = /translate\\(([-\\d.]+)[ ,]([-\\d.]+)\\)/.exec(c.getAttribute('transform'));
+        return {x:(+m[1]) + (+q.getAttribute('x')),
+                y:(+m[2]) + (+q.getAttribute('y')),
+                w:+q.getAttribute('width'), h:+q.getAttribute('height')};
+      }
+      var a = cardBox('e-r-\\u5c0f\\u660e'), b = cardBox('e-r-\\u5c0f\\u7ea2');
+      var ux = Math.min(a.x, b.x), uy = Math.min(a.y, b.y);
+      var u = {x:ux, y:uy,
+               w:Math.max(a.x + a.w, b.x + b.w) - ux,
+               h:Math.max(a.y + a.h, b.y + b.h) - uy};
+      function ends(el){
+        var d = el.getAttribute('d');
+        var nums = d.match(/-?\\d+(?:\\.\\d+)?/g);
+        var m = /^M([-\\d.]+) ([-\\d.]+)/.exec(d);
+        return {sx:+m[1], sy:+m[2], ex:+nums[nums.length - 2],
+                ey:+nums[nums.length - 1]};
+      }
+      function an(el){ return (el.getAnimations() || []).map(function(x){
+        return x.animationName || x.transitionProperty || ''; }); }
+      var bl = l.getBoundingClientRect(), br = r.getBoundingClientRect();
+      var lb = lab.getBoundingClientRect();
+      var pa = document.getElementById('e-r-\\u5c0f\\u660e').getBoundingClientRect();
+      var pb = document.getElementById('e-r-\\u5c0f\\u7ea2').getBoundingClientRect();
+      var cap = document.getElementById('cap').getBoundingClientRect();
+      var timing = lab.getAnimations().map(function(x){ return x.effect.getTiming(); });
+      return {present:true, kids:[].map.call(g.children, function(n){ return n.tagName; }),
+        cls:g.getAttribute('class'), pe:getComputedStyle(g).pointerEvents,
+        stroke:getComputedStyle(l).stroke, sw:getComputedStyle(l).strokeWidth,
+        fill:getComputedStyle(lab).fill, text:lab.textContent,
+        delay:getComputedStyle(lab).animationDelay,
+        pathDelay:getComputedStyle(l).animationDelay,
+        anPaths:an(l).concat(an(r)), anLab:an(lab), timing:timing,
+        off:getComputedStyle(l).strokeDashoffset,
+        offR:getComputedStyle(r).strokeDashoffset,
+        op:+getComputedStyle(lab).opacity,
+        d:l.getAttribute('d'), dR:r.getAttribute('d'),
+        L:ends(l), R:ends(r), u:u,
+        labX:+lab.getAttribute('x'), labY:+lab.getAttribute('y'),
+        box:{left:Math.min(bl.left, br.left), right:Math.max(bl.right, br.right),
+             top:Math.min(bl.top, br.top), bottom:Math.max(bl.bottom, br.bottom)},
+        labBox:{left:lb.left, right:lb.right, top:lb.top, bottom:lb.bottom},
+        pair:{left:Math.min(pa.left, pb.left), right:Math.max(pa.right, pb.right),
+              top:Math.min(pa.top, pb.top), bottom:Math.max(pa.bottom, pb.bottom)},
+        capTop:cap.top};
+    })('e-brace')"""
+    chrome, ev, send = _cdp(full_lesson, "brace")
+    try:
+        ev(_SEEK)
+
+        def read():
+            return json.loads(ev("JSON.stringify(%s)" % probe))
+
+        # s0 / s2：还没有"同组"要说，不架括
+        for k in (0, 2):
+            ev("window.__jump('seg-6', %d)" % k)
+            assert ev("document.querySelectorAll('.brace').length") == 0, \
+                "seg-6 s%d 不该有括注" % k
+
+        # s3：两张 90 分卡被括成一组
+        ev("window.__jump('seg-6', 3)")
+        early = read()
+        assert early["present"], "s3 要给同分的两人补一道括注"
+        assert early["kids"] == ["path", "path", "text"], \
+            "两臂 + 一枚标签，不多不少：%s" % early["kids"]
+        assert early["cls"] == "nt brace", early["cls"]
+        assert early["pe"] == "none", "括注是注释层，不吃指针"
+        assert early["stroke"] == "rgba(46, 204, 113, 0.55)", early["stroke"]
+        assert early["sw"] == "1.5px", early["sw"]
+        assert early["fill"] == "rgb(46, 204, 113)", \
+            "标签用满浓度 --ok（括线才退到 .55）：%s" % early["fill"]
+        assert early["text"] == "同分 · 顺序不变", early["text"]
+        assert len(early["text"]) <= 10, "标签是短记号，不是句子（纪律 3）"
+        assert "ntDraw" in early["anPaths"], "两臂要合拢（.draw）：%s" % early["anPaths"]
+        assert early["pathDelay"] == "0s", "两臂同拍起笔"
+        assert "ntIn" in early["anLab"], "标签要淡入：%s" % early["anLab"]
+        assert early["delay"] == "0.33s" and early["timing"] \
+            and early["timing"][0]["delay"] == 330, \
+            "标签晚 --dur-draw 的 .6（330ms）才落：%s / %s" % (
+                early["delay"], early["timing"])
+
+        # 暂停在 200ms：线还在路上，字还没露（.in 的 backwards 填 from）
+        ev("""(function(){
+          window.__braceAn = function(){
+            return [].concat(
+              document.getElementById('e-brace-l').getAnimations(),
+              document.getElementById('e-brace-r').getAnimations(),
+              document.getElementById('e-brace-lab').getAnimations());
+          };
+          window.__braceAt = function(ms){
+            window.__braceAn().forEach(function(a){ a.pause(); a.currentTime = ms; });
+            var lab = document.getElementById('e-brace-lab');
+            return JSON.stringify({n:window.__braceAn().length,
+              op:+getComputedStyle(lab).opacity,
+              off:getComputedStyle(document.getElementById('e-brace-l')).strokeDashoffset});
+          };
+          return 1;
+        })()""")
+        at200 = json.loads(ev("window.__braceAt(200)"))
+        assert at200["n"] == 3, "两臂 + 标签三条动画都在跑：%s" % at200
+        assert at200["op"] < .05, "线到六成之前，字不该露：%s" % at200
+        at700 = json.loads(ev("window.__braceAt(700)"))
+        assert at700["op"] > .85, "括完了字才亮起来：%s" % at700
+        assert at700["off"] in ("0px", "0"), "700ms 时两臂已收满：%s" % at700
+        ev("window.__braceAn().forEach(function(a){ a.finish(); })")
+        assert not _wait_idle(ev, "#e-brace-lab"), "括注跑到头要落定"
+
+        # 收满后的几何：全部从被括卡的坐标声明推，不靠眼看
+        b = read()
+        u = b["u"]
+        assert u["w"] > 0 and u["h"] > 0, u
+        cx = u["x"] + u["w"] / 2
+        assert b["L"]["sx"] == pytest.approx(u["x"] - 12, abs=.2), \
+            "左臂从并集外缘再让 12 起笔：%s" % b["L"]
+        assert b["R"]["sx"] == pytest.approx(u["x"] + u["w"] + 12, abs=.2), \
+            "右臂从另一侧外缘再让 12 起笔：%s" % b["R"]
+        assert b["L"]["sy"] == b["R"]["sy"] == pytest.approx(u["y"] + u["h"] + 16, abs=.2), \
+            "括线落在卡片下方 16：%s / %s" % (b["L"], b["R"])
+        assert b["L"]["ex"] == b["R"]["ex"] == pytest.approx(cx, abs=.2), \
+            "两臂收在同一枚括尖上（x）：%s / %s" % (b["L"], b["R"])
+        assert b["L"]["ey"] == b["R"]["ey"] == pytest.approx(u["y"] + u["h"] + 16 + 10 + 6, abs=.2), \
+            "括尖再落 10 + 6：%s / %s" % (b["L"], b["R"])
+        assert b["labX"] == pytest.approx(cx, abs=.2), "标签居中在括尖下"
+        assert b["labY"] == pytest.approx(b["L"]["ey"] + 16, abs=.2), \
+            "标签基线在括尖下 16：%s vs %s" % (b["labY"], b["L"]["ey"])
+        assert b["off"] in ("0px", "0") and b["offR"] in ("0px", "0"), \
+            "落定后两臂都是满线：%s / %s" % (b["off"], b["offR"])
+        assert b["op"] == 1, "落定后标签不透明：%s" % b["op"]
+
+        # 屏幕上的相对关系（FULL 镜头下 scale=1，误差只让给描边半宽）
+        assert b["box"]["left"] == pytest.approx(b["pair"]["left"] - 12, abs=2.5), \
+            "括线左端比卡片外缘再宽 12：%s vs %s" % (b["box"], b["pair"])
+        assert b["box"]["right"] == pytest.approx(b["pair"]["right"] + 12, abs=2.5), \
+            "括线右端同理：%s vs %s" % (b["box"], b["pair"])
+        assert b["box"]["top"] == pytest.approx(b["pair"]["bottom"] + 16, abs=2.5), \
+            "括线整体在卡片下方：%s vs %s" % (b["box"], b["pair"])
+        assert b["labBox"]["top"] >= b["box"]["bottom"] - 1, \
+            "标签在括尖下方，不压线：%s vs %s" % (b["labBox"], b["box"])
+        assert b["labBox"]["bottom"] < b["capTop"] - 2, \
+            "整组在字幕带上沿之上：%s vs %s" % (b["labBox"], b["capTop"])
+        assert (b["labBox"]["left"] + b["labBox"]["right"]) / 2 == pytest.approx(
+            (b["pair"]["left"] + b["pair"]["right"]) / 2, abs=2.5), \
+            "标签居中对着两张卡：%s vs %s" % (b["labBox"], b["pair"])
+
+        # 退回上一步：整棵撤走；再进：新节点重演一次
+        ev("window.__jump('seg-6', 2)")
+        assert ev("document.querySelectorAll('.brace').length") == 0, \
+            "退回 s2 时括注整棵撤走"
+        ev("window.__jump('seg-6', 3)")
+        again = read()
+        assert again["present"] and "ntDraw" in again["anPaths"], \
+            "再进 s3 是新一次括，.draw 重跑：%s" % again["anPaths"]
+
+        # reduced-motion：动画全停，终态（满线 + 可见标签 + 同一几何）仍在
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]})
+        assert ev("matchMedia('(prefers-reduced-motion: reduce)').matches")
+        ev("window.__jump('seg-6', 2)")
+        ev("window.__jump('seg-6', 3)")
+        rm = read()
+        assert rm["present"], rm
+        assert rm["anPaths"] == [] and rm["anLab"] == [], \
+            "减少动效下不再合拢、也不再延迟淡入：%s / %s" % (rm["anPaths"], rm["anLab"])
+        assert rm["off"] in ("0px", "0") and rm["offR"] in ("0px", "0"), rm
+        assert rm["op"] == 1, "标签直接在场：%s" % rm["op"]
+        assert rm["L"]["ex"] == rm["R"]["ex"] == pytest.approx(cx, abs=.2), rm
+
+        # 导出截图口径（export_video 注入的同一条规则）：一刀切掉动画，几何仍在
+        send("Emulation.setEmulatedMedia",
+             {"features": [{"name": "prefers-reduced-motion", "value": "no-preference"}]})
+        ev("""(function(){
+          var st = document.createElement('style');
+          st.textContent = '*,*::before,*::after{transition:none!important;' +
+                           'animation:none!important}';
+          document.head.appendChild(st);
+          return 1;
+        })()""")
+        ev("window.__jump('seg-6', 2)")
+        ev("window.__jump('seg-6', 3)")
+        shot = read()
+        assert shot["present"] and shot["anPaths"] == [] and shot["anLab"] == [], shot
+        assert shot["off"] in ("0px", "0") and shot["op"] == 1, shot
+        assert shot["L"]["sx"] == pytest.approx(u["x"] - 12, abs=.2) and \
+            shot["R"]["sx"] == pytest.approx(u["x"] + u["w"] + 12, abs=.2), shot
+    finally:
+        _kill(chrome)

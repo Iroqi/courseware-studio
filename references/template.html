@@ -302,6 +302,11 @@
        --scope-ink 沿用主色的 .78 浓度——一根 1.5px 的细尺压在深底上刚读得清，
        再浓就成了"又一个高亮"。 */
     --dur-scope:.3s; --scope-ink:rgba(245,166,35,.78);
+    /* 集合括注（0.34.0）：--brace-ink 是括线的墨色，绿主色的 .55 浓度——与 s1 那
+       两条同分连线（#2ecc71 / .55）同档：括线说的是"关系"，不是"高亮"；标签才用
+       满浓度 var(--ok)。这里只有墨色、没有行程令牌：括线不补间位置，只画一次，
+       合拢的行程复用 .draw 的 --dur-draw。 */
+    --brace-ink:rgba(46,204,113,.55);
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -1689,6 +1694,23 @@
               stroke-linecap:round;stroke-linejoin:round}
   .scope text{fill:var(--scope-ink);letter-spacing:.02em}
 
+  /* 集合括注（0.34.0）：一条花括线从两端同时合拢到下方中点，把几枚已有图元括成
+     "同一组"（分块 / chunking）——0.30.0 的对位镜量的是"这两个之间"，这里说的是
+     "这几个是一伙的"，关系不同，原语也不同。几何全部由 braceUnder() 从被括节点
+     的 getBBox() 现量（pad 12 / gap 16 / 括深 10 / 括尖 6 / 圆角 9），CSS 只管
+     外观与"不吃指针"：
+       · 括线用 --brace-ink（绿 .55）——是关系线不是高亮，压在深底上刚读得清；
+       · 标签用满浓度 --ok：注解是这一步要说出口的那半句，比括线重一档；
+       · 两条臂都是 .draw（pathLength=1），dash 从各自外端收到共用括尖，读成
+         "两端向中间合拢"；写成一条 path 会从头扫到尾，读成"划线"；
+       · 纯装饰层 pointer-events:none，不进 #world，也不参与命中；
+       · 静止态（dash 满线、标签不透明）就是终态：减少动效与导出截图那两刀切掉
+         animation 后，落在同一张定格上，不需要为它单开兜底规则。 */
+  .brace{pointer-events:none}
+  .brace path{fill:none;stroke:var(--brace-ink);stroke-width:1.5;
+              stroke-linecap:round;stroke-linejoin:round}
+  .brace text{fill:var(--ok);letter-spacing:.02em}
+
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
      关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
@@ -2945,6 +2967,76 @@
       'text-anchor':'middle', 'font-size':10, 'font-family':MONO}, 'i=' + k);
     return g;
   }
+  /** 量一个节点在 stop 坐标系里的包围盒：getBBox() 是子坐标系里的数，沿 transform
+   *  **属性**一路乘到 stop（与 camBox 同一条教训：getScreenCTM() 读到的是补间半途
+   *  的矩阵，而这里要的是"它最终在哪"）。括注只需要轴对齐的并集，旋转/斜切按两角
+   *  点取并（同 camBox 的口径）。量不到（display:none、空盒、老引擎没有 DOMMatrix）
+   *  就返回 null——宁可不括，也不括一个错的位置（与 spotOn 同口径）。 */
+  function boxIn(node, stop){
+    var bb = node.getBBox();
+    if (!bb.width || !bb.height || !window.DOMMatrix) return null;
+    var m = new DOMMatrix(), n = node;
+    while (n && n !== stop){
+      var l = n.transform && n.transform.baseVal;
+      if (l && l.numberOfItems){
+        var t = new DOMMatrix();
+        for (var i = 0; i < l.numberOfItems; i++) t = t.multiply(l.getItem(i).matrix);
+        m = t.multiply(m);
+      }
+      n = n.parentNode;
+    }
+    var p1 = new DOMPoint(bb.x, bb.y).matrixTransform(m);
+    var p2 = new DOMPoint(bb.x + bb.width, bb.y + bb.height).matrixTransform(m);
+    return {x:Math.min(p1.x, p2.x), y:Math.min(p1.y, p2.y),
+            w:Math.abs(p2.x - p1.x), h:Math.abs(p2.y - p1.y)};
+  }
+  /** 集合括注（0.34.0）：一条花括线从**两端同时**合拢到下方中点，把几枚已有图元
+   *  括成"同一组"。调用方只给父容器、key、被括的节点（id 或节点）和一句短标签，
+   *  几何全从 getBBox() 现推——换卡片宽窄、换括几行都不回头改坐标。
+   *  四条接线口径：
+   *   ① **两半各画各的**：左半从最左外缘起笔、右半从最右外缘起笔，终点同为括尖
+   *      （中点下沿再落一头）。两段都是 .draw（pathLength=1），看见的是"两端向
+   *      中间收"；若写成一条 path，dash 会从一头扫到另一头，读成"划线"而不是
+   *      "总括"（0.30.0 对位镜是一条 path 走完，因为那边读的是"连接"）；
+   *   ② **标签晚于线落**：--delay 取 --dur-draw 的 .6——线合拢过大半，字才浮出
+   *      来，读序是"先看见括、再看见注"。标签只写短记号（纪律 3），满浓度 --ok；
+   *   ③ **纯注释层**：group 与路径都不吃指针（CSS .brace），不碰"对/错"语义色；
+   *      括线落在被括内容**下方**（gap 16 + 括深 10 + 括尖 6 + 标签行），横向只比
+   *      内容多出 pad 12——范本里 634–950 / 336–368 仍在 FULL 的可见区（x≤990、
+   *      y≤394）与字幕带上沿（404）之间，桌面端这一步不必改镜头；窄屏兜底取景
+   *      把它读作内容的一部分（它确实是这一步要说的话）。
+   *   ④ **复用同一 key 不重放**：class 不变 → .draw/.in 的 animation 不重启
+   *      （put 的既有口径），括注只在该步第一次出现时演一次；退回上一步由
+   *      sweep() 按 key 整棵收掉。 */
+  function braceUnder(parent, key, nodes, label){
+    var p = host(parent), u = null;
+    (nodes || []).forEach(function(n){
+      var q = boxIn(host(n), p); if (!q) return;
+      u = !u ? q : {x:Math.min(u.x, q.x), y:Math.min(u.y, q.y),
+                    w:Math.max(u.x + u.w, q.x + q.w) - Math.min(u.x, q.x),
+                    h:Math.max(u.y + u.h, q.y + q.h) - Math.min(u.y, q.y)};
+    });
+    if (!u) return null;
+    var pad = 12, gap = 16, d = 10, n = 6, k = 9;
+    function f(v){ return +v.toFixed(1); }
+    var x0 = f(u.x - pad), x1 = f(u.x + u.w + pad);
+    var y = f(u.y + u.h + gap), cx = f((x0 + x1) / 2);
+    var g = put(p, 'g', key, {class:'brace'});
+    // 左半：外端竖直落到平段（Q 圆角），平段走到中点前 k，再拐成括尖。
+    put(g, 'path', key + '-l', {class:'draw', pathLength:1,
+      d:'M' + x0 + ' ' + y + 'Q' + x0 + ' ' + f(y + d) + ' ' + f(x0 + k) + ' ' + f(y + d) +
+        'L' + f(cx - k) + ' ' + f(y + d) +
+        'Q' + cx + ' ' + f(y + d) + ' ' + cx + ' ' + f(y + d + n)});
+    // 右半：镜像，收笔在同一枚括尖上——两段 dash 同时归零时"合拢"就完成了。
+    put(g, 'path', key + '-r', {class:'draw', pathLength:1,
+      d:'M' + x1 + ' ' + y + 'Q' + x1 + ' ' + f(y + d) + ' ' + f(x1 - k) + ' ' + f(y + d) +
+        'L' + f(cx + k) + ' ' + f(y + d) +
+        'Q' + cx + ' ' + f(y + d) + ' ' + cx + ' ' + f(y + d + n)});
+    txt(g, key + '-lab', {class:'in', x:cx, y:f(y + d + n + 16),
+      'text-anchor':'middle', 'font-size':12, 'font-family':MONO,
+      style:'--delay:calc(var(--dur-draw) * .6)'}, label);
+    return g;
+  }
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
    *  才有"的那个小挂件不再被引用时，也必须跟着掉——只扫容器一层会把它留在台上。
    *  没有退场动画：要淡出就把 opacity 写成 0 让它再停一步，下一步不再引用它收尾。 */
@@ -3807,7 +3899,7 @@
            走在半途的标记一起裁掉（`.tuck*` 边界 ④/⑤ 那条"要全程在场的东西不放收拢
            层里"）。标记要留在台上，就得是自己的节点；
          · 到了 s2、s3 标记留在终点不再动——它承担的是"这个人落在哪一行"的位置信息，
-           s3 那句"90 分两行 · 小明在小红前"正是指着这两枚说的（关掉动效也一样在场，
+           s3 那道括注（同分 · 顺序不变）正是指着这两枚说的（关掉动效也一样在场，
            见减少动效兜底那三条）。
        箭头（`M 4 -5 L 10 0 L 4 5`）朝 +x：`offset-rotate:auto` 会把它对准路线方向，
        不用 JS 反解角度（实测那条 292×72 的斜线上自动转了 13.86°）。 */
@@ -3838,9 +3930,12 @@
     // 贴在列头上就会撞字（实测过）。
     if (step === 2) txt('e-body', 'e-lv', {x:500, y:352, 'text-anchor':'middle', 'font-size':12,
       'font-family':MONO, fill:'#f5a623'}, '两级：姓名 → 分数');
-    // s3「同分的人维持姓名的顺序」：给并列的两人补一个括注，与 s2 区分
-    if (step === 3) txt('e-body', 'e-note', {x:792, y:344, 'text-anchor':'middle',
-      'font-size':12, 'font-family':MONO, fill:'#2ecc71'}, '90 分两行 · 小明在小红前');
+    // s3「同分的人维持姓名的顺序」：给并列的两人补一道集合括注（0.34.0）——
+    // 旧写法是右下角一行 e-note（"90 分两行 · 小明在小红前"），说的是一个**事实**；
+    // 括注说的是**关系**："这两张卡属于同一组"（同分），标签再补上组内规则。
+    // 括的取数是两张 90 分结果卡的并集（小明、小红），不是整列——小刚不在这组里。
+    if (step === 3) braceUnder('e-body', 'e-brace',
+      ['小明', '小红'].map(function(nm){ return 'e-r-' + nm; }), '同分 · 顺序不变');
     sweep('e-body');
   }
 

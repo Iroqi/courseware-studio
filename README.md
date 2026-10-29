@@ -78,6 +78,8 @@
   而是被红笔当场划掉、字同时压暗一档（反证划线，斜率算进端点，导出仍是完整一笔）；
   门禁按钮在指针靠近时朝手迎几像素，按下之前"它在那里、可以按"就成立了（磁吸迎手，
   触屏 / 键盘 / 减少动效一律不动）。
+  几张图元"属于同一组"也不用并排高亮来说——一条花括线从两端同时合拢到中间、括尖下挂
+  一句短注（集合括注，括线几何从被括卡片的并集现量，标签晚半拍落，读作"这几个是一伙的"）。
   术语被念到时逐字从噪声里定住，落定节奏是缓出——前几字快定、末字从容沉底，整词提前
   留出静置给读者（逐字解码缓出，不再像打字机逐字蹦；噪声字不许撞真字，未定的字不会
   提前"看起来定了"）。
@@ -671,6 +673,15 @@ python -m pytest tests/ -q
   末字落定点采样 `[.46,.47]`、`last_at = lead × (1 − sqrt(.5/字数))`（四字 .465），
   五字词 .492 落定；静态侧锁 `decGlyph` 的"噪声≠真字"顺延一格与 decodeWrite 的缓出
   公式字面（模板含 `var e = 1 - (1 - k) * (1 - k)`）。
+- 0.34.0 的回归：集合括注（一组东西有自己的括）——`test_group_brace_primitives_present`
+  锁静态口径（令牌 `--brace-ink`、`.brace` 只做注解层、`boxIn()` 读 transform 属性而
+  非 `getScreenCTM()`、两臂各一条 path 同收一枚括尖、标签 `--delay` 取 `--dur-draw` 的
+  .6、s3 只括小明/小红两张卡、旧 e-note 撤掉）；`test_group_brace_closes_around_tied_pair`
+  用 CDP 量真实页：s0/s2 无括、s3 两条臂 `ntDraw` 同拍、标签 330ms 后才落（pause 到
+  200ms 时 opacity 0、700ms 时 dashoffset 0 且 > .85）、几何从卡片并集推
+  （646–938 / 196–320 → 634–950 / 336–352，标签 368 在字幕带上沿 404 之上）、
+  `pointer-events:none`、退一步整棵撤走、再进 s3 重演；reduce 与导出式一刀切下
+  零动画、满线、标签可见、几何逐值相同。
 - 0.29.0 的回归：右列结果卡错峰落位（一屏一话头续）——`test_focus_audit_result_cards_stagger_into_place`
   锁 renderE 右列 `col === 1` 卡片挂 inline `--delay` 按 i 错峰（0/.06/.12s，用现成
   var(--delay)）、左列不加；`test_rider_arrives_and_stays_at_the_destination` 增补
