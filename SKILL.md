@@ -163,6 +163,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随）、`.traces`（换位弧痕） |
 | 判定与重量 | `.settle`（挤压落位）、`.wind`（预备后蓄）、`.lift`（提牌投影）、`.tilt`（倾侧定盘） |
 | 文字 | `badge(..., dec)`（逐字解码）、`#cap-text` 的 `--lit`（跟读点亮）、`#cap-prog`（句内进度细线）、`.mark` + `markBehind()`（荧光笔）、`.strike` + `strikeThrough()`（反证划线） |
+| 数字与读数 | `data-count`（目标值写呈现属性）、`countRollWrite`（audio 时钟现算中间值）、`.roll`（tabular-nums 等宽）——数字落定：计数读数从句首从旧值滚到新值，首次建档与数值未变不滚，导出 / reduced-motion 落终值 |
 | 交互反馈 | `.opt.rip`（触点涟漪）、`.hot`（触点辉光）、`magMove/magClear` 与 `.mag`（磁吸迎手）、`.gate-next .go.shine`（放行键掠光） |
 | 播放器 | `--ease-spring` 手感、`.bar[data-drag]`（拖动跟手）、`.bar[data-band]` + `--band`（越界橡皮筋）、`#ffwd`（快进掠擦）、`.tick.on`（当前章节）、擦洗态变厚、窥探气泡 |
 | 氛围与排版 | `data-mood` + `--tint`（色温定调）、`--key-soft/softer/act`（主色浅档）、`text-wrap:balance`、`text-box-trim`、`text-spacing-trim`、侧栏折叠、侧栏 `animation-timeline:view()` 入场 |

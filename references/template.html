@@ -135,6 +135,11 @@
     --dur-tilt:.55s; --tilt-deg:6.5deg;
     --dur-rip:.5s; --rip-ink:rgba(245,166,35,.26);
     --dur-gather:.42s; --track-open:.3em;
+    /* 数字落定（0.37.0）：--dur-roll 是计数读数滚进的一拍。与位移（--dur-move .5s）
+       **同档**——数字从旧值滚到新值，和"常驻图元让位"是同一类事：都在改变量，
+       不换形状。JS 按 audio 时钟现算中间值（与 --lit 同为逐拍读数，countRollWrite
+       只从这一处读时长），改全局节奏只动这一档。 */
+    --dur-roll:.5s;
     /* 落点与过场（0.22.0）：三条原语，两条是新时长档、一条是复用旧档。
          · --dur-spot .5s：移动聚光的行程。与位移（--dur-move .5s）**同档**——洞从
            上一格飞到下一格，和"常驻图元让位"是同一类事：都在改变置，不改形状。
@@ -2418,6 +2423,11 @@
         font-size:12.5px;line-height:1.6}
   .kv-k{font-family:ui-monospace,Consolas,"Courier New",monospace;color:#c9d1e0;white-space:pre}
   .kv-v{color:var(--dim)}
+  /* 数字落定（0.37.0）：计数读数挂 .roll——tabular-nums 让数字**等宽**，滚动时
+     字宽不跳（"12" 与 "3" 占同一个字身），读数元素的位置与 bbox 稳定，不会边滚
+     边挤旁边的字。只给画布里的计数读数用；字幕带、等宽 code 不挂（没有滚动，
+     挂了也无害，但少一个多余的类）。 */
+  .roll{font-variant-numeric:tabular-nums}
   /* 跳转锚：侧栏与时间轴唯一的挂钩。只写 audio.currentTime——与点进度条同一
      seek 语义（timeupdate 兜底重画），不改播放/暂停态、不产证据。 */
   .n-jump{display:inline-flex;align-items:center;gap:5px;margin-top:8px;padding:3px 9px;
@@ -2902,7 +2912,13 @@
      有没有在解码"与画面状态一样，是 (scene, step) 的纯函数，导出冷启动 seek 到那一帧
      也照样是该解码的一步（纪律 1）。 */
   var DECODE = {};
-  function begin(){ GEN++; spotOff(); DECODE = {}; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 数字落定的登记表（0.37.0）：与 DECODE 同一张"每步清空、renderer 重挂"的表——
+     "这一步有没有数字在滚"同样是 (scene, step) 的纯函数。条目在 put() 检出
+     `data-count` 呈现属性时建立：旧值 = 元素上一次的目标值（data-count 属性本身），
+     新值 = 本次目标；首次建档 / 数值没变都落在"不滚"（入场照旧走 .in）。时长从
+     --dur-roll 读（rollDur），中间值由 countRollWrite 按 audio 时钟现算，CSS 不参与。 */
+  var COUNT = {}, stepT0 = 0;   // stepT0 = 当前句起点：tick 换句分支在渲染前写它
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -2913,6 +2929,21 @@
                  n.id = key; n.dataset.key = key;          // id = key：嵌套建档时
                  n.setAttribute('class', 'nt in'); REG[key] = n; }  // 父节点写 key 就够了
     n._g = GEN;
+    /* 数字落定（0.37.0）：attrs 带 data-count 的元素是计数读数——目标值随后写进
+       呈现属性（导出 / reduced / QA 直接读它），并在目标值变化的那一步滚进
+       （COUNT 由 countRollWrite 逐拍现算中间值）。必须在本函数把 data-count 覆写
+       成新值之前取旧值，否则"上一状态"就丢了。 */
+    if (attrs && attrs['data-count'] !== undefined){
+      var dc = String(attrs['data-count']);
+      var prevC = n.getAttribute('data-count');
+      if (prevC !== null && isFinite(parseFloat(prevC)) && isFinite(parseFloat(dc))){
+        if (parseFloat(prevC) !== parseFloat(dc))
+          COUNT[key] = {n:n, from:parseFloat(prevC), to:parseFloat(dc),
+                        dec:dc.indexOf('.') >= 0 ? dc.length - dc.indexOf('.') - 1 : 0,
+                        final:String(parseFloat(dc)), t0:stepT0, dur:rollDur()};
+        else delete COUNT[key];
+      } else delete COUNT[key];
+    }
     for (var k in attrs || {}) {
       var v = attrs[k];
       if (k === 'font-size') v = scaleFontSize(tag, v);
@@ -4355,6 +4386,37 @@
     }
   }
 
+  /** 数字落定的时长：只从令牌读（--dur-roll），改名删名 parseFloat 得 NaN 落回
+      默认档 .5s（与位移 --dur-move 同档的口径）。与 depthShift 读 --par-far 同一模式。 */
+  function rollDur(){
+    var cs = getComputedStyle(document.documentElement);
+    var d = parseFloat(cs.getPropertyValue('--dur-roll'));
+    return isFinite(d) && d > 0 ? d : 0.5;
+  }
+  /** 数字落定（0.37.0，count roll）：计数读数从旧值滚到新值，中间值按 audio 时钟
+     现算（easeOutExpo，与 --ease-out 同族）。三条边界：
+       ① 终值写在呈现属性 data-count 上，由 put() 每步落；COUNT 每步清空、renderer
+          重挂——"这一步有没有数字在滚"是 (scene, step) 的纯函数，导出冷启动 seek
+          到那一帧也照样是该滚的一步；
+       ② **导出截图与 reduced-motion 落终值**——数字是"量"不是"进度"，定格里要
+          读得到"比较了 3 次"而不是"滚到 2.4 次"（与 transition 原语同一口径：
+          关的是过程，档位照留；--lit / 细线那些真读数才逐拍留中间值）；
+       ③ 逐拍写 textContent、同值不重写（与 --lit / capProgWrite 同一读数区、
+          同一"每帧都跑"的代价口径）。 */
+  function countRollWrite(t){
+    var full = window.__coursewareShotMode || mqReduce.matches;
+    for (var key in COUNT){
+      var c = COUNT[key];
+      if (full){ if (c.n.textContent !== c.final) c.n.textContent = c.final; continue; }
+      var p = Math.max(0, Math.min(1, (t - c.t0) / c.dur));
+      var e = 1 - Math.pow(2, -10 * p);                  // easeOutExpo（--ease-out 同族）
+      var v = c.from + (c.to - c.from) * e;
+      if (v === 0) v = 0;                                // 过零那一帧不许显示 "-0.0"
+      var s = c.dec ? v.toFixed(c.dec) : String(Math.round(v));
+      if (c.n.textContent !== s) c.n.textContent = s;    // 同值不重写（每帧都跑）
+    }
+  }
+
   // ══ ④ 侧栏：参考要点（renderNotes）══════════════════════════════════════
   // 侧栏 = 常驻结构化文档（小结/扩展/注意 + 可选 code 短代码行 / kv 对照行 / at 跳转锚），
   // 不产证据（interactions.md §1）：不随旁白高亮、不读 data-kp；加载时渲染一次，
@@ -4883,6 +4945,7 @@
       // （句间本来就有几十毫秒的接缝，闪一下空白比多留半秒更难看）
       if (hit.index >= 0 && key !== lastKey){       // 句号变了才重画
         lastKey = key;
+        stepT0 = hit.sentence.start;             // 数字落定（0.37.0）滚动的起点：本句句首
         begin();                                  // 开新步：本步没引用的常驻图元随后撤走
         (RENDER[hit.scene.step_id] || function(){})(hit.index);
         worldFor(hit.scene.step_id, hit.index);   // 主角落位（跨幕延续的那三个数）
@@ -4950,6 +5013,10 @@
     // 逐字解码（0.26.0）：与细线、点亮同一个位置、同一个 capSent——**排在换句分支之后**，
     // 因为解码的进度是"当前这一句念到哪儿"。没有解码项时这一趟就是个空循环。
     decodeWrite(t);
+    // 数字落定（0.37.0）：与上面几个逐拍读数同一个位置——换句分支里 put() 才重挂
+    // COUNT（目标值写在 data-count 呈现属性上），写在前面会拿上一句的登记表算这一句。
+    // 导出截图页每帧只跑一次 tick()：shot 模式下这一趟直接落终值（定格里读"量"）。
+    countRollWrite(t);
     // 门禁每帧判一次（幂等）：它自己比锚点，所以**空档里也要判**——
     // at:'end' 的门禁正是开在末句之后的那个空档里。
     // 擦洗期间例外：preGateOpen 会把 currentTime 拽回场景起点，和还按着

@@ -167,6 +167,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 行进与换位 | 谁走到哪儿、谁先动、刚才怎么换的 | `.ride`、`.wake`、`.swap`、`.trail`、`.traces` |
 | 判定与重量 | 结论落下来、天平读出方向 | `.settle`、`.wind`、`.lift`、`.tilt` |
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
+| 数字与读数 | 计数怎么滚到新值 | `data-count`、`countRollWrite`、`.roll` |
 | 交互反馈 | 手按下去收到了什么 | `.opt.rip`、`.hot`、磁吸迎手、`.mag`、`.go.shine` |
 | 播放器 | 时间被搬到哪儿 | 擦洗态升级、`#ffwd`、`.bar[data-band]`、`.tip` |
 | 氛围与排版 | 这一段什么温度、文字怎么排 | `data-mood`、`.pregate`、`text-wrap:balance`、`text-spacing-trim`、`--key-soft` 族、侧栏折叠 |
@@ -181,7 +182,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 入场 / 退场 | `--dur-in`、`--dur-move`、`--dur-pop`、`--dur-draw`、`--dur-swp`、`--dur-tuck` |
 | 相机 | `--cam-dur`、`--cam-pan`、`--cam-zoom`、`--dur-cam-min/max/pan/zoom`、`--par-far`、`--dur-blur` |
 | 注意力 | `--dim-focus`、`--dur-dim`、`--dur-spot`、`--spot-k`、`--spot-soft`、`--spot-bleed` |
-| 字母与读数 | `--dur-hl`、`--dur-cap`、`--lit-floor`、`--lit-ramp`、`--flow-seg`、`--dur-flow` |
+| 字母与读数 | `--dur-hl`、`--dur-cap`、`--lit-floor`、`--lit-ramp`、`--flow-seg`、`--dur-flow`、`--dur-roll` |
 | 原语专属 | 每个原语 2–4 个（如 `--dur-settle` / `--squash-x` / `--squash-y`） |
 
 改全局节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：入场与补间共用它，
@@ -483,6 +484,29 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   兜底写在 `@supports` 里，不靠"同名两条声明"（自定义属性解析期什么都收，坏的是
   替换之后那条 `background`）。
 
+**（11）数字与读数**
+
+- **数字落定**（`data-count` + `countRollWrite` + `.roll`）：计数读数从旧值滚到新值。
+  作者零负担——在 renderer 给带数字的图元传 `data-count`（目标值）即可，模板自动
+  拾取：
+  - **登记口在 `put()`**：attrs 里出现 `data-count` 的元素是计数读数。目标值同时写进
+    呈现属性（导出 / reduce / QA 直接读它），并在**目标值变化**的那一步登记进
+    `COUNT`（旧值 = 元素上一次的 `data-count` 属性）；
+  - **首次建档与数值未变都不滚**：滚的只是"数值变化"这件事，入场照旧走 `.in`，
+    同值不重写；
+  - **滚动的起点是句首**（`stepT0 = hit.sentence.start`）：计数挂在"这一句的画面
+    变化"上，与 `begin()` 每步清空 `COUNT` 配成 (scene, step) 纯函数，导出冷启动
+    seek 到那一帧也照样是该滚的一步；
+  - **中间值按 audio 时钟现算**：`easeOutExpo`（`1 − 2^(−10p)`，与 `--ease-out`
+    同族），整数取整、小数按目标串的位数 `toFixed`；时长只从 `--dur-roll`（.5s，
+    与 `--dur-move` 同档）读，`rollDur()` 读不到时落默认档；
+  - **数字是"量"不是"进度"**：导出截图与 reduced-motion 直接落 `data-count` 终值
+    ——定格里要读得到"比较了 3 次"，而不是"滚到 2.4 次"（与 `--lit` / 细线那些
+    真读数逐拍留中间值形成对照）；
+  - **挂 `.roll` 用等宽**（`font-variant-numeric:tabular-nums`）：滚动时字宽不跳，
+    读数元素的位置与 bbox 稳定。只挂画布里的计数读数，字幕带与等宽 `code` 不挂。
+  只做 SVG `<text>`；HTML 侧静态数字不做（不会滚，挂了也是死档位）。
+
 #### 3.4.4 导出与减动效
 
 截图页注入 `transition:none!important;animation:none!important` 且每帧冷启动；
@@ -493,6 +517,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | animation + `backwards` | 擦除 / 羽化揭示、`.gather`、`.settle` | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
 | animation 无 `forwards`，静止态即全开 | `.bloom`、`.ffwd`、`.opt.rip`、`.flow`、`.traces` | 切掉后落"看不见"或"全开"，不留半截 |
 | transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦 | 落到 after-change style，即那一秒的真实档位 |
+| JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`） | 导出 / reduced-motion 落 `data-count` 终值（定格里读"量"）；live 播放逐拍滚中间值 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
 口径：
@@ -768,6 +793,9 @@ emoji 只是记号的点睛。
 - [ ] 对焦：`--defocus` 由 `camSet` 按取景窗倍率现算、只对声明过的窗演；参数只从
       令牌读；与运镜共用 `--cam-dur`；窄屏兜底与 FULL 恒锐；reduced-motion /
       导出落当步真实档位；
+- [ ] 数字落定：目标值写进呈现属性 `data-count`；首次建档 / 数值未变不滚；滚动起点
+      是句首（`stepT0`）；中间值 `easeOutExpo` 现算、同值不重写；导出 / reduced-motion
+      落 `data-count` 终值；读数挂 `.roll` 等宽；只做 SVG `<text>`；
 - [ ] `#ffwd`：帧间差过 `--ff-min`、`linear` 不写 `forwards`、方向与箭头同号、四道
       不演；
 - [ ] `.pregate`：`display` 进清单、`transition-behavior` 单独一行、`@supports`、
