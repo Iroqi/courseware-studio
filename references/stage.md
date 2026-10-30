@@ -123,6 +123,10 @@ var WORLD = { 'seg-1': ['bay','bay','sorted','shelf'], 'seg-5': ['off','off','of
   "上一幕演到哪儿"——那是 §1.2 纯函数约束的头号反例；
 - 局部图层不要在世界层里重画主角。范本舞台 B 只画两行逐位比较，被排的那三个数始终
   由 `#world` 承担。
+- 换位之后留一组**弧痕**（`.traces`）：`traceAt()` 从 `WORLD`/`POSE` 现推"最近一次
+  看得见的换序"，把旧槽位 → 新槽位画成虚弧（arc diagram 的事后读法）。它补的是
+  `.swap` / `.wake` 的盲区——那两条只活在行程里，念完停在句末就只剩结果。判据与
+  几何见 §3.4.3（5）。
 
 ### 3.3 相机：取景窗就是构图声明
 
@@ -160,7 +164,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 位置与状态 | 已在台上的东西怎么变 | `.nt`、几何补间、`#cam`、`#depth`、`.swF/.swB`、`--cam-dur`、对焦 |
 | 揭示与退场 | 怎么长出来 / 怎么让位 | `.reveal`、`.featherR/L`、`.tuckR/L`、`.bloom` |
 | 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`.flow`、`.halo`、`.crisp` |
-| 行进与换位 | 谁走到哪儿、谁先动 | `.ride`、`.wake`、`.swap`、`.trail` |
+| 行进与换位 | 谁走到哪儿、谁先动、刚才怎么换的 | `.ride`、`.wake`、`.swap`、`.trail`、`.traces` |
 | 判定与重量 | 结论落下来、天平读出方向 | `.settle`、`.wind`、`.lift`、`.tilt` |
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
 | 交互反馈 | 手按下去收到了什么 | `.opt.rip`、`.hot`、磁吸迎手、`.mag`、`.go.shine` |
@@ -350,6 +354,12 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   清单被整条顶掉）；先后从 `--trail-step` 派生、rank 写在元素自己身上
   （`--trail-r`，故意不注册）；行程为 0 的卡不给档；同一步只许一个让拍来源
   （`.wind > g` 特异度更高，拖尾自动退让）。
+- `.traces`：换位弧痕。`traceAt(scene, step)` 纯扫描 `WORLD`/`POSE`，取本幕**最近
+  一次看得见的换序**（两端 op>0 且同一排），且当前步仍停在换序结果上才返回；旧槽位
+  → 新槽位画二次贝塞尔虚弧，弧高 = `min(--trace-max, 行程 × --trace-k)` 再按舞台顶
+  封顶，行程 < `--trace-min` 或弧高 < 8 不画；起点补空心小圆当方向（无箭头）；层是
+  `#world` 末尾的 `<g class="traces">`（晚于卡片 = 压在卡上），每步 `sweep`；只淡入
+  （`.in`），不描画；线宽不挂 `vector-effect`（世界坐标物）。
 
 **（6）判定与重量**
 
@@ -481,7 +491,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 机制 | 代表原语 | 落点 |
 |---|---|---|
 | animation + `backwards` | 擦除 / 羽化揭示、`.gather`、`.settle` | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
-| animation 无 `forwards`，静止态即全开 | `.bloom`、`.ffwd`、`.opt.rip`、`.flow` | 切掉后落"看不见"或"全开"，不留半截 |
+| animation 无 `forwards`，静止态即全开 | `.bloom`、`.ffwd`、`.opt.rip`、`.flow`、`.traces` | 切掉后落"看不见"或"全开"，不留半截 |
 | transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦 | 落到 after-change style，即那一秒的真实档位 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
@@ -739,6 +749,9 @@ emoji 只是记号的点睛。
       `offset-rotate:0deg`、峰值现算、判据 sticky；
 - [ ] `.trail`：只写长档 delay、rank 在节点上、行程为 0 不给档、同一步只有一个让拍
       来源；
+- [ ] `.traces`：`traceAt` 只认"两端可见 + 同一排 + 当前仍停在结果上"的换序；弧端点
+      用槽位不用卡片；起点圆当方向、无箭头；层在 `#world` 末尾且每步 `sweep`；只淡入
+      不描画；不挂 `vector-effect`；reduce / 导出不单开兜底（`.in` 切掉即全显）；
 - [ ] `.settle`：镜像令牌、支点底边中点、独立 `scale`、纯包装 `<g>`、`linear`、
       `backwards`、第一次落位才演；
 - [ ] `.wind`：蓄力层在主角之外且建档即在、独立 `translate`、`--ease-in-out`、让出

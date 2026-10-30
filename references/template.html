@@ -271,6 +271,20 @@
        （1.40/1.48/1.69/1.75×2/1.80×2）才是真推近，虚。--defocus-max 是 1.8×
        （camCalc 的钳位上限）封顶的失焦半径。推导与口径见 stage.md §3.4「对焦」。 */
     --defocus-in:1.30; --defocus-max:2px;
+    /* 换位弧痕（0.36.0）：换位之后的**静态轨迹**。0.32.0 的 `.wake` 只活在行程里，
+       一句念完、暂停在句末就看不见"刚才怎么换的"；弧痕把同一段行程留成一条虚弧
+       （before/after 的 arc diagram 读法），让"变了什么"在不动的帧里也读得出来。
+       三枚令牌只定几何，不定时序（它不演，只现形）：
+         · --trace-k .16：弧高 = 行程 × 这个斜率——短移低弧、长移高弧，三条弧自动
+           分层，叠在同一行上不会糊成一条；
+         · --trace-max 96：弧高上限（viewBox 单位）。范本最长一趟是 '1' 越过整行
+           （400 单位 → 64），两格换位（200 → 32）刚好是它的一半；
+         · --trace-min 40：低于这条行程不画（那是平移，不是换位——与 --swap-min 的
+           250 同一判断，但这里量的是**看得出来的弧**，阈值取小得多）。
+       --trace-ink 取 .5 的灰：它是"来过"的痕迹，不是这一步要读的内容；比注记
+       （--scope-ink .78 / --brace-ink .55）再轻一档，虚线让它一眼是"参照"。 */
+    --trace-k:.16; --trace-max:96; --trace-min:40;
+    --trace-ink:rgba(141,149,168,.5);
     /* ③ 触点辉光：--dur-hot 借按压那一档（--dur-hover .16s）的读数，不新立一档——
        光跟着手的速度和"按下去了"是同一件事。--hot-r 是光的半径（本地盒单位，跟着
        按钮自己的尺寸走，见 .hot），--hot-ink 是光的墨色：主色一档压到 .22，比涟漪
@@ -1574,6 +1588,32 @@
           （0.18.0 在 animation-delay 上踩过同一坑，这是它的 transition 孪生兄弟），
           减少动效的人仍然会看到让位的两张卡各晚 70 / 140ms 才落。 */
   .trail{transition-delay:calc(var(--trail-step) * var(--trail-r, 0))}
+
+  /* 换位弧痕（`.traces`，0.36.0，arc diagram 的"事后读法"）：换位那一步有 .swap 的
+     弧凸（0.25.0）与 .trail 的先后（0.26.0），可两条都活在**行程里**——旁白念完停在
+     句末、导出截一张定格，画面只剩"排好了"，看不出来刚才谁越过了谁。弧痕把同一段
+     行程留成一组静态虚弧（旧槽位 → 新槽位），换完就停在那儿，直到这一排不复存在
+     （收起 / 搞乱 / 被下一次换位取代）。几何全在 JS 的 traceAt / drawTraces，这里
+     只管长相。五条边界：
+       ① 虚、细、灰：这是"来过"的痕迹，不是这一步要读的内容。颜色取 --trace-ink
+          （.5 的灰），比注记（--scope-ink .78 / --brace-ink .55）再轻一档；虚线
+          让它在任何底上都是"参照系"，而不是又一笔结论（--strike 是删除线、
+          .mark 是荧光带，两条都亮得多，这里刻意不跟它们抢）；
+       ② 无箭头，方向交给**起点的小圆点**（空心圆圈，与弧同色、同粗细）。三条弧
+          同时在场时，箭头会把它们读成三个"指向"；圆点只回答"它从哪一列出发"，
+          安静得多，也与 .swap 里"越过整行的只有一张、让位的两张直行"同一个读法；
+       ③ 只淡入（.in），不描画：描画（.draw）要靠 stroke-dasharray 从 1 到 0，而
+          虚线自己的图案也占着 dasharray（同一节点两条图案会互相顶掉，0.18.0 老账）；
+          更要紧的是语义——弧痕本来就是"已经在的痕迹"，不是"正在画出来"；
+       ④ 不挂 vector-effect：它与卡片同属世界坐标，镜头推近时线跟着粗一档才像
+          "长在画布上"（.crisp 那条分栏线是**注记**，不是世界物，两者口径不同）；
+       ⑤ reduced-motion 与导出不需要单开兜底：弧痕没有位移、没有补间，只有 .in
+          那一下淡入，而 ntIn 只写 from{opacity:0}——媒体块与导出页一刀切掉
+          animation 后落在**满显**的同一张定格上，一格信息不少（与 .brace 同款）。 */
+  .traces{pointer-events:none}
+  .traces path{fill:none;stroke:var(--trace-ink);stroke-width:1.5;
+               stroke-dasharray:4 7;stroke-linecap:round}
+  .traces circle{fill:none;stroke:var(--trace-ink);stroke-width:1.5}
 
   /* ── 随动层（0.24.0）：三条都跟着一个连续量走 ─────────────────────────
      上面几组补的都是"演一次"的词汇（入场 / 揭示 / 落位 / 重量与预备），这一组
@@ -3248,6 +3288,80 @@
       put(g, 'rect', boxKey, {x:-w/2, width:w, rx:Math.min(20, Math.round(w/6))});
     });
   }
+  /** 换位弧痕（0.36.0）：本幕**最近一次看得见的换序**，纯扫描 WORLD/POSE 现推，
+      不记历史（纪律 1——导出每帧冷启动，靠"上一帧"的写法在这里会整幕失明）。
+      返回换序前后的两个姿势快照 {pre, post}，或 null。五条判据：
+       ① 换序的两端都得在台上（op>0）：off → messed 这种"灯亮之前就换过了"不算
+          ——看不见的位置，谈不上"从哪儿来"；
+       ② 两端必须在**同一排**（y、k 相同）：bay → shelf 是把整排收上去，不是换位，
+          给收架子画弧会让读者去找一段不存在的行程；
+       ③ 现在这一步的姿势必须**还停在换序结果上**（order / y / k 全同）：弧痕是
+          "刚才怎么换的"的遗留物，不是追着卡片走的挂件——这一排一被收起、被搞乱，
+          弧痕立刻撤掉（与 .wake 正好互补：余像只活在行程里，弧痕只活在**没变**的
+          静止帧里）；
+       ④ 同幕第二次可见换序只认最近一次；每一扫都是 (scene, step) 的纯函数，跨幕
+          沿用（worldFor 只在幕内回推）同口径，导出 seek 到换位后的那一帧照样在；
+       ⑤ 判据全部读整步快照（POSE 的 order / xs / y / k / op），不读任何测量值：
+          "弧痕在不在"与"卡片在不在"是同一张表上的同一条事实，不会两套口径打架。 */
+  function traceAt(sid, step){
+    var seq = WORLD[sid], nowName = null, cur = null, pre = null, post = null;
+    if (!seq) return null;
+    for (var i = 0; i <= step && i < seq.length; i++){
+      if (!seq[i]) continue;
+      nowName = seq[i];
+      var q = POSE[nowName];
+      if (!q || q.op <= 0) continue;
+      if (cur && q.order.join() !== cur.order.join()){ pre = cur; post = q; }
+      cur = q;
+    }
+    var now = nowName ? POSE[nowName] : null;
+    if (!pre || !post || !now || now.op <= 0) return null;
+    if (now.order.join() !== post.order.join()) return null;
+    if (now.y !== post.y || now.k !== post.k) return null;
+    if (pre.y !== post.y || pre.k !== post.k) return null;
+    return {pre: pre, post: post};
+  }
+  /** 把弧痕画进世界层的最上面（这个组在第一次 worldFor 末尾建档，晚于三张卡，
+      所以永远压在它们上面；每步 put 同一个 key，弧的多寡由 sweep 收口）。四条几何
+      口径：
+       ① 端点 = **槽位**，不是卡片：x 从旧姿势的 xs 到新姿势的 xs，y 取新姿势卡顶
+          再让 8（范本 178）。于是 '1' 越过整行是 700→300（峰 64），两张让位的各
+          200（峰 32）——弧高与行程成正比，三条弧自己分层，不会糊成一条；
+       ② 弧高 = min(--trace-max, 行程 × --trace-k)，再按**舞台顶**封一次顶
+          （y0 - 14）：排在画面高处的一行（比如上架子之后 y=84）画不下高弧时压扁，
+          压到 8 以下干脆不画——宁可不画，不画一条贴边的假弧；
+       ③ 行程 < --trace-min（40）不画：那是挪了半格，不是换位。与 --swap-min
+          （250）同一判断，但这里量的是"看得出来的弧"，阈值小得多；
+       ④ 只画**换了槽位**的卡（a !== b），并给每弧的起点补一枚空心小圆
+          （r 2.6）：没有箭头时，圆点是唯一的"从哪儿出发"读数。
+      同幕真出现第二次换序时，d 与 cx / cy 都在 .nt 的补间清单里，弧会 morph 过去
+      而不是瞬移；范本里弧痕只出现一次（bay→sorted），下一步直接收架子，第二次换序
+      没有消费者。 */
+  function drawTraces(sid, step){
+    var layer = put('world', 'g', 'w-traces', {class:'traces'});
+    var tr = traceAt(sid, step);
+    if (tr){
+      var cs = getComputedStyle(document.documentElement);
+      var k = parseFloat(cs.getPropertyValue('--trace-k')) || .16,
+          max = parseFloat(cs.getPropertyValue('--trace-max')) || 96,
+          min = parseFloat(cs.getPropertyValue('--trace-min')) || 40;
+      var pre = tr.pre, post = tr.post;
+      var y0 = Math.round(post.y - 46 * post.k - 8), room = y0 - 14;
+      HERO.forEach(function(v){
+        var a = pre.order.indexOf(v), b = post.order.indexOf(v);
+        if (a < 0 || b < 0 || a === b) return;
+        var x0 = pre.xs[a], x1 = post.xs[b], dx = Math.abs(x1 - x0);
+        if (dx < min) return;
+        var peak = Math.min(max, dx * k, room);
+        if (peak < 8) return;
+        put(layer, 'path', 'w-tr-' + v, {class:'in',
+          d:'M' + x0 + ' ' + y0 + 'Q' + (x0 + x1) / 2 + ' ' + (y0 - peak * 2) +
+            ' ' + x1 + ' ' + y0});
+        put(layer, 'circle', 'w-tr-' + v + '-o', {class:'in', cx:x0, cy:y0, r:2.6});
+      });
+    }
+    sweep(layer);
+  }
   /** 这一幕的第 step 句，主角该在哪。WORLD 里没写到的步**沿用本幕最近一个写过的
    *  姿势**（"沿用"在画面上就是站着不动），但沿用是**在这一步就地回推**，不是记
    *  住"上一幕演到哪儿"——导出 mp4 是每帧一次冷启动、直接 seek 到那一秒，只跑这一
@@ -3270,6 +3384,7 @@
       }
     }
     poseWorld(name || 'off', fired);    // 这一幕没写世界谱 = 主角不在台上
+    drawTraces(sid, step);              // 弧痕画在卡之后：后建档 = 压在卡上（见 drawTraces）
   }
 
   // ── 相机：每一步声明一个取景窗，镜头怎么推怎么摇全在这张表里 ──────────

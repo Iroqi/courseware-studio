@@ -160,7 +160,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 位置与状态 | `.nt`（transform / 几何 / 颜色补间）、`#cam` + `camRun()`（位移定拍）、`#depth`（远景视差）、`#cam.blurpass`（运镜模糊）、对焦（`#depth` 随推近失焦）、`[data-dim="1"]`（焦点弱化） |
 | 揭示与退场 | `.reveal/.revealL`（硬边擦除）、`.featherR/.featherL`（羽化揭示）、`.tuckR/.tuckL`（收拢退场）、`.bloom`（圆形绽开）、`.flip`（当面翻面）、`.pregate`（浮层离散进出） |
 | 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
-| 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随） |
+| 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随）、`.traces`（换位弧痕） |
 | 判定与重量 | `.settle`（挤压落位）、`.wind`（预备后蓄）、`.lift`（提牌投影）、`.tilt`（倾侧定盘） |
 | 文字 | `badge(..., dec)`（逐字解码）、`#cap-text` 的 `--lit`（跟读点亮）、`#cap-prog`（句内进度细线）、`.mark` + `markBehind()`（荧光笔）、`.strike` + `strikeThrough()`（反证划线） |
 | 交互反馈 | `.opt.rip`（触点涟漪）、`.hot`（触点辉光）、`magMove/magClear` 与 `.mag`（磁吸迎手）、`.gate-next .go.shine`（放行键掠光） |
