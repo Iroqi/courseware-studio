@@ -298,7 +298,10 @@ def _cap_literals(body: str) -> list[str]:
     out: list[str] = []
     # \b 挡住 hotbadge( / plotTxt( 这类"名字里含 txt/badge"的他函数：
     # stage.md 口径是按**函数名**匹配自造 helper，子串命中会送去假"双字幕"比对。
-    for m in re.finditer(r"(?<!function )\b(txt|badge)\s*\(", body):
+    # 0.38.0 起 callout() 也走同一条防线：引线标注的签是画面文字，与 badge 一样
+    # 可能复述旁白；它的第 2/3 个参数是节点 id 与短签，颜色字面量由 _COLOR_LITERAL
+    # 过滤，节点 id 与旁白几乎不可能撞到相似度阈值。
+    for m in re.finditer(r"(?<!function )\b(txt|badge|callout)\s*\(", body):
         i = m.end() - 1
         depth = 0
         j = i

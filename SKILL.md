@@ -159,7 +159,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 入场与节拍 | `.in`（`--delay` / `.st1–.st3`）、`.pop`、`.pulse`、`.draw`、`.stag`（自动错峰）、`.gather`（字距归位）、`.chFlip`（章节头翻场）、`.el.swF/.swB`（换节方向感） |
 | 位置与状态 | `.nt`（transform / 几何 / 颜色补间）、`#cam` + `camRun()`（位移定拍）、`#depth`（远景视差）、`#cam.blurpass`（运镜模糊）、对焦（`#depth` 随推近失焦）、`[data-dim="1"]`（焦点弱化） |
 | 揭示与退场 | `.reveal/.revealL`（硬边擦除）、`.featherR/.featherL`（羽化揭示）、`.tuckR/.tuckL`（收拢退场）、`.bloom`（圆形绽开）、`.flip`（当面翻面）、`.pregate`（浮层离散进出） |
-| 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
+| 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`callout()`（引线标注：点→线→签，几何现量、随对象跟走）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
 | 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随）、`.traces`（换位弧痕） |
 | 判定与重量 | `.settle`（挤压落位）、`.wind`（预备后蓄）、`.lift`（提牌投影）、`.tilt`（倾侧定盘） |
 | 文字 | `badge(..., dec)`（逐字解码）、`#cap-text` 的 `--lit`（跟读点亮）、`#cap-prog`（句内进度细线）、`.mark` + `markBehind()`（荧光笔）、`.strike` + `strikeThrough()`（反证划线） |
@@ -179,8 +179,11 @@ HTML/CSS 契约见 `references/layout.md`。
   不改变落点。
 - **一个节点只写一条 transition 简写**：修饰原语必须使用包装层或独立变换属性
   （`translate` / `rotate` / `scale`），否则会整串顶掉 `.nt` 的补间清单。
-- **注释层不影响命中**：`.scope`、`.brace`、`.flow`、`.feather*`、`.strike` 等纯注解
-  图层必须 `pointer-events:none`；需要点击的图元不得挂会裁切或收拢的 class。
+- **注释层不影响命中**：`.scope`、`.brace`、`.callout`、`.flow`、`.feather*`、`.strike`
+  等纯注解图层必须 `pointer-events:none`；需要点击的图元不得挂会裁切或收拢的 class。
+- **注记要指着对象**：画面里一句短判词/标注若在说某件具体的东西，用 `callout()` 把
+  圆点落在它身上，不要用 `badge()` 凭空钉在附近的空地上；同一步不要与 `#spot` 并用
+  （两套注意力装置会互相抵消），注记的朝向由 `side` 声明、安全区取这一步的取景窗。
 - **不重复摘挂节点**：对已入树节点每步调用 `appendChild` / `insertBefore` 会摘下
   再插回并重放 CSS 动画（`references/stage.md` §3.4「别这么干」）。
 - **减少动效与导出只切过程**：`data-go`、`data-pan`、几何终态等读数必须让画面落在

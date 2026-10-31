@@ -321,6 +321,9 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
   `animation:none` 让计算值落回元素自身值（"全显"）；
 - 几何补间、`.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`#spot`：走 transition，
   注入 `transition:none` 后直接落到 after-change style，也就是那一秒的真实档位；
+- 引线标注（`callout()`）：点 / 线 / 签的入场是 animation + `backwards`（切掉即完整
+  一张注记），`gone` 的收回与签的跟走是 transition（切掉即"已收回 / 已跟到位"）；
+  布局每帧现量、不读历史，冷启动与直播同一张定格；
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -355,9 +358,9 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 
 | 机制 | 代表原语 | 冷启动 / 减动效后的落点 |
 |---|---|---|
-| animation + `backwards` | 擦除揭示、羽化揭示、`.gather`、`.settle` | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
+| animation + `backwards` | 擦除揭示、羽化揭示、`.gather`、`.settle`、引线标注的点 / 线 / 签 | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
 | animation 无 `forwards`，静止态即全开 | `.bloom` | 切掉动画后仍是全开 |
-| transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`#spot`、几何补间 | 直接落到目标档位（`data-*` 声明的终态） |
+| transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`#spot`、几何补间、`callout` 的收回与跟随 | 直接落到目标档位（`data-*` 声明的终态） |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |

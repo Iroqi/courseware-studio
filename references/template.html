@@ -333,6 +333,14 @@
        满浓度 var(--ok)。这里只有墨色、没有行程令牌：括线不补间位置，只画一次，
        合拢的行程复用 .draw 的 --dur-draw。 */
     --brace-ink:rgba(46,204,113,.55);
+    /* 引线标注（0.38.0）：--callout-bg 是注记药丸的垫底色。为什么不用 --halo-bg：
+       光环那股是**文字描边**的垫子，只跟着字走；注记药丸要盖住它下面的任何图元
+       （卡片、连线、点阵），得是一块**实底**，否则字底下的纹理会透过半透明层把
+       对比度拉花。取 --bg 与 --panel 之间的一档 #141820：比舞台亮处深、比暗处浅，
+       压在任何一层上都能读出边界；边缘另有一道 .28 的灰描边（见 CSS .callout）。
+       这里**不给引线墨色令牌**：注记的颜色是作者对这一步的语义声明（蓝=过程、
+       琥珀=判词、灰=参照），一支墨色收不住三种。 */
+    --callout-bg:#141820;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -1770,6 +1778,41 @@
               stroke-linecap:round;stroke-linejoin:round}
   .brace text{fill:var(--ok);letter-spacing:.02em}
 
+  /* 引线标注（0.38.0）：给一件**已经在场**的东西挂一句话——一枚落在它边缘的圆点、
+     一条先直后斜的引线、一块压在引线尽头的注记药丸。它补的是徽标（badge）的盲区：
+     徽标只写坐标，观者得自己猜"这句话说的是谁"；引线把"这是谁的注记"画成一条连续
+     的路径（空间连续性），眼睛不用在画面里找答案。
+     五条接线口径：
+       · 几何全部由 layoutCallout() 从被注节点的 boxIn() 现量（圆点 3.5、引线外伸
+         10、签离点 16 / 12、签内边距 18、字 12）；作者只给 key / 指谁 / 短句 /
+         朝哪边，换卡片宽窄、换位置都不回头改数（与 braceUnder 同一条纪律）；
+       · **三种时序**（点 → 线 → 签）：点用 .in（建档即现），线用 .draw 且把 --delay
+         推到 --dur-in 的 .22，签再用 calloutLand 晚到 --dur-draw 的 .72——读序是
+         "这儿 → 连过去 → 是这句话"，不是三件东西一起淡入；
+       · 签落地走**反向缩回**：calloutLand 只写 from 的 translate（--c-dx/--c-dy），
+         位移方向与引线相反（从所指处退回自己的位置），终态是元素自己的 0；与
+         .settle 同一课——事件不是状态，切掉动画就落在已落好的定格上；
+       · **注记跟着对象走**：位置写在签组的 transform 属性上，复用同一 key 时由 .nt
+         补间——被注的那一行上移，注记跟着上移，不是原地重落一次（空间连续性）；
+       · **退场沿引线收回**：gone 把 stroke-dashoffset 推到 1，线从签那头缩回圆点，
+         签与点同时淡掉。收的方向与画的方向相反，读作"这句话被收回去了"，而不是
+         忽然消失（与 .tuck* 同一族：读过的东西让位要比长出来快）。
+     pointer-events:none；药丸垫底用 --callout-bg 的**实色**（理由见 :root 令牌注释）。
+     `.callout .lead` 的 transition 顶掉 .nt 简写是**已知且想要的**：这条路径只需要
+     d（跟着对象挪）与 stroke-dashoffset（收回）两项，别的属性都不补间。 */
+  .callout{pointer-events:none}
+  .callout .lead{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;
+                 stroke-opacity:.75;
+                 transition:d var(--dur-grow) var(--ease-out),
+                            stroke-dashoffset var(--dur-tuck) var(--ease-in-out)}
+  .callout .dot{stroke:var(--callout-bg);stroke-width:2}
+  .callout-lab{animation:calloutLand var(--dur-in) var(--ease-out) backwards;
+               animation-delay:calc(var(--dur-draw) * .72)}
+  .callout-lab rect{fill:var(--callout-bg);stroke-width:1;stroke-opacity:.55}
+  @keyframes calloutLand{from{opacity:0;translate:var(--c-dx,0) var(--c-dy,0)}}
+  .callout.gone .lead{stroke-dashoffset:1}
+  .callout.gone .callout-lab,.callout.gone .dot{opacity:0}
+
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
      关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
@@ -1999,6 +2042,16 @@
        收掉；尺子仍落在这一拍该在的位置上，读数一格不少（基础规则源序在本块之前，
        (0,1,0) 靠源序压过）。 */
     .scope{transition:none}
+    /* 引线标注（0.38.0）同口径，关的层数分得清：
+         · 关 **animation** 的是三种时序（点淡入 / 引线描画 / 签反向缩回）——终态都
+           写在元素自己身上（点 opacity:1、线 dashoffset:0、签 opacity:1），一刀下去
+           就是一张完整的注记，不是"线画到一半"；
+         · 关 **transition** 的是退场收回与位置跟随：`gone` 与标签 transform 都在
+           呈现属性上，不演也落"它已经收回 / 它已经跟到新位置"那一格——与 .tuck /
+           .settle / #spot 同一判断：关的是补间不是状态读数。
+       基础规则全部写在本块**之前**（§③ 动效原语区），同特异度时源序后者胜，
+       不需要抬特异度。 */
+    .callout .lead,.callout .dot,.callout-lab{animation:none;transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -2640,6 +2693,12 @@
               <g id="g-body"></g>
             </g>
 
+            <!-- 引线标注层（0.38.0）：注记不进任何一幕的子树——它量的是"这一步对象
+                 最终在哪"，而对象可能住在世界层（跨幕常驻）。单开一层放在所有幕之上、
+                 聚光暗幕之下：压住卡片与连线，又不挡灯。每步由 drawCallouts() 重排，
+                 sweep() 按 key 收人；指针一律穿透（CSS .callout）。 -->
+            <g id="callouts"></g>
+
             <!-- 移动聚光（0.22.0）：一块盖住**整个取景框**的暗幕，被一枚会走位的洞裁开。
                  它是 #cam 的最后一个孩子——盖在所有幕上面、但不进字幕带（#cap 在相机
                  之外，见下面的注释；整层又被 #frameClip 裁着）。坐标空间与常驻图元
@@ -2918,7 +2977,13 @@
      新值 = 本次目标；首次建档 / 数值没变都落在"不滚"（入场照旧走 .in）。时长从
      --dur-roll 读（rollDur），中间值由 countRollWrite 按 audio 时钟现算，CSS 不参与。 */
   var COUNT = {}, stepT0 = 0;   // stepT0 = 当前句起点：tick 换句分支在渲染前写它
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 引线标注的登记表（0.38.0）：与 DECODE / COUNT 同一张"每步清空、renderer 重挂"
+     的表——"这一步有没有注记"同样是 (scene, step) 的纯函数。renderer 只登记
+     「注谁 + 说什么 + 朝哪边」，**几何推迟到 worldFor() 之后**由 drawCallouts() 现量：
+     renderer 跑在主角落位之前，世界层 transform 还停在上一步，那时量出来的盒是旧
+     位置（0.24.0 量放映框踩过同一坑）。 */
+  var CALL = [];
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -3120,6 +3185,108 @@
     txt(g, key + '-lab', {class:'in', x:cx, y:f(y + d + n + 16),
       'text-anchor':'middle', 'font-size':12, 'font-family':MONO,
       style:'--delay:calc(var(--dur-draw) * .6)'}, label);
+    return g;
+  }
+  /** 引线标注（0.38.0）：给一件**已经在场**的图元挂一句短注记。
+   *  调用方只给 key、被注节点（id 或节点）、短句与朝向，几何全在 drawCallouts() 里
+   *  现量——与 braceUnder 同一条"不手填坐标"的纪律，但两者量的东西不同：括注量
+   *  一组节点的**并集**，这里只量**一个**节点，再把签放到它的某一侧。
+   *  四条接线口径：
+   *   ① **登记与布局分两拍**：renderer 只 callout() 登记（与 DECODE / COUNT 同表），
+   *      真正的量取推迟到 worldFor() 之后——renderer 跑在主角落位之前，世界层还停在
+   *      上一步的位置（见 CALL 的注释）。顺序写在 tick() 里，作者零负担；
+   *   ② **朝向是构图声明**：'r' / 'l' / 't' / 'b'，默认 'r'。签永远摆在被注盒的
+   *      外侧，且横向那两档会**上抬一个签高**（签的右下角靠近圆点），引线因此是一段
+   *      先直后斜的折线而不是贴边的横线——读得出"从这儿连过去"；
+   *   ③ **量不到就不画**：boxIn() 返回 null（display:none / 空盒）跳过；签比取景窗
+   *      还宽、或钳回安全区后会压住被注对象时也跳过——宁可不注，不注一个错位
+   *      （与 spotOn / braceUnder 同口径）。安全区取**这一步声明的取景窗**
+   *      （CAM[sid][step] || FULL），所以推近的镜头里注记不会被裁到画外；
+   *   ④ **复用同一 key 不重放**：class 不变 → .in / .draw / calloutLand 的 animation
+   *      不重启（put 的既有口径）；被注对象跨步移动时，签组的 transform 由 .nt 补间
+   *      跟着走，读作"注记跟着对象挪"，而不是原地重落一次。
+   *  标签文案走 put() 的 text 通道，所以 check_gates.py 的"双字幕"形状比对照样看得见
+   *  它（与 badge 同一道防线）；`dec` 与 badge 同义：这个词正在被旁白推出来。 */
+  function callout(key, to, s, opt){ CALL.push({key:key, to:to, s:s, opt:opt || {}}); }
+
+  /** 把本步登记的注记全部排一遍：在 tick() 的 worldFor() 之后、camSet() 之前调用。
+   *  `win` 用这一步声明的取景窗做安全区；布局完 sweep 收掉上一步没再引用的注记。 */
+  function drawCallouts(sid, step){
+    var layer = el('callouts');
+    if (!layer) return;
+    var win = (CAM[sid] || [])[step] || FULL;
+    CALL.forEach(function(c){ layoutCallout(layer, c, win); });
+    sweep(layer);
+  }
+
+  /** 一条注记的全部几何。文字宽度用**探针**量（detached text 挂进同一组、量完就摘）：
+   *  药丸宽必须一次写对——先落占位再改宽会让 .nt 把框从占位宽补向真宽，而字已经是
+   *  全宽，肉眼看见的是"字从胶囊里挤出来"（§3.4.3 (2) 占位框那条的同一课）。 */
+  function layoutCallout(layer, c, win){
+    function f(v){ return +v.toFixed(1); }
+    var ref = el(c.to);
+    if (!ref) return null;
+    var u = boxIn(ref, el('cam'));
+    if (!u) return null;                       // 量不到：宁可不注（与 spotOn 同口径）
+    var o = c.opt || {}, side = o.side || 'r', col = o.col || '#f5a623';
+    var fs = scaleFontSize('text', 12), key = 'co-' + c.key;
+    // 探针直接挂进图层、量完就摘：**标签组要带着终值 transform 一次入树**。
+    // 先建空组再补 transform 会让 .nt 把它从 (0,0) 补向目标——签在淡入前先横跨
+    // 半个画布（实测 250ms 时 x 还在 475），且与 calloutLand 的反向缩回叠成两段
+    // 互相打架的位移。量宽只要求字体档一致，不需要先进标签组。
+    var probe = document.createElementNS(NS, 'text');
+    probe.setAttribute('font-size', fs);
+    probe.setAttribute('font-weight', '600');
+    probe.textContent = c.s;
+    layer.appendChild(probe);
+    var tw = probe.getComputedTextLength ? probe.getComputedTextLength() : 0;
+    layer.removeChild(probe);
+    if (!tw) return null;                      // 字体没就绪也宁可不注，不画一个塌盒
+    var w = tw + 18, h = fs + 12;
+    // 圆点落在被注盒的边上（再向外 2），签摆在该侧外头；r/l 那一档上抬一个签高。
+    var dx, dy, outX = 0, outY = 0;
+    if (side === 'l'){ dx = u.x - 2; dy = u.y + u.h / 2; outX = -1; }
+    else if (side === 't'){ dx = u.x + u.w / 2; dy = u.y - 2; outY = -1; }
+    else if (side === 'b'){ dx = u.x + u.w / 2; dy = u.y + u.h + 2; outY = 1; }
+    else { dx = u.x + u.w + 2; dy = u.y + u.h / 2; outX = 1; }
+    var cx, cy;
+    if (side === 'l'){ cx = dx - (16 + w / 2); cy = dy - (h / 2 + 10); }
+    else if (side === 't'){ cx = dx; cy = dy - (12 + h / 2); }
+    else if (side === 'b'){ cx = dx; cy = dy + (12 + h / 2); }
+    else { cx = dx + (16 + w / 2); cy = dy - (h / 2 + 10); }
+    // 安全区 = 这一步的取景窗内收 6：推近的镜头里注记也要整块看得见。
+    var pad = 6, x0 = win[0] + pad, y0 = win[1] + pad,
+        x1 = win[0] + win[2] - pad, y1 = win[1] + win[3] - pad;
+    if (w > x1 - x0 || h > y1 - y0) return null;      // 取景窗塞不下这条注记
+    cx = Math.max(x0 + w / 2, Math.min(x1 - w / 2, cx));
+    cy = Math.max(y0 + h / 2, Math.min(y1 - h / 2, cy));
+    // 钳回之后若压住被注对象就整条不画：注记盖住证据比没有注记更糟。
+    if (cx - w / 2 < u.x + u.w + 3 && cx + w / 2 > u.x - 3 &&
+        cy - h / 2 < u.y + u.h + 3 && cy + h / 2 > u.y - 3) return null;
+    // 签的落点方位（反向缩回：从所指处退回自己的位置）。与 transform 一起在**新建
+    // 那一次**就写全，见上面探针注释。
+    var lx = side === 'l' ? 7 : side === 'r' ? -7 : 0,
+        ly = side === 't' ? 7 : side === 'b' ? -7 : 4;
+    var g = put(layer, 'g', key, {class:'callout' + (o.gone ? ' gone' : '')});
+    var lab = put(g, 'g', key + '-lab', {class:'callout-lab',
+      transform:'translate(' + f(cx) + ',' + f(cy) + ')',
+      style:'--c-dx:' + lx + 'px;--c-dy:' + ly + 'px'});
+    var r = put(lab, 'rect', key + '-r', {x:-w / 2, y:-h / 2, width:w, height:h, rx:h / 2,
+      stroke:col, 'stroke-width':1});
+    var t = txt(lab, key + '-t', {x:0, y:Math.round(fs * .36), 'text-anchor':'middle',
+      'font-size':12, 'font-weight':'600', fill:col}, c.s);
+    if (o.dec && t.dataset.decText !== c.s){ decodeArm(t, c.s); t.dataset.decText = c.s; }
+    // 圆点 → 引线 → 签：DOM 顺序就是叠放顺序，后画的签压住线尾。
+    put(g, 'circle', key + '-dot', {class:'in dot', cx:f(dx), cy:f(dy), r:3.5, fill:col});
+    // 引线：沿朝向先直行 10，再斜到签的边缘（离签 3，让药丸把线头盖干净）。
+    var sx = dx + outX * 10, sy = dy + outY * 10, ex, ey;
+    if (side === 'l'){ ex = cx + w / 2 + 3; ey = cy; }
+    else if (side === 't'){ ex = cx; ey = cy + h / 2 + 3; }
+    else if (side === 'b'){ ex = cx; ey = cy - h / 2 - 3; }
+    else { ex = cx - w / 2 - 3; ey = cy; }
+    put(g, 'path', key + '-lead', {class:'draw lead', pathLength:1, stroke:col,
+      style:'--delay:calc(var(--dur-in) * .22)',
+      d:'M' + f(dx) + ' ' + f(dy) + 'L' + f(sx) + ' ' + f(sy) + 'L' + f(ex) + ' ' + f(ey)});
     return g;
   }
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
@@ -3612,6 +3779,10 @@
     var b = null;
     var ids = STAGES.filter(function(s){ return el(s).classList.contains('on'); });
     if (POSE[poseNow] && POSE[poseNow].op > 0) ids = ids.concat(['world']);
+    // 引线标注（0.38.0）是这一步的**内容**又不是任何一幕的子树：窄屏兜底取景若漏掉
+    // 这一层，贴着画布边的那条注记会被自适应的镜头顶到裁切线外。空层 bbox 为 0，
+    // 下面的守卫会跳过它（与没开灯的世界层同一口径）。
+    ids = ids.concat(['callouts']);
     ids.forEach(function(id){
       var bb = el(id).getBBox();
       if (!bb.width || !bb.height) return;
@@ -3723,7 +3894,12 @@
     // 两枚徽标都传 dec（0.26.0 逐字解码的消费者）：这两句正是本课"把一个结论推出来"
     // 的两拍——'默认规则' 与 '转成字符串' 是观众跟着旁白**认出来**的词，不是查到的。
     if (step === 2) badge('a-body', 'a-rule', 500, 322, '默认规则', '#f5a623', true);
-    if (step === 3) badge('a-body', 'a-str', 500, 150, '转成字符串', '#4d90f0', true);
+    // 0.38.0 引线标注的消费者①：这句话说的是**被收上架子的那三个数**，不是画布中央
+    // 那一小块空地。旧写法用徽标钉在 (500,150)，读者得自己把"转成字符串"和头顶那排
+    // 卡连起来；引线把这条关系画出来——圆点落在**中间那张卡（w-10）**的底边，签垂在
+    // 架子下方（钉 '9' 会把整条注记带偏到右边，三个数里 10 才是这课的主角）。
+    // dec 照旧：这五个字是跟着旁白被认出来的。
+    if (step === 3) callout('a-str', 'w-10', '转成字符串', {side:'b', col:'#4d90f0', dec:true});
     sweep('a-body');
   }
 
@@ -4134,11 +4310,13 @@
 
   /** 舞台 G：巧合（5 句）
    *  s0「一二三看着挺对」→ 只有位数相同那一行，站在正中
-   *  s1「这是巧合」→ 落一枚徽标
+   *  s1「这是巧合」→ 引线把判词挂到同一行的行题上（callout）
    *  s2「位数相同时恰好一致」→ 位数不同那一行**长出来**，原本居中的行让位上移——
-   *     这是常驻图元才有的编排：建行是建档，让位是补间，不是整屏重画一次
-   *  s3「位数不同就破了」→ 聚焦破功那行，另一行焦点弱化（材质退档，镜头不管）
-   *  s4「别让碰巧的成功骗过你」→ 两行都恢复正常，收一句判词 */
+   *     这是常驻图元才有的编排：建行是建档，让位是补间，不是整屏重画一次；判词
+   *     跟着行一起上移（同一个 callout key，签组 transform 由 .nt 补间）
+   *  s3「位数不同就破了」→ 聚焦破功那行，另一行焦点弱化（材质退档，镜头不管）；
+   *     判词沿引线收回到圆点（gone）
+   *  s4「别让碰巧的成功骗过你」→ 两行都恢复正常，新签挂到翻车那张卡右侧 */
   function renderG(step){
     only('stG');
     var groups = [
@@ -4171,10 +4349,15 @@
           'font-weight':'700', 'font-family':MONO, fill:g.col}, v);
       });
     });
-    // 徽标跟着它注释的那一行：s1 只有一行，判词落在行上方；s4 两行已经排满，
-    // 就落在"翻车"那一行的右边——居中会把行标签挤在一起（实测过）。
-    if (step === 1) badge('g-body', 'g-luck', 500, 132, '巧合', '#f5a623');
-    if (step === 4) badge('g-body', 'g-luck', 772, 346, '位数不同就翻车', '#f5a623');
+    // 0.38.0 引线标注的消费者②③：判词说得清"是哪一行"，就不再靠读者自己找。
+    // s1–s2 签挂在 same 行的行题上方，**跟着行一起上移**（s2 那一行让位时由 .nt
+    // 补间，不是原地重落）；s3「巧合就破了」沿引线收回到圆点——收回的方向读作
+    // "这句判词失效了"，比忽然消失多一层因果。s4 换一枚新签，钉在翻车那张卡上：
+    // 两行已经排满，旧徽标挤在行间，引线把它挂到右侧外面，压不到行题。
+    if (step >= 1 && step <= 3)
+      callout('g-luck', 'g-same-lab', '巧合', {side:'t', col:'#f5a623', gone:step >= 3});
+    if (step === 4)
+      callout('g-flip', 'g-diff-10', '位数不同就翻车', {side:'r', col:'#f5a623'});
     sweep('g-body');
   }
 
@@ -4949,6 +5132,7 @@
         begin();                                  // 开新步：本步没引用的常驻图元随后撤走
         (RENDER[hit.scene.step_id] || function(){})(hit.index);
         worldFor(hit.scene.step_id, hit.index);   // 主角落位（跨幕延续的那三个数）
+        drawCallouts(hit.scene.step_id, hit.index); // 0.38.0：世界层落位后再量注记
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位

@@ -163,7 +163,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 入场与节拍 | 新东西怎么上台 | `.in`、`--delay` / `.st1–3`、`.stag`、`.pop`、`.pulse`、`.draw` |
 | 位置与状态 | 已在台上的东西怎么变 | `.nt`、几何补间、`#cam`、`#depth`、`.swF/.swB`、`--cam-dur`、对焦 |
 | 揭示与退场 | 怎么长出来 / 怎么让位 | `.reveal`、`.featherR/L`、`.tuckR/L`、`.bloom` |
-| 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`.flow`、`.halo`、`.crisp` |
+| 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`callout()`、`.flow`、`.halo`、`.crisp` |
 | 行进与换位 | 谁走到哪儿、谁先动、刚才怎么换的 | `.ride`、`.wake`、`.swap`、`.trail`、`.traces` |
 | 判定与重量 | 结论落下来、天平读出方向 | `.settle`、`.wind`、`.lift`、`.tilt` |
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
@@ -326,6 +326,25 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   属性现推（不读 `getScreenCTM()`）；两臂各一条 path、同收一枚括尖（写成一条会读成
   划线）；标签晚 `--dur-draw` 的 .6 落；落点在内容下方、字幕带之上；`pointer-events:
   none`；只括"同组"，不括整列。
+- **引线标注**（`callout()` + `drawCallouts()`，0.38.0）：给一件已在场的图元挂一句
+  短注记——圆点落在它的边缘、一段先直后斜的引线、一块垫实底的药丸签。
+  - **登记与布局分两拍**：renderer 只登记（`CALL`，与 `DECODE` / `COUNT` 同一张
+    "每步清空、renderer 重挂"的表），`drawCallouts()` 在 `worldFor()` **之后**、
+    `camSet()` **之前**现量——renderer 跑在主角落位之前，世界层还停在上一步；
+  - 几何从被注节点的 `boxIn()` 现推：点外伸 2、引线先直 10、签离点 16（横向）/ 12
+    （纵向）、签内边距 18；朝向 `side:'r'|'l'|'t'|'b'`，默认右；横向两档签上抬一个
+    签高，引线因此读得出"从这儿连过去"；
+  - **三种时序**：点 `.in` → 线 `.draw`（delay = `--dur-in` × .22）→ 签
+    `calloutLand`（delay = `--dur-draw` × .72），签从**所指处退回**自己的位置
+    （`--c-dx/--c-dy` 反向缩回），终态是元素自己的 0；
+  - **安全区 = 这一步的取景窗**（`CAM[sid][step] || FULL`）内收 6：推近的镜头里注记
+    不被裁到画外；塞不下、或钳回后压住被注对象时**整条不画**（宁可不注，不注错位）；
+  - **复用同一 key 不重放**：被注对象跨步移动时签组 `transform` 由 `.nt` 补间跟走；
+    `gone:true` 把线沿原路收回到圆点、签与点同时淡掉（与 `.tuck*` 同一族：读过的东西
+    让位要快）；
+  - `pointer-events:none`；文案进 `put()` 的 text 通道，`check_gates.py` 的双字幕
+    比对看得见它；`dec:true` 与 `badge` 同义。同一步**不要与 `#spot` 并用**：
+    两套注意力装置各说各的"看这儿"，读者只会两个都不看。
 - `.flow`：沿线流光，`pathLength:1` + `dasharray` + `dashoffset`，必须**叠在一条
   看得见的 `.draw` 底线之上**、分两个节点（同节点会互相顶掉）。静止态与终态都
   "看不见"——掠光是**事件**不是状态。`pointer-events:none`（虚线空隙不命中）。
@@ -514,9 +533,9 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 
 | 机制 | 代表原语 | 落点 |
 |---|---|---|
-| animation + `backwards` | 擦除 / 羽化揭示、`.gather`、`.settle` | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
+| animation + `backwards` | 擦除 / 羽化揭示、`.gather`、`.settle`、引线标注的点 / 线 / 签 | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
 | animation 无 `forwards`，静止态即全开 | `.bloom`、`.ffwd`、`.opt.rip`、`.flow`、`.traces` | 切掉后落"看不见"或"全开"，不留半截 |
-| transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦 | 落到 after-change style，即那一秒的真实档位 |
+| transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦、`callout` 的收回与跟随 | 落到 after-change style，即那一秒的真实档位 |
 | JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`） | 导出 / reduced-motion 落 `data-count` 终值（定格里读"量"）；live 播放逐拍滚中间值 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
@@ -562,6 +581,10 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   `getComputedTiming()` 上。
 - **量 SVG 文字宽度**：`getBBox().width` 是墨盒，会随字面抖动；钉宽度、算容器宽都用
   `getComputedTextLength()`。
+- **引线标注静默不画**：`callout()` 的几何是现量的，量不到（节点不存在 / 空盒）、
+  签比这一步的取景窗还宽、或钳回安全区后会压住被注对象时，**整条注记直接跳过**，
+  不报错也不留半截。排查顺序：被注节点这一步在不在台上 → 取景窗够不够宽 →
+  朝向是不是把签挤到了对象身上。
 
 ### 3.5 阈值
 
@@ -804,6 +827,10 @@ emoji 只是记号的点睛。
       不重复 `appendChild`、红字不配荧光带；
 - [ ] `.scope` / `.brace`：并集沿 `transform` 属性现推、单条 path 收在同一括尖、
       标签是短记号、`pointer-events:none`、不压字幕带；
+- [ ] `callout()`：登记与布局分两拍（`drawCallouts` 在 `worldFor` 之后）、几何
+      从 `boxIn()` 现推、安全区取当步取景窗、量不到 / 塞不下 / 会压住对象时不画、
+      点→线→签三拍时序、`gone` 沿引线收回、复用 key 由 `.nt` 跟走、不与 `#spot`
+      同步使用；
 - [ ] `.hot`：坐标 `inherits:true`、位置 `linear`、静止态 `50%`、不用 `:hover` 驱动、
       键盘不点亮；
 - [ ] 磁吸：只写独立 `translate`、委托在 `#gate`、场半径扣位移、触屏 / reduce / 截图
