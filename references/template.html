@@ -341,6 +341,35 @@
        这里**不给引线墨色令牌**：注记的颜色是作者对这一步的语义声明（蓝=过程、
        琥珀=判词、灰=参照），一支墨色收不住三种。 */
     --callout-bg:#141820;
+    /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
+       `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
+       词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
+       里找。前沿对应是卡拉 OK / lyrics 的逐词高亮，与 AI 视频工具的 word-level
+       cue（逐词时间戳 → 视觉强调）；本仓库没有词级时间戳，词窗从句子自己的
+       text / start / duration 按**字数 + 标点权重**现算，误差 ±1~2 字（见下方
+       --cue-pause）。它只决定"什么时候出现"，不承载任何读数。
+       六枚读数：
+         · --dur-cue .28s：锁定那一拍。比按压（--dur-hover .16s）长、比入场
+           （--dur-in .42s）短——它是"应一声"的确认，不是又一个东西长出来；
+         · --cue-lead .08s：视觉略领先于声。卡拉 OK 的通行做法（画面早 80~100ms
+           人耳才读作"同时"）；夹在句首，不会把第一条括号推到上一句去；
+         · --cue-pad 7 / --cue-arm 14：括号离目标 bbox 的外扩与臂长（viewBox 单位）。
+           范本时间轴 33 句实测平均字速 **0.153s/字**（102.4s / 668 字），中文口播
+           一个逗号顿约 0.2s ≈ 1.3 字；--cue-pause 取 1.2 稍保守（宁早勿晚，再让
+           --cue-lead 往前带一点）。臂长再按短边的 30% 收敛、下限 5——40 单位的
+           字符格也留得下四个角；
+         · --cue-settle .56s：**几何跟踪**的窗口，从本句句首算起。目标可能是这一步
+           刚建档的卡，框宽从占位 96 补向真宽 76（--dur-grow .42s），也可能正从
+           上一姿势移过来（--dur-move .5s）；词恰好在入场途中被念到时，括号必须
+           跟着目标一起长到落定，不能按半截几何定死。取两个入场补间里长的那个
+           .5s 再留 60ms 收尾——窗口过后目标在本步内不再动，括号也就不再重量；
+         · --cue-ink 中性白 .66：**不用主色、不用语义色**。cue 说的是"正在被念到"，
+           既不是"重要"（主色 / #spot），也不是"对错"（红绿）。四角括号借的是
+           相机取景框的语法，中性白才读得出"这是旁白在点名"；
+         · 括号本身不写 transition：状态（opacity / scale）走 §③ `.cue` 那一条，
+           切掉补间后落在"这一句念到哪儿"的括号上（与 #spot / #cap-hl 同族）。 */
+    --dur-cue:.28s; --cue-lead:.08s; --cue-pad:7; --cue-arm:14;
+    --cue-settle:.56s; --cue-ink:rgba(233,236,243,.66); --cue-pause:1.2;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -1813,6 +1842,43 @@
   .callout.gone .lead{stroke-dashoffset:1}
   .callout.gone .callout-lab,.callout.gone .dot{opacity:0}
 
+  /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。它不是"又一个
+     注记"——引线标注（0.38.0）说的是"这句话在说谁"，词拍说的是"**此刻**在念谁"：
+     注记是空间关系，词拍是时间关系。四段 L 形借相机取景框的语法，只标四角、不封口
+     ——封口会读成"可点的卡片"，四角读作"正在被取景 / 被点名"。
+     六条口径：
+       · **只做一层注记，不碰目标**：括号画在 #cues 这一层（#cam 的倒数第二个孩子，
+         在 #spot 之下），目标的几何、透明度、滤镜、命中区一个字都不动——与
+         [data-dim] / #spot / .halo 那些"在目标身上加东西"的装置相比，这一条是
+         最安全的位置：cue 可以落在任何图元上，包括要 Learner 点的热区；
+       · **几何在词到的那一拍量，并跟到入场落定**：drawCues() 只建空括号（不带 d），
+         cueGeom() 在词窗打开时从 boxIn(node,'cam') 取 bbox，外扩 --cue-pad、臂长
+         --cue-arm（再按短边 30% 收敛、下限 5），此后在 --cue-settle 窗口内逐拍重量。
+         **不能在建层时量一次**：本步刚建档的卡，占位框宽 96 会经 .nt 补向真宽 76；
+         范本开场的 10/9/1 实测——建层那一刻量到 57.6 宽的盒（96×.6），落定后只有
+         45.6，括号左右各胖 6 单位。作者只给"谁"和"哪个词"，不填坐标；
+       · **状态不是动画**：opacity 0→1、scale .94→1 走 transition，.on 由 cueWrite()
+         按 audio 时钟逐拍写。导出截图 / 减少动效切掉 transition 后落的是 after-change
+         style（括号完整、无缩放），也就是"这一句念到哪儿"的真实档位——与 #spot /
+         #cap-hl 同族（关的是补间不是状态）；这一族**不进** reduced-motion 清单的
+         animation:none，因为括号的出现本身就是读数；
+       · **累积**：从词出现到本步结束都不撤，一句点三次就是三道括号依次留下。
+         导出每帧截在句末，所以成片里读得到"这一句点过谁"；下一步 drawCues() 重建
+         整层，标记随步清零（与本步的 CUE 表同一生命周期，纪律 1）；
+       · **中性白**：墨色取 --cue-ink（.66 的浅灰白），不用主色、不用红绿。cue 说的是
+         "正在被念到"，不是"重要"（主色 / #spot）也不是"对错"（语义色）；
+       · **恒定屏幕线宽**：.crisp 逐图元挂（vector-effect 不继承），镜头推到 1.8 时
+         括号仍是 1.5px 的注记，不跟着内容变粗（与 .scope / .brace 同口径）。
+     pointer-events:none：纯注解层，不能挡住底下的热区。 */
+  #cues{pointer-events:none}
+  .cue path{fill:none;stroke:var(--cue-ink);stroke-width:1.5;
+            stroke-linecap:round;stroke-linejoin:round;
+            transform-box:fill-box;transform-origin:50% 50%;
+            opacity:0;scale:.94;
+            transition:opacity var(--dur-cue) var(--ease-out),
+                       scale var(--dur-cue) var(--ease-out)}
+  .cue.on path{opacity:1;scale:1}
+
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
      关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
@@ -2052,6 +2118,11 @@
        基础规则全部写在本块**之前**（§③ 动效原语区），同特异度时源序后者胜，
        不需要抬特异度。 */
     .callout .lead,.callout .dot,.callout-lab{animation:none;transition:none}
+    /* 词拍（0.39.0）关的是 **transition**，`.on` 留在类上：括号照旧按"这一句念到
+       哪儿"出现与累积，只是不再淡入 / 缩放——与上面 #cap-hl / .tuck 同一判断
+       （关的是补间不是状态）。本条基础规则写在本块之前，同特异度时源序后者胜，
+       不需要抬特异度。 */
+    .cue path{transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -2699,6 +2770,12 @@
                  sweep() 按 key 收人；指针一律穿透（CSS .callout）。 -->
             <g id="callouts"></g>
 
+            <!-- 词拍层（0.39.0）：四角括号不进任何一幕的子树——它标的是"旁白此刻
+                 念到的那件东西"，而目标可能住在世界层（跨幕常驻）、可能就是门禁热区。
+                 放在所有注记之上、聚光暗幕之下：压住内容，不挡灯；每步由 drawCues()
+                 整层重建（标记随步清零），指针一律穿透（CSS #cues）。 -->
+            <g id="cues"></g>
+
             <!-- 移动聚光（0.22.0）：一块盖住**整个取景框**的暗幕，被一枚会走位的洞裁开。
                  它是 #cam 的最后一个孩子——盖在所有幕上面、但不进字幕带（#cap 在相机
                  之外，见下面的注释；整层又被 #frameClip 裁着）。坐标空间与常驻图元
@@ -2983,7 +3060,13 @@
      renderer 跑在主角落位之前，世界层 transform 还停在上一步，那时量出来的盒是旧
      位置（0.24.0 量放映框踩过同一坑）。 */
   var CALL = [];
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 词拍的登记表（0.39.0）：与 DECODE / COUNT / CALL 同一张"每步清空、renderer 重挂"
+     的表——"这一步点名谁"同样是 (scene, step) 的纯函数。renderer 只登记
+     「框谁 + 哪个词 + 第几次出现」；**几何与相位都不在这里算**：drawCues() 在世界层
+     落位之后只建空括号，cueWrite() 在**词到的那一拍**由 cueGeom() 现量 bbox，并在
+     --cue-settle 窗口内跟着入场补间重量；.on 也由它按 audio.currentTime 写。 */
+  var CUE = [];
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; CUE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -3288,6 +3371,75 @@
       style:'--delay:calc(var(--dur-in) * .22)',
       d:'M' + f(dx) + ' ' + f(dy) + 'L' + f(sx) + ' ' + f(sy) + 'L' + f(ex) + ' ' + f(ey)});
     return g;
+  }
+  /** 词拍（0.39.0）：给一件**本步在场**的图元登记一句旁白里的词——念到这个词时，
+   *  它会被四角括号框一下，并且一直留到本步结束（标记累积）。
+   *  只登记「框谁 + 哪个词 + 第几次出现」：几何由 cueGeom() 在**词窗打开的那一拍**
+   *  从 boxIn() 现量（并在 --cue-settle 内跟踪入场补间）；相位由 cueWrite() 按 audio
+   *  时钟现算（词窗从句子自己的 text / start / duration 按字数 + 标点权重推出来，
+   *  见 cueAt）。作者不填时间、不填坐标——时间归句子，几何归目标，两边都没有第二个数。
+   *  `word` 是**检索键**，不是画面文字：它不上屏、不写进任何节点，也不进
+   *  check_gates.py 的双字幕比对（那是 txt / badge / callout 的防线）。它必须与
+   *  这一句旁白的原字面完全一致（字幕的唯一来源），改讲稿后 cue 不会自己跟着改。
+   *  `opt.nth` 取第几次出现（1 起，默认 1）：同一句里"1"出现两次时用它指后一个。 */
+  function cue(key, word, opt){
+    if (!key || !word) return;
+    var nth = opt && opt.nth ? Math.max(1, Math.floor(opt.nth)) : 1;
+    CUE.push({key:key, word:String(word), nth:nth});
+  }
+
+  /** 把本步登记的词拍排进 #cues：在 tick() 的 worldFor() 之后、camSet() 之前调用
+   *  （与 drawCallouts 同一调用点——renderer 跑在主角落位之前，那时树的形状还没齐）。
+   *  **只建空括号，不量几何**：词还没念到，量出来的可能是占位框（见 cueGeom 的
+   *  实测注记）；d 由 cueWrite() 在词窗打开时补。
+   *  **整层重建**而不是 sweep：括号的 key 是「cue:<目标 key>」，同一目标在不同步
+   *  可以重复点名；复用节点会把上一次的 .on 留在新一步上，而标记必须随步清零
+   *  （(scene, step) 纯函数）。这一层没有退场动画：换步本来就是一次切。 */
+  function drawCues(){
+    var layer = el('cues');
+    if (!layer) return;
+    clear(layer);
+    CUE.forEach(function(c){
+      var node = REG[c.key];
+      if (!node || !node.isConnected) return;        // 不在本步台上：静默跳过
+      var g = document.createElementNS(NS, 'g');
+      g.setAttribute('class', 'cue');
+      g.dataset.key = 'cue:' + c.key;
+      var p = document.createElementNS(NS, 'path');
+      // .crisp 逐图元挂（vector-effect 不继承）：镜头推到 1.8 时括号仍是 1.5px
+      // 的注记，不跟着内容变粗——与 .scope / .brace 同一口径。
+      p.setAttribute('class', 'cue-b crisp');
+      g.appendChild(p);
+      layer.appendChild(g);
+      c.node = g;
+      c.path = p;
+      c.measT = -1;                                  // 还没量过：词窗打开时补第一道
+      c.on = false;                                  // 新节点无 .on：下一拍由 cueWrite 补
+    });
+  }
+  /** 给一条 cue 现量括号并写进它的 path。四条口径：
+     ① **量的是"此刻"**：boxIn 走 transform 属性、不走 getBBox 的补间值之外的东西，
+        但目标自己的 width / x 若正在 .nt 里补间，getBBox 读到的就是补间中的当前值——
+        这不是缺陷，正是"括号跟着东西一起长"的来源；窗口由 --cue-settle 封口；
+     ② **目标不在 / 量不到就跳过**：整条不画（与 callout 同口径），不给一个假框；
+     ③ **d 没变就不写**：跟踪窗口里目标常常已经静止，同值重写会让每帧都脏一次布局；
+     ④ **臂长按短边收**：40 单位高的字符格也留得下四个角；下限 5、上限 --cue-arm。 */
+  function cueGeom(c){
+    var node = REG[c.key];
+    if (!node || !node.isConnected || !c.path) return;
+    var b = boxIn(node, el('cam'));
+    if (!b) return;
+    var T = cueTokens();
+    var arm = Math.max(5, Math.min(T.arm, b.w * .3, b.h * .3));
+    var x0 = b.x - T.pad, y0 = b.y - T.pad,
+        x1 = b.x + b.w + T.pad, y1 = b.y + b.h + T.pad;
+    function f(v){ return +v.toFixed(1); }
+    var d = 'M' + f(x0 + arm) + ' ' + f(y0) + 'H' + f(x0) + 'V' + f(y0 + arm) +
+            'M' + f(x1 - arm) + ' ' + f(y0) + 'H' + f(x1) + 'V' + f(y0 + arm) +
+            'M' + f(x0) + ' ' + f(y1 - arm) + 'V' + f(y1) + 'H' + f(x0 + arm) +
+            'M' + f(x1 - arm) + ' ' + f(y1) + 'H' + f(x1) + 'V' + f(y1 - arm);
+    if (c.path.getAttribute('d') !== d) c.path.setAttribute('d', d);
+    c.measT = audio.currentTime;
   }
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
    *  才有"的那个小挂件不再被引用时，也必须跟着掉——只扫容器一层会把它留在台上。
@@ -4143,6 +4295,14 @@
       stroke: branchOn ? '#ef4d4d' : '#2a3140', 'stroke-width':2});
     txt(G, 'd-false-t', {x:604, y:183, 'text-anchor':'middle', 'font-size':17,
       'font-weight':'600', fill: branchOn ? '#ef4d4d' : '#5d6577'}, 'false');
+    /* 词拍（0.39.0）的消费者②：s2 这句把 true / false 挨着念（"真或假"）——念到
+       "真"框 true，念到"假"框 false。两张卡这一步同时被落点灯照着，词拍不抢灯：
+       灯说"看这两个"，括号说"**现在**念到这一个"。一个词只框一件东西，两件东西
+       就两条 cue——词拍不做"集合点名"（那是 .brace 的活）。 */
+    if (step === 2){
+      cue('d-true-r', '真');
+      cue('d-false-r', '假');
+    }
 
     if (zero){
       put(G, 'line', 'd-fold', {x1:680, y1:176, x2:760, y2:176, stroke:'#ef4d4d', 'stroke-width':2});
@@ -4306,6 +4466,20 @@
     only('stF');
     el('f-q').textContent = which === 'open' ? '[10, 9, 1].sort()  →  ?'
                                              : '🤔 为什么是 [1, 10, 9] ？';
+    /* 词拍（0.39.0）的消费者①：开场这句把三个数挨着念一遍（"10、9、1"）——
+       旁白念到哪个数，世界层里那一张就套上四角括号。三枚括号依次留下，读到句末
+       是一排"刚被点过名"的题目；这就是词拍与 badge / callout 的分工：它们回答
+       "这是什么"，词拍回答"**现在**在念谁"。
+       目标在世界层（跨幕常驻），renderer 跑在 worldFor 之前看不到它们——但 cue()
+       只登记 key，几何由 cueGeom() 在**念到这个词的那一拍**现量（题面三张卡这一步
+       刚建档，入场补间还没落定，所以还要跟踪到 --cue-settle；见 stage.md）。
+       "1" 在本句出现两次（"10" 里一次、末尾一次），nth:2
+       取后面那一个——**不写 nth 会框在 "10" 上**，这是词拍最常见的作者错误。 */
+    if (which === 'open'){
+      cue('w-10', '10');
+      cue('w-9', '9');
+      cue('w-1', '1', {nth:2});
+    }
   }
 
   /** 舞台 G：巧合（5 句）
@@ -4597,6 +4771,76 @@
       if (v === 0) v = 0;                                // 过零那一帧不许显示 "-0.0"
       var s = c.dec ? v.toFixed(c.dec) : String(Math.round(v));
       if (c.n.textContent !== s) c.n.textContent = s;    // 同值不重写（每帧都跑）
+    }
+  }
+
+  /* 词拍的令牌缓存（0.39.0）：与 ffThreshold / rollDur 同一口径——词拍参数是设计期
+     的舞台参数，不是运行期开关，读一次就缓存；改名删名 parseFloat 得 NaN，落回默认档。 */
+  var CUE_T = null;
+  function cueTokens(){
+    if (CUE_T) return CUE_T;
+    var cs = getComputedStyle(document.documentElement);
+    function n(name, dflt){
+      var v = parseFloat(cs.getPropertyValue(name));
+      return isFinite(v) ? v : dflt;
+    }
+    CUE_T = {pad:n('--cue-pad', 7), arm:n('--cue-arm', 14),
+             lead:n('--cue-lead', .08), pause:n('--cue-pause', 1.2),
+             settle:n('--cue-settle', .56)};
+    return CUE_T;
+  }
+  /** 一个字符在词窗估算里占几个"字数"：标点按 --cue-pause 折算成停顿，空白最轻。
+   *  它不是音素级对齐，只是把这一句的时长按可读的权重摊开——中文口播的标点停顿
+   *  约 0.2s（范本平均字速 0.153s/字，即 1.3 字），取 1.2 略保守（宁早勿晚）。 */
+  function cueWeight(ch){
+    if (/[，。、；：！？,.;:!?…—]/.test(ch)) return cueTokens().pause;
+    if (/\s/.test(ch)) return .3;
+    return 1;
+  }
+  /** 词窗起点（秒）：第 nth 次出现的 word 之前的权重 ÷ 全句权重 × 句长，再往前让
+   *  --cue-lead 一拍、夹在句首。找不到 / 空词返回 null（整条不画，与 callout 同口径）。
+   *  纯函数：只吃 (cue, sentence)，不读历史——导出冷启动 seek 到同一秒得到同一个词窗
+   *  （纪律 1）。 */
+  function cueAt(c, s){
+    var text = (s && s.text) || '';
+    var idx = -1, from = 0, i;
+    for (i = 0; i < c.nth; i++){
+      idx = text.indexOf(c.word, from);
+      if (idx < 0) return null;
+      from = idx + c.word.length;
+    }
+    var T = cueTokens(), pre = 0, mid = 0, total = 0;
+    for (i = 0; i < text.length; i++){
+      var w = cueWeight(text.charAt(i));
+      if (i < idx) pre += w;
+      else if (i < idx + c.word.length) mid += w;
+      total += w;
+    }
+    if (!(total > 0) || !(mid > 0)) return null;
+    var dur = +s.duration || 0;
+    var t0 = s.start + pre / total * dur - T.lead;
+    return Math.max(s.start, t0);
+  }
+  /** 逐拍写 .on：同一条 cue 从词窗起点一直亮到本步结束——标记**累积**，一句点三次
+   *  就是三道括号依次留下；导出每帧截在句末，所以成片里读得到"这一句点过谁"。
+   *  `capSent` 是字幕当前这一句：空档里仍停上一句，标记照旧在；换步时 CUE 与
+   *  #cues 整层一起重建，标记随步清零（(scene, step) 纯函数，纪律 1）。
+   *  **几何也在这里补**：词窗打开的那一拍先量一道，再在句首后的 --cue-settle 窗口内
+   *  逐拍重量（同一 d 不重写）。为什么不放 drawCues：本步刚建档的目标还在从占位
+   *  尺寸补向真尺寸，建层时量到的是半截盒；词到之前量又会把一帧的入场误差冻死。
+   *  窗口过后目标在本句内不再动，量一次就够——不是每帧都量。
+   *  这是**读数**不是动效：与 --lit / #cap-prog / 数字落定同族，不进 reduced-motion
+   *  清单；被切掉的是 CSS transition（关过程不关档位）。 */
+  function cueWrite(t){
+    var settleT = stepT0 + cueTokens().settle;
+    for (var i = 0; i < CUE.length; i++){
+      var c = CUE[i];
+      if (!c.node) continue;
+      var t0 = capSent ? cueAt(c, capSent) : null;
+      var on = t0 !== null && t >= t0;
+      // 还没量过（首次打开 / seek 到句中）：补一道；入场窗口内：跟着目标重量。
+      if (on && (c.measT < 0 || t < settleT)) cueGeom(c);
+      if (on !== !!c.on){ c.on = on; c.node.classList.toggle('on', on); }
     }
   }
 
@@ -5133,6 +5377,7 @@
         (RENDER[hit.scene.step_id] || function(){})(hit.index);
         worldFor(hit.scene.step_id, hit.index);   // 主角落位（跨幕延续的那三个数）
         drawCallouts(hit.scene.step_id, hit.index); // 0.38.0：世界层落位后再量注记
+        drawCues();                               // 0.39.0：词拍括号层，世界层落位之后建空框
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -5201,6 +5446,11 @@
     // COUNT（目标值写在 data-count 呈现属性上），写在前面会拿上一句的登记表算这一句。
     // 导出截图页每帧只跑一次 tick()：shot 模式下这一趟直接落终值（定格里读"量"）。
     countRollWrite(t);
+    // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
+    // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
+    // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到
+    // 的那一拍现量（cueGeom），不预排坐标。
+    cueWrite(t);
     // 门禁每帧判一次（幂等）：它自己比锚点，所以**空档里也要判**——
     // at:'end' 的门禁正是开在末句之后的那个空档里。
     // 擦洗期间例外：preGateOpen 会把 currentTime 拽回场景起点，和还按着

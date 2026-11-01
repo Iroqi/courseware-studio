@@ -167,6 +167,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 行进与换位 | 谁走到哪儿、谁先动、刚才怎么换的 | `.ride`、`.wake`、`.swap`、`.trail`、`.traces` |
 | 判定与重量 | 结论落下来、天平读出方向 | `.settle`、`.wind`、`.lift`、`.tilt` |
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
+| 声画同步 | 旁白此刻在念谁 | `cue()` + `.cue`（四角括号）、`cueWrite()` / `cueGeom()` |
 | 数字与读数 | 计数怎么滚到新值 | `data-count`、`countRollWrite`、`.roll` |
 | 交互反馈 | 手按下去收到了什么 | `.opt.rip`、`.hot`、磁吸迎手、`.mag`、`.go.shine` |
 | 播放器 | 时间被搬到哪儿 | 擦洗态升级、`#ffwd`、`.bar[data-band]`、`.tip` |
@@ -183,6 +184,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 相机 | `--cam-dur`、`--cam-pan`、`--cam-zoom`、`--dur-cam-min/max/pan/zoom`、`--par-far`、`--dur-blur` |
 | 注意力 | `--dim-focus`、`--dur-dim`、`--dur-spot`、`--spot-k`、`--spot-soft`、`--spot-bleed` |
 | 字母与读数 | `--dur-hl`、`--dur-cap`、`--lit-floor`、`--lit-ramp`、`--flow-seg`、`--dur-flow`、`--dur-roll` |
+| 声画同步 | `--dur-cue`、`--cue-lead`、`--cue-pause`、`--cue-settle`、`--cue-pad`、`--cue-arm`、`--cue-ink` |
 | 原语专属 | 每个原语 2–4 个（如 `--dur-settle` / `--squash-x` / `--squash-y`） |
 
 改全局节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：入场与补间共用它，
@@ -526,6 +528,42 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
     读数元素的位置与 bbox 稳定。只挂画布里的计数读数，字幕带与等宽 `code` 不挂。
   只做 SVG `<text>`；HTML 侧静态数字不做（不会滚，挂了也是死档位）。
 
+**（12）声画同步**
+
+- **词拍**（`cue()` + `.cue` + `cueWrite()` / `cueGeom()`，0.39.0）：旁白念到哪个词，
+  画面上那件东西就套上四角括号。它回答的是**时间关系**——"此刻在念谁"——不是
+  "这是谁"（`badge`）也不是"这句话在说谁"（`callout`）。前沿对应是卡拉 OK / lyrics
+  的逐词高亮，以及 AI 视频工具的 word-level cue；本仓库没有词级时间戳，词窗从句子
+  自己的 `text / start / duration` 按**字数 + 标点权重**现算（`cueAt`），误差约
+  ±1~2 字，宁早勿晚（`--cue-lead .08s`，夹在句首）。**不新增时钟**：仍然是
+  `audio.currentTime`，仍然是 (scene, step) 的纯函数。
+  - **登记、建层、上相位是三拍**：renderer 只登记（`CUE`，与 `DECODE` / `COUNT` /
+    `CALL` 同一张"每步清空、renderer 重挂"的表）；`drawCues()` 在 `worldFor()` 之后
+    只建空括号（`#cues` 在 `#cam` 内、注记之上、`#spot` 之下）；`cueWrite()` 按
+    `audio.currentTime` 写 `.on`，并在**词窗打开的那一拍**由 `cueGeom()` 现量几何；
+  - **几何为什么不在建层时量**：本步刚建档的卡，占位框宽 96 会经 `.nt` 补向真宽 76。
+    范本开场实测——建层那一刻量到 57.6 宽的盒（96 × .6），落定后只有 45.6，括号
+    左右各胖 6 单位。所以第一道在词到的那一拍量，之后在 `--cue-settle`（.56s，覆盖
+    `--dur-move .5s` / `--dur-grow .42s`）窗口内逐拍重量到入场落定；同一 `d` 不重写，
+    窗口过后本句内目标不再动，就只剩一次量；
+  - **累积到本步结束**：从词出现到换步都不撤，一句点三次就是三道括号依次留下。
+    导出每帧截在**句末**，所以成片里读得到"这一句点过谁"；下一步 `drawCues()` 重建
+    整层，标记随步清零。没有退场动画——换步本来就是一次切；
+  - **只做注记，不碰目标**：括号层 `pointer-events:none`，目标的几何、透明度、滤镜、
+    命中区一个字都不动，因此可以落在要 Learner 点的热区上；`.crisp` 逐图元挂，
+    镜头推到 1.8 时仍是 1.5px 注记。墨色取 `--cue-ink` 中性白：主色会说"重要"、
+    红绿会说"对错"，而词拍只说"正在被念到"；
+  - **一"词"框一件东西**：`word` 是**检索键**，必须与本句旁白原字面一致，不上屏、
+    不进双字幕比对；同一字在一句里出现多次用 `opt.nth`（"1" 在 `10` 里一次、末尾
+    一次，不写 `nth:2` 会框在 `10` 上）。要框"一组"用 `.brace`，词拍不做集合点名；
+  - **与注意力装置的分工**：`#spot` 说"看这两个"、词拍说"现在念到这一个"，两者可以
+    同场（范本 seg-5 s2：灯照着 true / false，括号依次点过"真""假"），因为一个管
+    空间、一个管时间；同一步不要再用 `callout` 复述同一件事——三套注记各说各的会
+    互相解释。词拍也不承担"结论"：结论划重点归 `#cap-hl` / `.mark`。
+  - **状态不是动画**：`.on` 是 audio 时钟的读数，opacity 0→1、scale .94→1 走
+    transition；导出 / reduced-motion 切掉补间后落"括号完整、无缩放"的定格，与
+    `#spot` / `#cap-hl` 同族（关过程不关档位）。
+
 #### 3.4.4 导出与减动效
 
 截图页注入 `transition:none!important;animation:none!important` 且每帧冷启动；
@@ -536,6 +574,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | animation + `backwards` | 擦除 / 羽化揭示、`.gather`、`.settle`、引线标注的点 / 线 / 签 | 计算值回到元素自身值（全显 / 收好 / 静止盒） |
 | animation 无 `forwards`，静止态即全开 | `.bloom`、`.ffwd`、`.opt.rip`、`.flow`、`.traces` | 切掉后落"看不见"或"全开"，不留半截 |
 | transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦、`callout` 的收回与跟随 | 落到 after-change style，即那一秒的真实档位 |
+| JS 逐拍状态 + transition | 词拍（`cueWrite()` 写 `.on`、`cueGeom()` 现量几何） | 导出 / reduced-motion 切掉 opacity / scale 补间，括号完整、无缩放；定格帧在句末，标记已累积、几何量到的是入场落定后的终值 |
 | JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`） | 导出 / reduced-motion 落 `data-count` 终值（定格里读"量"）；live 播放逐拍滚中间值 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
@@ -831,6 +870,10 @@ emoji 只是记号的点睛。
       从 `boxIn()` 现推、安全区取当步取景窗、量不到 / 塞不下 / 会压住对象时不画、
       点→线→签三拍时序、`gone` 沿引线收回、复用 key 由 `.nt` 跟走、不与 `#spot`
       同步使用；
+- [ ] 词拍：`word` 与本句原字面一致（重复字写 `nth`）；几何在词到那拍由 `cueGeom()`
+      现量、`--cue-settle` 内跟到入场落定（不在 `drawCues()` 建层时量）；标记累积到
+      本步结束、换步整层重建；`#cues` 在 `#cam` 内且 `pointer-events:none`；墨色
+      中性、`.crisp` 逐图元挂；导出 / reduced-motion 切补间后括号完整无缩放；
 - [ ] `.hot`：坐标 `inherits:true`、位置 `linear`、静止态 `50%`、不用 `:hover` 驱动、
       键盘不点亮；
 - [ ] 磁吸：只写独立 `translate`、委托在 `#gate`、场半径扣位移、触屏 / reduce / 截图

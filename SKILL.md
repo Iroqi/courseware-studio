@@ -163,6 +163,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随）、`.traces`（换位弧痕） |
 | 判定与重量 | `.settle`（挤压落位）、`.wind`（预备后蓄）、`.lift`（提牌投影）、`.tilt`（倾侧定盘） |
 | 文字 | `badge(..., dec)`（逐字解码）、`#cap-text` 的 `--lit`（跟读点亮）、`#cap-prog`（句内进度细线）、`.mark` + `markBehind()`（荧光笔）、`.strike` + `strikeThrough()`（反证划线） |
+| 声画同步 | `cue()` + `.cue`（词拍：旁白念到词时给所指对象套四角括号；词窗按字数 + 标点现算，几何在词到的那拍现量并跟到入场落定） |
 | 数字与读数 | `data-count`（目标值写呈现属性）、`countRollWrite`（audio 时钟现算中间值）、`.roll`（tabular-nums 等宽）——数字落定：计数读数从句首从旧值滚到新值，首次建档与数值未变不滚，导出 / reduced-motion 落终值 |
 | 交互反馈 | `.opt.rip`（触点涟漪）、`.hot`（触点辉光）、`magMove/magClear` 与 `.mag`（磁吸迎手）、`.gate-next .go.shine`（放行键掠光） |
 | 播放器 | `--ease-spring` 手感、`.bar[data-drag]`（拖动跟手）、`.bar[data-band]` + `--band`（越界橡皮筋）、`#ffwd`（快进掠擦）、`.tick.on`（当前章节）、擦洗态变厚、窥探气泡 |
@@ -184,6 +185,9 @@ HTML/CSS 契约见 `references/layout.md`。
 - **注记要指着对象**：画面里一句短判词/标注若在说某件具体的东西，用 `callout()` 把
   圆点落在它身上，不要用 `badge()` 凭空钉在附近的空地上；同一步不要与 `#spot` 并用
   （两套注意力装置会互相抵消），注记的朝向由 `side` 声明、安全区取这一步的取景窗。
+- **词拍回答"此刻念谁"**：用 `cue()` 把旁白里的词接到画面物件上，`word` 必须与本句
+  原字面一致（重复字用 `opt.nth`）；它不替代 `badge()`（这是什么）与 `callout()`
+  （这句在说谁），要框一组用 `.brace`，同一步不要再用 `callout()` 复述同一件事。
 - **不重复摘挂节点**：对已入树节点每步调用 `appendChild` / `insertBefore` 会摘下
   再插回并重放 CSS 动画（`references/stage.md` §3.4「别这么干」）。
 - **减少动效与导出只切过程**：`data-go`、`data-pan`、几何终态等读数必须让画面落在
