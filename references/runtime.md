@@ -327,6 +327,9 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 - 词拍（`cue()` / `cueWrite()` / `cueGeom()`）：`.on` 是 audio 时钟的读数，不是动画；
   几何在**词到的那一拍**现量，导出帧落在句末时入场补间已被 `transition:none` 切掉，
   量到的是终值；标记累积到句末，截图里读得到"这一句点过谁"，冷启动与直播同一张定格；
+- 对照窗（`compare()` / `drawCompares()`）：`--cmp-r` 是 audio 时钟的读数（`opt.at`），
+  裁切、接缝、四角框与标签共用；注入 `transition:none` 后 `--dur-cmp` 虽为 0，落点仍是
+  当步声明的档位，两端 0 / 100% 只剩一份；参考盒每帧现量、冷启动与直播同一张定格；
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -365,6 +368,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | animation 无 `forwards`，静止态即全开 | `.bloom` | 切掉动画后仍是全开 |
 | transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`#spot`、几何补间、`callout` 的收回与跟随 | 直接落到目标档位（`data-*` 声明的终态） |
 | JS 逐拍状态 + transition | 词拍（`cueWrite` 写 `.on`、`cueGeom` 现量几何） | `.on` 按 `currentTime` 落定；切掉补间后括号完整、无缩放；定格帧量到入场落定后的终值 |
+| JS 逐拍 + 注册属性 transition | 对照窗（`compare()` 写 `--cmp-r`，裁切 / 接缝 / 标签共用） | 直接落 `opt.at` 终值；两端 0 / 100% 只剩一份，标签、四角框与卡片同步 |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |

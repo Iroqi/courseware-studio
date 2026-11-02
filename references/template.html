@@ -370,6 +370,37 @@
            切掉补间后落在"这一句念到哪儿"的括号上（与 #spot / #cap-hl 同族）。 */
     --dur-cue:.28s; --cue-lead:.08s; --cue-pad:7; --cue-arm:14;
     --cue-settle:.56s; --cue-ink:rgba(233,236,243,.66); --cue-pause:1.2;
+    /* 对照窗（0.40.0）：两版同框，接缝是读数。它不是又一次"揭示入场"——
+       0.15.0 的 `.reveal` 让**一个**版本从无到有；这里两个版本从第一帧就都在场，
+       接缝只回答"这一刻，哪一版占到哪儿"。前沿对应是 before/after wipe、
+       图片编辑器的 diff slider 与剪辑里的 edit point：观众看的不是转场，而是
+       **同一条规则换掉之后，同一个位置变成了什么**。
+       为什么必须两个版本同时在场：只揭示 B 时，A 会从 B 的透明缝里透出来
+       （文字压文字、连线压连线）；所以 A 也裁，两半严格互补——见 `[data-cmp]`
+       那组与 `drawCompares()`。为什么不用 `.reveal`：`.reveal` 是入场，
+       切掉动画后落"全显"；对照窗的裁切是**状态读数**，切掉补间必须落"这一拍
+       该露多少"，两者不是同一族。
+       六枚读数：
+         · --dur-cmp-min .45s / --dur-cmp-full 1s：接缝走完全程的时长由**这一趟
+           走了多少**现求（delta × full，地板 .45s、封顶 1s，见 drawCompares 的
+           cmpDur）。短推一下不该也走满一秒，长扫也不该快得像闪；
+         · --cmp-ink：四角取景框的墨色，.28 的中性白——它只定义"这是同一扇窗"，
+           不参与强调；
+         · --cmp-before / --cmp-after：两侧标签的墨色。改前退到参照灰、改后用主色
+           琥珀：不是判对错，是"这一边是新的读数"；
+         · --cmp-seam / --cmp-wash：接缝与它的扫描光。琥珀 .9 的细线 + 40 单位宽的
+           低透明渐变带，像一条正在读过去的头；不用红色——红在这个仓库里已经承担
+           "错误"（--strike-ink / 门禁判错），对照本身不是判决；
+         · --cmp-r：**已注册的百分比**（见下方 @property），A 的左裁与 B 的右裁
+           都从它派生。注册之后由它自己补间，`clip-path` 每帧重算；这样 A/B 两个
+           兄弟节点能共享同一个读数，也不必依赖 `clip-path` 的插值实现。
+       一个作者最容易踩的边界：两版必须**同构同框**——同样的坐标、同样的元素，
+       只换"值 / 顺序 / 规则结果"。接缝不是拼贴的分界线，它是一条时间读数；
+       两版各画各的版式，扫过去只会读成两张图叠在一起。 */
+    --dur-cmp-min:.45s; --dur-cmp-full:1s;
+    --cmp-ink:rgba(233,236,243,.28);
+    --cmp-before:#8d95a8; --cmp-after:#f5a623;
+    --cmp-seam:rgba(245,166,35,.9); --cmp-wash:rgba(245,166,35,.10);
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -409,6 +440,16 @@
      一次（开场前字幕带本就收起）。名字先全仓 grep 过，不与 --dim / --feather /
      --delay 撞。 */
   @property --lit{syntax:'<percentage>';inherits:false;initial-value:118%}
+  /* 对照窗的接缝读数（0.40.0）：注册成 `<percentage>` 且 **inherits:true**。
+     两个消费者（A 的左裁 / B 的右裁）是**兄弟节点**，不是父子——值写在 A、B
+     各自身上，继承开关在这里不承担"锁在分组层"的职责（与 --delay 的 inherits:
+     false 正好相反）。选注册而不是直接 transition `clip-path`：`clip-path` 的
+     `inset()` 百分比在不少引擎里按引用盒解析，补间实现也各有差异；注册变量由
+     CSS 自己插值，`clip-path` 每帧只做一次 `calc(100% - var(--cmp-r))` 替换，
+     A/B 两半天然同步。initial 0% = A 全显、B 全隐：没跑 JS 时对照窗至少是
+     "改前那一版"，不是两版都露一半。名字先全仓 grep 过，不与 --cmp-* 其它
+     令牌撞。 */
+  @property --cmp-r{syntax:'<percentage>';inherits:true;initial-value:0%}
   /* 移动聚光的三个驱动变量（0.22.0）：洞心的 x / y 与洞半径，全注册成 `<length>`
      而不是 `<percentage>`——**单位就是 viewBox 单位**（实测 `circle 150px` 在屏幕上量到
      150 单位 × 相机倍率，走的是元素本地单位）。参考盒是被遮元素自己的 fill-box，
@@ -1879,6 +1920,42 @@
                        scale var(--dur-cue) var(--ease-out)}
   .cue.on path{opacity:1;scale:1}
 
+  /* 对照窗（0.40.0）：一扇窗里同时站着"改前 / 改后"两版，接缝扫到哪儿，哪一版
+     占到哪儿。四条接线口径：
+       · **两版互补裁切**：A 裁左侧 `inset(0 0 0 r)`、B 裁右侧
+         `inset(0 calc(100% - r) 0 0)`。只裁 B 的话，A 的透明缝会把字/线透到 B
+         这一半来（两层文字互相叠），所以必须两半严格互补；接缝线盖在交界上，
+         1px 的舍入误差也看不出来。
+       · **补的是注册变量，不是 clip-path**：`--cmp-r` 注册成 `<percentage>` 后
+         由 CSS 自己插值，`clip-path` 每帧只做替换；A/B 是兄弟节点，两边读同一个
+         旧值、走同一个 `--dur-cmp`，不会一前一后。`[data-cmp]` 的属性选择器
+         与 `.nt` 同特异度，但写在 `.nt` 之后，`transition` 清单只剩 `--cmp-r`
+         ——这是**已知且想要的**：两版只该裁，不该顺手补间别的属性（0.19.0 /
+         0.23.0 那条简写老账，这次是有意接管）。
+       · **帧矩形是几何锚**：`drawCompares()` 往 A/B 各塞一枚 `fill:none` 的
+         矩形（宽高 = 窗），把两版的 reference box 钉成同一扇窗。`clip-path` 的
+         百分比以引用盒为分母；没有这枚矩形时，内容少的版本会按自己的小 bbox
+         裁，接缝和标签对不上。矩形不画、不吃指针、`data-helper="cmp"` 让
+         `sweep()` 不把它当普通图元收走。
+       · **接缝是状态，不是动画**：`--cmp-r` 是每一步的读数；`--dur-cmp` 只决定
+         从上一读数走到这一读数用多久（见 drawCompares 的 cmpDur）。导出 /
+         reduced-motion 切掉 transition 后落的是这一拍的 `--cmp-r`，不是半截；
+         擦洗时把时长写成 0s，手指到哪儿接缝到哪儿。
+     四角只画 L 形取景框、不封口：封口会读成一张卡片，L 角读作"同一扇观察窗"。
+     接缝的 40 单位扫描光用 `--cmp-wash` 的低透明渐变，不是高亮——它标的是
+     "读到这儿"，不是"这一条重要"。 */
+  .cmp-frame{pointer-events:none}
+  [data-cmp="a"]{clip-path:inset(0 0 0 var(--cmp-r));
+                 transition:--cmp-r var(--dur-cmp,.45s) linear}
+  [data-cmp="b"]{clip-path:inset(0 calc(100% - var(--cmp-r)) 0 0);
+                 transition:--cmp-r var(--dur-cmp,.45s) linear}
+  .cmp-seam{transition:transform var(--dur-cmp,.45s) linear}
+  .cmp-line{fill:none;stroke:var(--cmp-seam);stroke-width:1.5;stroke-linecap:round}
+  .cmp-corner{fill:none;stroke:var(--cmp-ink);stroke-width:1.2;
+              stroke-linecap:round;stroke-linejoin:round}
+  .cmp-lab{fill:var(--cmp-before);font-weight:600;letter-spacing:.08em}
+  .cmp-lab.after{fill:var(--cmp-after)}
+
   /* 动效可及性兜底（WCAG 2.3.3，前沿动画实践标配）：系统开了"减少动态效果"时，
      入场/补间/呼吸全部压成不可感知，循环动画停掉、终态保留——内容不依赖动效，
      关闭后每一帧仍是同一张正确定格（与导出截图页同口径）。 */
@@ -2123,6 +2200,11 @@
        （关的是补间不是状态）。本条基础规则写在本块之前，同特异度时源序后者胜，
        不需要抬特异度。 */
     .cue path{transition:none}
+    /* 对照窗（0.40.0）关的是 **transition**，`--cmp-r` 留在 A/B 身上：两版仍按
+       "这一拍该露多少"互补裁切，只是接缝不再扫过去——与 #cap-hl / .tuck 同一判断
+       （关的是补间不是状态读数）。基础规则写在本块之前，同特异度时源序后者胜。 */
+    [data-cmp]{transition:none}
+    .cmp-seam{transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -2710,6 +2792,14 @@
                       markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M0 0 L9 4.5 L0 9 z" fill="#8d95a8"/>
               </marker>
+              <!-- 对照窗接缝的扫描光（0.40.0）：中间浓、两边透明的 40 单位窄带。
+                   颜色走 --cmp-wash（已经是 rgba：中心 stop-opacity 只做形状，
+                   不改色）；CSS 变量在 stop 的 style 里求值，改令牌就整条跟着改。 -->
+              <linearGradient id="cmpWash" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" style="stop-color:var(--cmp-wash);stop-opacity:0"/>
+                <stop offset=".5" style="stop-color:var(--cmp-wash);stop-opacity:1"/>
+                <stop offset="1" style="stop-color:var(--cmp-wash);stop-opacity:0"/>
+              </linearGradient>
             </defs>
             <!-- 世界分栏线（0.18.0 挂 .crisp）：它是"画面上的注记"而不是世界里的
                  东西——镜头推到 1.8 时，1px 的世界坐标描边在屏幕上变 1.8px 并糊一档，
@@ -2775,6 +2865,13 @@
                  放在所有注记之上、聚光暗幕之下：压住内容，不挡灯；每步由 drawCues()
                  整层重建（标记随步清零），指针一律穿透（CSS #cues）。 -->
             <g id="cues"></g>
+
+            <!-- 对照窗层（0.40.0）：取景框 / 接缝 / 标签不进任何一幕的子树——它量的是
+                 A/B 两版**最终**重合的那扇窗，而两版可能住在世界层；结束对照时
+                 标签还要能独立退场。放在词拍之上、聚光暗幕之下：压住内容，不挡灯。
+                 每步由 drawCompares() 按 CMP 重画，sweep() 收掉上一步的窗；
+                 指针一律穿透（CSS .cmp-frame）。 -->
+            <g id="cmp"></g>
 
             <!-- 移动聚光（0.22.0）：一块盖住**整个取景框**的暗幕，被一枚会走位的洞裁开。
                  它是 #cam 的最后一个孩子——盖在所有幕上面、但不进字幕带（#cap 在相机
@@ -3066,7 +3163,18 @@
      落位之后只建空括号，cueWrite() 在**词到的那一拍**由 cueGeom() 现量 bbox，并在
      --cue-settle 窗口内跟着入场补间重量；.on 也由它按 audio.currentTime 写。 */
   var CUE = [];
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; CUE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 对照窗的登记表（0.40.0）：与 DECODE / COUNT / CALL / CUE 同一张"每步清空、
+     renderer 重挂"的表——"这一步把哪两版叠进同一扇窗"同样是 (scene, step) 的纯函数。
+     renderer 只登记「叠谁 + 接缝读到哪儿 + 两侧标签」；**几何与裁切都在
+     drawCompares() 里现量**：renderer 跑在 worldFor() 之前，世界层还停在上一步
+     （与 CALL / CUE 同一个坑）。A/B 自己的 clip-path 由 CSS 的 --cmp-r 补间；
+     这里只负责把两版的 reference box 钉成同一扇窗、画取景框 / 接缝 / 标签。 */
+  var CMP = [];
+  /* 接缝读数与标记的跨步小账本：CMP_R 记每个对照上一次的 at（算本次补间时长），
+     CMP_MARK 记哪些节点此刻带着 data-cmp（对照结束时摘干净）。两者**不随
+     begin() 清空**——它们描述的正是"跨步"这件事。 */
+  var CMP_R = {}, CMP_MARK = {};
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; CUE = []; CMP = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -3441,12 +3549,167 @@
     if (c.path.getAttribute('d') !== d) c.path.setAttribute('d', d);
     c.measT = audio.currentTime;
   }
+  /** 对照窗（0.40.0）：把同一位置上的"改前 / 改后"两版叠进一扇窗，接缝扫到
+   *  哪儿，哪一版占到哪儿。before / after 是两个**同构同框**的节点（通常是同一
+   *  父容器下、坐标完全相同的两个 <g>）；opt：
+   *    · at     0..1 接缝读数。0 = 改前全显，1 = 改后全显（默认 0）
+   *    · labels [改前标签, 改后标签]，不传 / 传 null 就不画（交给行题或旁白）
+   *    · dim    true 时整扇窗走弱化档（与行/卡的 data-dim 同档）
+   *    · pad    取景框相对两版并集的外扩（默认 6 世界单位）
+   *  两版必须由 renderer **每步都重挂**（与 DECODE / CALL / CUE 同一纪律）；
+   *  compare() 只登记，drawCompares() 在世界层落位后现量、裁切、画框。 */
+  function compare(key, before, after, opt){ CMP.push({key:key, a:before, b:after, opt:opt || {}}); }
+
+  /** 接缝走完这一趟用多久：只从令牌读（--dur-cmp-min / --dur-cmp-full）。
+      位移越大走得越久，但短推也不低于地板、长扫不超过封顶；擦洗 / 导出截图 /
+      reduced-motion 一律 0s——手指到哪儿接缝到哪儿，成片与静止帧都落终值。 */
+  function cmpDur(delta){
+    var cs = getComputedStyle(document.documentElement);
+    var lo = parseFloat(cs.getPropertyValue('--dur-cmp-min'));
+    var hi = parseFloat(cs.getPropertyValue('--dur-cmp-full'));
+    if (!isFinite(lo) || lo < 0) lo = .45;
+    if (!isFinite(hi) || hi < lo) hi = 1;
+    if (scrubbing || window.__coursewareShotMode || mqReduce.matches) return 0;
+    return Math.max(lo, Math.min(hi, Math.abs(delta) * hi));
+  }
+
+  /** 摘掉一版身上的对照标记：data-cmp 一没，clip-path 与它那条 transition 就
+      一起失效，节点回到普通图元；顺手把钉 reference box 的隐藏矩形也收掉
+      （它的 REG 条目必须一起删，否则同名重建会拿到一个不在树上的旧节点）。 */
+  function releaseCompare(node, id){
+    if (!node) return;
+    node.removeAttribute('data-cmp');
+    if (node.style){
+      node.style.removeProperty('--cmp-r');
+      node.style.removeProperty('--dur-cmp');
+    }
+    var hk = 'cmp-box:' + id, h = REG[hk];
+    if (h){ if (h.parentNode) h.parentNode.removeChild(h); delete REG[hk]; }
+  }
+
+  /** 把本步登记的对照窗全部排一遍：在 tick() 的 worldFor() 之后、camSet() 之前
+      调用（与 drawCallouts / drawCues 同一调用点）。几何在 #cam 的局部坐标里量，
+      之后 camSet 动的是整层 #cam——框和内容一起被镜头带走，不会量一次镜头、再
+      吃一次镜头。 */
+  function drawCompares(){
+    var layer = el('cmp');
+    if (!layer) return;
+    var live = {}, drawn = {}, i, c, A, B, ia, ib, ba, bb, hkA, hkB, ha, hb, wa, wb, win, r;
+    function f(v){ return +v.toFixed(1); }
+    for (i = 0; i < CMP.length; i++){
+      c = CMP[i]; A = host(c.a); B = host(c.b);
+      if (!A || !B || !A.isConnected || !B.isConnected) continue;
+      ia = A.id || (A.dataset && A.dataset.key);
+      ib = B.id || (B.dataset && B.dataset.key);
+      if (!ia || !ib) continue;
+      /* ① 先摘掉上一步钉进来的隐藏矩形再量：矩形本身也参与 getBBox，不摘就会
+         把窗越撑越大（每一步都按"上一扇更大的窗"再外扩一圈）。 */
+      hkA = 'cmp-box:' + ia; hkB = 'cmp-box:' + ib;
+      ha = REG[hkA]; hb = REG[hkB];
+      if (ha && ha.parentNode) ha.parentNode.removeChild(ha);
+      if (hb && hb.parentNode) hb.parentNode.removeChild(hb);
+      ba = A.getBBox(); bb = B.getBBox();
+      if (!(ba.width > 0 && ba.height > 0) || !(bb.width > 0 && bb.height > 0)) continue;
+      var pad = c.opt.pad === undefined ? 6 : Math.max(0, +c.opt.pad || 0);
+      var x0 = Math.min(ba.x, bb.x), y0 = Math.min(ba.y, bb.y);
+      var x1 = Math.max(ba.x + ba.width, bb.x + bb.width);
+      var y1 = Math.max(ba.y + ba.height, bb.y + bb.height);
+      var wx = x0 - pad, wy = y0 - pad, ww = (x1 - x0) + pad * 2, wh = (y1 - y0) + pad * 2;
+      /* ② 隐藏矩形 = 两版共同的 reference box。clip-path 的百分比以各自节点的
+         bbox 为分母；内容少的那版若不垫这枚矩形，接缝就会和另一版对不上。 */
+      var boxA = {'data-helper':'cmp', class:'', x:f(wx), y:f(wy),
+                  width:f(ww), height:f(wh), fill:'none'};
+      var boxB = {'data-helper':'cmp', class:'', x:f(wx), y:f(wy),
+                  width:f(ww), height:f(wh), fill:'none'};
+      ha = put(A, 'rect', hkA, boxA); if (!ha.parentNode) A.appendChild(ha);
+      hb = put(B, 'rect', hkB, boxB); if (!hb.parentNode) B.appendChild(hb);
+      wa = boxIn(ha, el('cam')); wb = boxIn(hb, el('cam'));
+      if (!wa || !wb) continue;
+      win = {x:Math.min(wa.x, wb.x), y:Math.min(wa.y, wb.y),
+             w:Math.max(wa.x + wa.w, wb.x + wb.w) - Math.min(wa.x, wb.x),
+             h:Math.max(wa.y + wa.h, wb.y + wb.h) - Math.min(wa.y, wb.y)};
+      /* ③ 接缝读数与时长：首次建档 / 节点刚换上 data-cmp 时直接落终值——
+         对照窗不是"从无到有"的入场，第一帧就该是这一步的读数。 */
+      r = c.opt.at === undefined ? 0 : +c.opt.at;
+      if (!isFinite(r)) r = 0;
+      r = Math.max(0, Math.min(1, r));
+      var prev = CMP_R[c.key];
+      var dur = prev === undefined ? 0 : cmpDur(r - prev);
+      if (!A.getAttribute('data-cmp') || !B.getAttribute('data-cmp')) dur = 0;
+      CMP_R[c.key] = r;
+      drawn[c.key] = 1;
+      var ds = dur.toFixed(3) + 's', rp = (r * 100).toFixed(2) + '%';
+      [[A, ia, 'a'], [B, ib, 'b']].forEach(function(pair){
+        var n = pair[0], nid = pair[1], side = pair[2];
+        if (n.getAttribute('data-cmp') !== side) n.setAttribute('data-cmp', side);
+        n.style.setProperty('--dur-cmp', ds);
+        n.style.setProperty('--cmp-r', rp);
+        live[nid] = {node:n, id:nid};
+      });
+      /* ④ 框：四角只画 L、不封口（封口读成卡片，L 角读成同一扇观察窗）；
+         接缝是一条 1.5px 的琥珀线 + 40 单位渐变扫描光，像一枚正在读过去的头。 */
+      var g = put(layer, 'g', 'cmp-' + c.key, {class:'cmp-frame',
+        opacity: c.opt.dim ? .45 : 1, style:'--dur-cmp:' + ds});
+      var arm = Math.max(4, Math.min(18, win.w * .07, win.h * .3));
+      var d = 'M' + f(win.x) + ' ' + f(win.y + arm) + 'V' + f(win.y) + 'H' + f(win.x + arm) +
+              'M' + f(win.x + win.w - arm) + ' ' + f(win.y) + 'H' + f(win.x + win.w) +
+              'V' + f(win.y + arm) +
+              'M' + f(win.x) + ' ' + f(win.y + win.h - arm) + 'V' + f(win.y + win.h) +
+              'H' + f(win.x + arm) +
+              'M' + f(win.x + win.w - arm) + ' ' + f(win.y + win.h) +
+              'H' + f(win.x + win.w) + 'V' + f(win.y + win.h - arm);
+      put(g, 'path', 'cmp-' + c.key + '-corner', {class:'cmp-corner crisp', d:d});
+      var seam = win.x + win.w * r;
+      var sg = put(g, 'g', 'cmp-' + c.key + '-seam', {class:'cmp-seam',
+        transform:'translate(' + f(seam) + ',0)'});
+      put(sg, 'rect', 'cmp-' + c.key + '-wash', {class:'cmp-wash', x:-20, y:f(win.y),
+        width:40, height:f(win.h), fill:'url(#cmpWash)'});
+      put(sg, 'line', 'cmp-' + c.key + '-line', {class:'cmp-line crisp',
+        x1:0, y1:f(win.y - 4), x2:0, y2:f(win.y + win.h + 4)});
+      /* 标签各归自己那一侧：改前（A）在右、改后（B）在左——B 从左边长出来。
+         **标签自己也走同一套互补裁切**：每组里垫一枚窗大小的隐藏矩形，再挂
+         data-cmp="a"/"b" 与同一个 --cmp-r，于是"这一侧的标签"和"这一侧的内容"
+         永远在同一条接缝上收放——不靠 opacity 猜时机，也不会在扫描开始就先把
+         改前那枚签淡掉。labels 不传 / 传 null 就不画（窄屏的 s2 用行题）。 */
+      var labs = c.opt.labels;
+      if (labs && labs.length >= 2){
+        [['a', 'la', labs[0], win.x + win.w, 'end'],
+         ['b', 'lb', labs[1], win.x, 'start']].forEach(function(q){
+          var lk = 'cmp-' + c.key + '-' + q[1], freshL = !REG[lk];
+          var lg = put(g, 'g', lk,
+            {'data-cmp':q[0], class:'cmp-lab-wrap', style:'--dur-cmp:' + ds});
+          put(lg, 'rect', 'cmp-' + c.key + '-' + q[1] + '-box',
+            {'data-helper':'cmp', class:'', x:f(win.x), y:f(win.y),
+             width:f(win.w), height:f(win.h), fill:'none'});
+          put(lg, 'text', 'cmp-' + c.key + '-' + q[1] + '-t',
+            {class:'cmp-lab' + (q[0] === 'b' ? ' after' : ''), x:f(q[3]), y:f(win.y - 8),
+             'text-anchor':q[4], 'font-size':12}, q[2]);
+          // 首次建档且这一趟本来就要补间：先让 0% 的初值落成一次计算样式，
+          // 再写目标读数——否则"新建 + 直接写 100%"会被浏览器并成一帧，标签瞬移。
+          if (freshL && dur > 0) void lg.getBoundingClientRect();
+          lg.style.setProperty('--cmp-r', rp);
+        });
+      }
+    }
+    // 本步没再登记的节点：摘标记（两版若都还留在台上，作者负责只留一版）
+    for (var k in CMP_MARK)
+      if (!live[k]) releaseCompare(CMP_MARK[k].node, CMP_MARK[k].id);
+    CMP_MARK = live;
+    // 读数账本只保留还在场的对照：下次重新登记时从终值起步，而不是从旧读数补
+    for (var k2 in CMP_R) if (!drawn[k2]) delete CMP_R[k2];
+    sweep(layer);
+  }
+
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
    *  才有"的那个小挂件不再被引用时，也必须跟着掉——只扫容器一层会把它留在台上。
    *  没有退场动画：要淡出就把 opacity 写成 0 让它再停一步，下一步不再引用它收尾。 */
   function sweep(parent){ prune(host(parent)); }
   function prune(node){
     Array.prototype.slice.call(node.children).forEach(function(n){
+      // 对照窗钉 reference box 的隐藏矩形归 drawCompares 管：它随 A/B 存活，
+      // 不能按 GEN 收——renderer 每步先跑，drawCompares 后跑，照常收就会在
+      // 量窗前把它删掉（见 drawCompares ①）。
+      if (n.dataset && n.dataset.helper === 'cmp') return;
       if (n.dataset && n.dataset.key !== undefined){
         if (n._g !== GEN){ retire(n); node.removeChild(n); return; }
       }
@@ -4493,45 +4756,65 @@
    *  s4「别让碰巧的成功骗过你」→ 两行都恢复正常，新签挂到翻车那张卡右侧 */
   function renderG(step){
     only('stG');
-    var groups = [
-      {k:'same', nums:['1','2','3'],  lab:'位数相同 · 都是 1 位',   col:'#2ecc71', from:0},
-      {k:'diff', nums:['1','2','10'], lab:'位数不同 · 1 位 / 2 位', col:'#ef4d4d', from:2}
-    ];
     var two = step >= 2;
-    groups.forEach(function(g, gi){
-      if (step < g.from) return;
-      var oy = two ? 232 + gi * 120 : 258;
-      // s3「位数不同就破了」：聚焦翻车那行——另一行走焦点弱化档位
-      // （filter 材质 + opacity 同步退档），镜头不管，靠明暗分主次。
-      // 0.31.0 动效目的审计续（声画对齐）：s2 旁白讲的是"位数相同时恰好一致"
-      // （话头 = same 行 1/2/3），diff 行（红色"位数不同"标签 + 1/2/10 三卡）
-      // 这时候**也建档淡入**就抢话头——与 0.28.0 renderB 同构（没轮到的内容
-      // 不该满亮度登场）。修法同一套：s2 的 diff 行走弱化档位（在但不在重点上），
-      // s3「位数不同就破了」才升为话头。
-      var dim = (step === 3 && gi === 0) || (step === 2 && gi === 1);
-      var G = put('g-body', 'g', 'g-' + g.k, {transform:'translate(0,' + oy + ')',
-        'data-dim': dim ? 1 : 0, opacity: dim ? .45 : 1});
-      txt(G, 'g-' + g.k + '-lab', {x:500, y:-50, 'text-anchor':'middle', 'font-size':13,
-        fill:g.col}, g.lab);
-      var span = (g.nums.length - 1) * 132;
-      g.nums.forEach(function(v, i){
-        var cell = put(G, 'g', 'g-' + g.k + '-' + v,
+    /** 一行三卡：坐标只由"第几行"和"三卡等距"决定，两版共用同一套落点。 */
+    function cells(G, prefix, nums, col){
+      var span = (nums.length - 1) * 132;
+      nums.forEach(function(v, i){
+        var cell = put(G, 'g', prefix + '-' + v,
           {transform:'translate(' + (500 - span / 2 + i * 132) + ',0)'});
-        put(cell, 'rect', 'g-' + g.k + '-' + v + '-r', {x:-46, y:-34, width:92, height:68, rx:12,
-          fill:'#1c212c', stroke:g.col, 'stroke-width':2, opacity: g.k === 'diff' ? .85 : 1});
-        txt(cell, 'g-' + g.k + '-' + v + '-t', {x:0, y:11, 'text-anchor':'middle', 'font-size':28,
-          'font-weight':'700', 'font-family':MONO, fill:g.col}, v);
+        put(cell, 'rect', prefix + '-' + v + '-r', {x:-46, y:-34, width:92, height:68, rx:12,
+          fill:'#1c212c', stroke:col, 'stroke-width':2, opacity:.85});
+        txt(cell, prefix + '-' + v + '-t', {x:0, y:11, 'text-anchor':'middle', 'font-size':28,
+          'font-weight':'700', 'font-family':MONO, fill:col}, v);
       });
-    });
+    }
+    // s3「位数不同就破了」：聚焦翻车那行——另一行走焦点弱化档位
+    // （filter 材质 + opacity 同步退档），镜头不管，靠明暗分主次。
+    // 0.31.0 动效目的审计续（声画对齐）：s2 旁白讲的是"位数相同时恰好一致"
+    // （话头 = same 行 1/2/3），diff 行（红色"位数不同"标签 + 1/2/10 三卡）
+    // 这时候**也建档淡入**就抢话头——与 0.28.0 renderB 同构（没轮到的内容
+    // 不该满亮度登场）。修法同一套：s2 的 diff 行走弱化档位（在但不在重点上），
+    // s3「位数不同就破了」才升为话头。
+    var dimSame = step === 3;
+    var GS = put('g-body', 'g', 'g-same', {transform:'translate(0,' + (two ? 232 : 258) + ')',
+      'data-dim': dimSame ? 1 : 0, opacity: dimSame ? .45 : 1});
+    txt(GS, 'g-same-lab', {x:500, y:-50, 'text-anchor':'middle', 'font-size':13,
+      fill:'#2ecc71'}, '位数相同 · 都是 1 位');
+    cells(GS, 'g-same', ['1','2','3'], '#2ecc71');
+    if (two){
+      var dimDiff = step === 2;
+      var GD = put('g-body', 'g', 'g-diff', {transform:'translate(0,352)',
+        'data-dim': dimDiff ? 1 : 0, opacity: dimDiff ? .45 : 1});
+      if (step === 2)
+        txt(GD, 'g-diff-lab', {x:500, y:-50, 'text-anchor':'middle', 'font-size':13,
+          fill:'#ef4d4d'}, '位数不同 · 1 位 / 2 位');
+      /* 0.40.0 对照窗的消费者：同一行、同一组落点，两版只差"第 2、3 位是谁"。
+         s2（旁白还在讲"位数相同就恰好一致"）只露数值序 A（at 0），diff 行整体
+         走弱化档；s3 旁白说"位数不同就破了"，接缝用一整趟从 A 扫到 B——读者看
+         着同一行原地换成字符串序（1, 10, 2），"同一个位置、换一条规则"变成可见
+         的读数，而不是两张图来回切。s4 停在 B 上，引线钉住最右侧的 2。
+         行题与版本签**不同时出场**：s2 用行题说明"这一行为什么不同"，s3 起行题
+         退场、两枚版本签接管同一行——窄屏上行题与"字符串序"会挤在同一基线上，
+         这不是字号问题，是两行信息不该同时抢一条线。 */
+      cells(put(GD, 'g', 'g-diff-a', {}), 'g-diff-a', ['1','2','10'], '#ef4d4d');
+      cells(put(GD, 'g', 'g-diff-b', {}), 'g-diff-b', ['1','10','2'], '#ef4d4d');
+      compare('g-diff', 'g-diff-a', 'g-diff-b',
+        {at: step >= 3 ? 1 : 0, dim: dimDiff,
+         labels: step >= 3 ? ['数值序', '字符串序'] : null});
+    }
     // 0.38.0 引线标注的消费者②③：判词说得清"是哪一行"，就不再靠读者自己找。
     // s1–s2 签挂在 same 行的行题上方，**跟着行一起上移**（s2 那一行让位时由 .nt
     // 补间，不是原地重落）；s3「巧合就破了」沿引线收回到圆点——收回的方向读作
     // "这句判词失效了"，比忽然消失多一层因果。s4 换一枚新签，钉在翻车那张卡上：
     // 两行已经排满，旧徽标挤在行间，引线把它挂到右侧外面，压不到行题。
+    // 0.40.0 起 diff 行有两版，翻车那张卡的 key 归字符串序（B）：s4 场上只剩 B，
+    // 签挂在最右侧的 2 外面——中间那张 10 的正下方已经贴着取景窗下沿，塞不下签；
+    // 挂右缘既不压卡，也不与上方的行题抢位置。
     if (step >= 1 && step <= 3)
       callout('g-luck', 'g-same-lab', '巧合', {side:'t', col:'#f5a623', gone:step >= 3});
     if (step === 4)
-      callout('g-flip', 'g-diff-10', '位数不同就翻车', {side:'r', col:'#f5a623'});
+      callout('g-flip', 'g-diff-b-2', '位数不同就翻车', {side:'r', col:'#f5a623'});
     sweep('g-body');
   }
 
@@ -5378,6 +5661,7 @@
         worldFor(hit.scene.step_id, hit.index);   // 主角落位（跨幕延续的那三个数）
         drawCallouts(hit.scene.step_id, hit.index); // 0.38.0：世界层落位后再量注记
         drawCues();                               // 0.39.0：词拍括号层，世界层落位之后建空框
+        drawCompares();                           // 0.40.0：对照窗，世界层落位之后现量两版并集
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位

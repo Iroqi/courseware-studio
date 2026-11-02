@@ -168,6 +168,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 判定与重量 | 结论落下来、天平读出方向 | `.settle`、`.wind`、`.lift`、`.tilt` |
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
 | 声画同步 | 旁白此刻在念谁 | `cue()` + `.cue`（四角括号）、`cueWrite()` / `cueGeom()` |
+| 对照与差异 | 两个版本差在哪、改了什么 | `compare()` + `[data-cmp]`（对照窗、互补裁切、接缝与标签） |
 | 数字与读数 | 计数怎么滚到新值 | `data-count`、`countRollWrite`、`.roll` |
 | 交互反馈 | 手按下去收到了什么 | `.opt.rip`、`.hot`、磁吸迎手、`.mag`、`.go.shine` |
 | 播放器 | 时间被搬到哪儿 | 擦洗态升级、`#ffwd`、`.bar[data-band]`、`.tip` |
@@ -185,6 +186,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 注意力 | `--dim-focus`、`--dur-dim`、`--dur-spot`、`--spot-k`、`--spot-soft`、`--spot-bleed` |
 | 字母与读数 | `--dur-hl`、`--dur-cap`、`--lit-floor`、`--lit-ramp`、`--flow-seg`、`--dur-flow`、`--dur-roll` |
 | 声画同步 | `--dur-cue`、`--cue-lead`、`--cue-pause`、`--cue-settle`、`--cue-pad`、`--cue-arm`、`--cue-ink` |
+| 对照 | `--dur-cmp-min`、`--dur-cmp-full`、`--cmp-ink`、`--cmp-before/after`、`--cmp-seam`、`--cmp-wash` |
 | 原语专属 | 每个原语 2–4 个（如 `--dur-settle` / `--squash-x` / `--squash-y`） |
 
 改全局节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：入场与补间共用它，
@@ -564,6 +566,43 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
     transition；导出 / reduced-motion 切掉补间后落"括号完整、无缩放"的定格，与
     `#spot` / `#cap-hl` 同族（关过程不关档位）。
 
+**（13）对照与差异**
+
+- **对照窗**（`compare()` + `[data-cmp="a"/"b"]` + `drawCompares()`，0.40.0）：把
+  "同一个位置的两个版本"叠成一扇窗，A 从左往右退、B 从右往左进，接缝扫过时读到的
+  是"改了什么 / 差在哪"。前沿对应是 before-after slider 与 diff wipe；这里不引入
+  拖拽——`opt.at` 是 (scene, step) 的读数，观众看到的是被旁白推着走的擦除。
+  - **登记、建层、上相位三拍**：renderer 只登记（`CMP`，与 `CUE` / `CALL` 同一张
+    每步清空的表）；`drawCompares()` 在 `worldFor()` 之后量几何、写 `data-cmp`；
+    `--cmp-r` 由 `opt.at`（0–1）写，默认 0。同一 `compare` key 跨步复用，`CMP_R`
+    记住上一步的读数，步间差决定这一趟补间时长。
+  - **互补裁切**：A 用 `inset(0 0 0 var(--cmp-r))`、B 用
+    `inset(0 calc(100% - var(--cmp-r)) 0 0)`。0% 时只看得见 A，100% 时只看得见 B，
+    中间不会两份重叠透出；`--cmp-r` 注册成 `<percentage>`（`inherits:true`），
+    补间是浏览器对注册属性的插值，不是逐帧写 style。
+  - **参考盒定窗**：A/B 的内容不同，各自的 `getBBox()` 也不同；窗取两者并集，才能
+    让接缝从第一张卡扫到最后一张卡。做法是在 A、B 内部各放一个窗口大小的隐藏 rect
+    （`data-helper="cmp"`、`fill:none`）把两边钉到同一坐标；这两个 helper 会参与
+    `getBBox()`，所以每步**先摘再量**，`prune()` 也必须跳过它们（否则 renderer 的
+    `sweep()` 会在 `drawCompares()` 之前把它们收走，窗口退回内容盒）。
+  - **接缝、四角框与标签共用一份读数**：`#cmp` 在 `#cues` 之上、`#spot` 之下，
+    `pointer-events:none`；缝隙组 `translate` 到 `win.x + win.w * r`，四角框画窗沿，
+    版本标签用同样的 `[data-cmp]` 裁切与 `--dur-cmp`，所以标签出现 / 消失永远与
+    卡片同步，不会各走一条时间线。缝两侧的暖色 wash 是 40 宽的渐变 rect，随组平移。
+  - **标签首帧要先登记 0%**：新建的标签组第一次写目标 `--cmp-r` 前，先
+    `void lg.getBoundingClientRect()` 强制一次布局；否则浏览器没登记初始 0%，会从
+    "无裁切"直接跳到目标值，标签在擦除中段整块提前出现。
+  - **时长令牌**：`cmpDur(delta)` 从 `--dur-cmp-min` / `--dur-cmp-full` 现算，
+    `max(min, min(full, |delta| * full))`；`scrubbing` / 截图模式 / reduced-motion
+    直接返回 0，`--dur-cmp` 写 `0s` 时裁切、缝隙、标签一帧到位。
+  - **`at` 是状态不是事件**：0 / 1 是最常用的两档，中间值留给"正在擦"的定格；
+    导出帧落在句末，读到的就是这一步声明的最终档位。`opt.dim` 把整框压到 .45，
+    交给同一套 `data-dim` 纪律去弱化非话头；`opt.labels` 两个字符串分别贴窗的
+    右上 / 左上，`opt.pad` 默认 6。A/B 必须都已入树且非空盒，否则这一条静默跳过。
+  - **与 `.reveal` 的分工**：`.reveal` 是单件东西的硬边揭示；对照窗是"同位置两份
+    内容"的差异比较，必须同时有 A 与 B，且窗沿、接缝、标签是一套注记。两者可以
+    同场，但对照窗不负责入场，也不改变被对照节点的几何与命中区。
+
 #### 3.4.4 导出与减动效
 
 截图页注入 `transition:none!important;animation:none!important` 且每帧冷启动；
@@ -575,6 +614,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | animation 无 `forwards`，静止态即全开 | `.bloom`、`.ffwd`、`.opt.rip`、`.flow`、`.traces` | 切掉后落"看不见"或"全开"，不留半截 |
 | transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦、`callout` 的收回与跟随 | 落到 after-change style，即那一秒的真实档位 |
 | JS 逐拍状态 + transition | 词拍（`cueWrite()` 写 `.on`、`cueGeom()` 现量几何） | 导出 / reduced-motion 切掉 opacity / scale 补间，括号完整、无缩放；定格帧在句末，标记已累积、几何量到的是入场落定后的终值 |
+| JS 逐拍 + 注册属性 transition | 对照窗（`compare()` / `drawCompares()` 写 `--cmp-r`） | 直接写当步 `opt.at`；`--dur-cmp` 为 0 时互补裁切、接缝、四角框与标签同步落终值，两端 0 / 100% 只剩一份 |
 | JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`） | 导出 / reduced-motion 落 `data-count` 终值（定格里读"量"）；live 播放逐拍滚中间值 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
@@ -874,6 +914,10 @@ emoji 只是记号的点睛。
       现量、`--cue-settle` 内跟到入场落定（不在 `drawCues()` 建层时量）；标记累积到
       本步结束、换步整层重建；`#cues` 在 `#cam` 内且 `pointer-events:none`；墨色
       中性、`.crisp` 逐图元挂；导出 / reduced-motion 切补间后括号完整无缩放；
+- [ ] 对照窗：A/B 必须同时在场且非空盒；互补裁切共用 `--cmp-r`，0 / 100% 两端只剩
+      一份；窗口取并集、隐藏参考盒 `data-helper="cmp"` 被 `prune()` 跳过且每步量前
+      先摘；接缝、四角框、标签共用同一 `--dur-cmp`；标签首帧先强制 reflow 再写目标；
+      `opt.at` 在导出 / reduced-motion 落终值，`scrubbing` / 截图模式时长为 0；
 - [ ] `.hot`：坐标 `inherits:true`、位置 `linear`、静止态 `50%`、不用 `:hover` 驱动、
       键盘不点亮；
 - [ ] 磁吸：只写独立 `translate`、委托在 `#gate`、场半径扣位移、触屏 / reduce / 截图
