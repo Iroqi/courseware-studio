@@ -2681,6 +2681,12 @@
      边挤旁边的字。只给画布里的计数读数用；字幕带、等宽 code 不挂（没有滚动，
      挂了也无害，但少一个多余的类）。 */
   .roll{font-variant-numeric:tabular-nums}
+  /* 量条（0.42.0）：几何量读数。scale 以条自己的左缘为轴（transform-box:fill-box +
+     transform-origin:left center）；`transition:none!important` 是**刻意的**——量条由
+     meterWrite 逐拍写 transform 属性（audio 时钟现算中间长度，与数字落定同族、同一
+     只时钟），.nt 的 width / transform 补间会与滚动的 scale 双重叠加。要淡入 /
+     位移就包一层 <g>（.in 挂包装层），量条自己身上不挂别的 transition。 */
+  .meter{transform-box:fill-box;transform-origin:left center;transition:none!important}
   /* 跳转锚：侧栏与时间轴唯一的挂钩。只写 audio.currentTime——与点进度条同一
      seek 语义（timeupdate 兜底重画），不改播放/暂停态、不产证据。 */
   .n-jump{display:inline-flex;align-items:center;gap:5px;margin-top:8px;padding:3px 9px;
@@ -3198,6 +3204,12 @@
      新值 = 本次目标；首次建档 / 数值没变都落在"不滚"（入场照旧走 .in）。时长从
      --dur-roll 读（rollDur），中间值由 countRollWrite 按 audio 时钟现算，CSS 不参与。 */
   var COUNT = {}, stepT0 = 0;   // stepT0 = 当前句起点：tick 换句分支在渲染前写它
+  /* 量条的登记表（0.41.0）：与 COUNT 同一张"每步清空、renderer 重挂"的表——"这一步
+     有没有量条在滚"同样是 (scene, step) 的纯函数。条目在 put() 检出 `data-meter`
+     时建立：旧长 = 元素上一次的 width 呈现属性，新长 = 本次 width；首次建档 / 长度
+     没变都落在"不滚"（入场照旧走 .in）。时长与数字落定共用 --dur-roll（rollDur），
+     中间长度由 meterWrite 按 audio 时钟现算，CSS 不参与。 */
+  var METER = {};
   /* 引线标注的登记表（0.38.0）：与 DECODE / COUNT 同一张"每步清空、renderer 重挂"
      的表——"这一步有没有注记"同样是 (scene, step) 的纯函数。renderer 只登记
      「注谁 + 说什么 + 朝哪边」，**几何推迟到 worldFor() 之后**由 drawCallouts() 现量：
@@ -3232,7 +3244,7 @@
      EX_MARK 记哪些件此刻带着偏移（某一步不再登记时把它们送回装配位）。两者不随
      begin() 清空：它们描述的正是"跨步"这件事。 */
   var EX_R = {}, EX_MARK = {};
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -3258,6 +3270,22 @@
         else delete COUNT[key];
       } else delete COUNT[key];
     }
+    /* 量条（0.42.0）：attrs 带 data-meter 的 rect 是**几何量读数**——条长 = 目标的
+       width，值变化的那一步 scaleX 从旧长/新长滚到 1（easeOutExpo，与数字落定同族）。
+       必须在本函数把 width 覆写之前取旧宽，否则"上一长度"就丢了；本步不滚时把
+       上一步打断的 scale 归位（量条落满，不留半截）。 */
+    if (attrs && attrs['data-meter'] !== undefined){
+      var mw = parseFloat(attrs.width), pw = parseFloat(n.getAttribute('width'));
+      if (isFinite(mw) && mw > 0){
+        if (isFinite(pw) && pw !== mw)
+          METER[key] = {n:n, from:pw / mw, to:1, t0:stepT0, dur:rollDur()};
+        else delete METER[key];
+      } else delete METER[key];
+      if (!METER[key]){
+        var tf0 = n.getAttribute('transform');
+        if (tf0 && tf0.indexOf('scale') >= 0) n.removeAttribute('transform');
+      }
+    }
     for (var k in attrs || {}) {
       var v = attrs[k];
       if (k === 'font-size') v = scaleFontSize(tag, v);
@@ -3266,6 +3294,13 @@
       else if (n.getAttribute(k) !== String(v)) n.setAttribute(k, v);
     }
     if (text !== undefined && n.textContent !== text) n.textContent = text;
+    /* 量条的类由 put() 补（0.42.0）：作者只传 data-meter + width，.meter 的
+       transform-box/origin 与 transition:none 自动到位——与数字落定的 .roll 同一
+       口子，忘挂类 = 条从视口原点缩放。 */
+    if (attrs && attrs['data-meter'] !== undefined){
+      var mcls = n.getAttribute('class') || '';
+      if (mcls.indexOf('meter') < 0) n.setAttribute('class', mcls + ' meter');
+    }
     if (fresh) host(parent).appendChild(n);   // 先写完状态再入树：新节点没有"上一状态"，
     return n;                                 // 也就不会被补间到起飞点上
   }
@@ -5306,6 +5341,32 @@
     }
   }
 
+  /** 量条（0.42.0，meter）：几何量读数从旧长滚到新长，中间长度按 audio 时钟现算
+     （easeOutExpo，与数字落定同族）。它和 countRollWrite 是同一个"量"的两张皮——
+     数字滚字身、量条滚长度，所以**量不是进度**：导出截图与 reduced-motion 落
+     scale(1 1) 全满（定格里读得到"这条有多长"），live 播放逐拍滚中间长度。三条边界：
+       ① 登记口在 put()：data-meter 的 rect 是量条（自然宽 = 全量），目标值变化那
+          一步登记进 METER（from = 旧宽/新宽）；首次建档与长度未变都不滚（入场照旧
+          走 .in，同宽不重写，上一步打断的 scale 由 put() 归位）；
+       ② 起点是句首（stepT0），与 countRollWrite 同一只时钟、同一个 --dur-roll 拍；
+       ③ 逐拍写 transform 属性（scale(sx 1)，等宽 1e-4 档）、同值不重写；.meter 的
+          transition:none 让 CSS 不参与（.nt 的 width/transform 补间会与滚动的 scale
+          双重叠加）；只做 rect，圆头在缩放中会被压扁——要圆头就把圆角画在外层。 */
+  function meterWrite(t){
+    var full = window.__coursewareShotMode || mqReduce.matches;
+    for (var key in METER){
+      var m = METER[key];
+      if (full){ var fs = 'scale(1 1)'; if (m.n.getAttribute('transform') !== fs) m.n.setAttribute('transform', fs); continue; }
+      var p = Math.max(0, Math.min(1, (t - m.t0) / m.dur));
+      var e = 1 - Math.pow(2, -10 * p);                  // easeOutExpo（--ease-out 同族）
+      var s = m.from + (m.to - m.from) * e;
+      if (p >= 1) s = m.to;                              // 收尾那一帧不许留 0.999 的缝
+      if (s <= 0) s = 0;                                 // 过零那一帧不许出负长度
+      var st = (s === 1) ? 'scale(1 1)' : 'scale(' + (+s.toFixed(4)) + ' 1)';
+      if (m.n.getAttribute('transform') !== st) m.n.setAttribute('transform', st);  // 同值不重写
+    }
+  }
+
   /* 词拍的令牌缓存（0.39.0）：与 ffThreshold / rollDur 同一口径——词拍参数是设计期
      的舞台参数，不是运行期开关，读一次就缓存；改名删名 parseFloat 得 NaN，落回默认档。 */
   var CUE_T = null;
@@ -5980,6 +6041,10 @@
     // COUNT（目标值写在 data-count 呈现属性上），写在前面会拿上一句的登记表算这一句。
     // 导出截图页每帧只跑一次 tick()：shot 模式下这一趟直接落终值（定格里读"量"）。
     countRollWrite(t);
+    // 量条（0.42.0）：与数字落定同一个位置、同一只时钟、同一个 --dur-roll 拍——
+    // 换句分支里 put() 才重挂 METER（目标长度写在 width 呈现属性上），写在前面会拿
+    // 上一句的登记表算这一句。导出截图页每帧只跑一次 tick()：shot 模式下落全满。
+    meterWrite(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到

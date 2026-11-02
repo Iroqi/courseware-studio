@@ -333,6 +333,9 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 - 拆解视图（`explode()` / `drawExplodes()`）：`amount` 是 audio 时钟的读数；导出 /
   减动效时 `--dur-ex` 与错峰延迟都归零，`transform` 直接写当步拆开量；冷启动每帧
   现算装配位与偏移，不读上一帧；
+- 数字落定与量条（`countRollWrite` / `meterWrite`）：**量**不是进度——见旗时直接落终值
+  （数字写 `data-count` 终值、量条写 `scale(1 1)` 全满），live 播放才逐拍滚中间值；
+  冷启动与直播同一张定格（定格里读得到"比较了 3 次 / 这条有多长"）；
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -373,6 +376,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | JS 逐拍状态 + transition | 词拍（`cueWrite` 写 `.on`、`cueGeom` 现量几何） | `.on` 按 `currentTime` 落定；切掉补间后括号完整、无缩放；定格帧量到入场落定后的终值 |
 | JS 逐拍 + 注册属性 transition | 对照窗（`compare()` 写 `--cmp-r`，裁切 / 接缝 / 标签共用） | 直接落 `opt.at` 终值；两端 0 / 100% 只剩一份，标签、四角框与卡片同步 |
 | JS 逐拍写 transform | 拆解视图（`drawExplodes()` 按 `opt.base` + `amount` 写） | 直接落当步拆开量；`--dur-ex` 与错峰延迟归零，装配位现算 |
+| JS 逐拍，但语义是过程（量） | 数字落定（`countRollWrite`）、量条（`meterWrite`） | 导出 / reduced-motion 落终值（数字 `data-count`、量条 `scale(1 1)` 全满）；live 播放逐拍滚中间值 |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |

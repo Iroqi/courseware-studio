@@ -170,7 +170,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 声画同步 | 旁白此刻在念谁 | `cue()` + `.cue`（四角括号）、`cueWrite()` / `cueGeom()` |
 | 对照与差异 | 两个版本差在哪、改了什么 | `compare()` + `[data-cmp]`（对照窗、互补裁切、接缝与标签） |
 | 组成与拆解 | 一个整体由哪几件组成、怎么打开 / 合拢 | `explode()` + `.explode`（按装配位与离锚点距离沿轴分开，错峰开合） |
-| 数字与读数 | 计数怎么滚到新值 | `data-count`、`countRollWrite`、`.roll` |
+| 数字与读数 | 计数怎么滚到新值、量怎么长出长度 | `data-count` + `countRollWrite` + `.roll`、`data-meter` + `meterWrite` + `.meter` |
 | 交互反馈 | 手按下去收到了什么 | `.opt.rip`、`.hot`、磁吸迎手、`.mag`、`.go.shine` |
 | 播放器 | 时间被搬到哪儿 | 擦洗态升级、`#ffwd`、`.bar[data-band]`、`.tip` |
 | 氛围与排版 | 这一段什么温度、文字怎么排 | `data-mood`、`.pregate`、`text-wrap:balance`、`text-spacing-trim`、`--key-soft` 族、侧栏折叠 |
@@ -531,6 +531,25 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   - **挂 `.roll` 用等宽**（`font-variant-numeric:tabular-nums`）：滚动时字宽不跳，
     读数元素的位置与 bbox 稳定。只挂画布里的计数读数，字幕带与等宽 `code` 不挂。
   只做 SVG `<text>`；HTML 侧静态数字不做（不会滚，挂了也是死档位）。
+- **量条**（`data-meter` + `meterWrite` + `.meter`，0.42.0）：几何量读数——条长 = 目标
+  `width`，值变化的那一步从旧长滚到新长。它与数字落定是同一个"量"的两张皮（数字滚
+  字身、量条滚长度），所以边界全部同款：
+  - **登记口在 `put()`**：attrs 带 `data-meter` 的 rect 是量条，目标长度写进 `width`
+    呈现属性；旧长 = 元素上一次的 `width` 属性，**首次建档与长度未变都不滚**（入场
+    照旧走 `.in`，同宽不重写；上一步打断的 scale 由 `put()` 归位）；
+  - **同一个拍**：起点是句首（`stepT0`）、时长共用 `--dur-roll`、`easeOutExpo` 现算
+    中间长度、逐拍写 `transform` 属性（`scale(sx 1)`，等宽 1e-4 档）——与
+    `countRollWrite` 同一只时钟、同一张"每步清空、renderer 重挂"的 `METER` 表；
+  - **量不是进度**：导出截图与 reduced-motion 落 `scale(1 1)` 全满（定格里读得到
+    "这条有多长"），live 播放逐拍滚中间长度——与数字落定同口径，与 `#cap-prog` /
+    进度填充的"进展到哪儿"相反；
+  - **`transform` 以条自己的左缘为轴**：`.meter` 挂 `transform-box:fill-box` +
+    `transform-origin:left center`，类由 `put()` 自动补（作者只传 `data-meter` +
+    `width`）；`transition:none!important` 是刻意的——`.nt` 的 width / transform
+    补间会与滚动的 scale 双重叠加；
+  - **只做 rect，不做路径 / 组**：`width` 是"上一长度"的唯一来源，别的 tag 拿不到
+    旧宽；圆头在缩放中会被压扁——要圆头就把圆角画在外层装饰上，量条本体直角。
+  要淡入 / 位移就包一层 `<g>`（`.in` 挂包装层），量条自己身上不挂别的 transition。
 
 **（12）声画同步**
 
@@ -657,7 +676,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | JS 逐拍状态 + transition | 词拍（`cueWrite()` 写 `.on`、`cueGeom()` 现量几何） | 导出 / reduced-motion 切掉 opacity / scale 补间，括号完整、无缩放；定格帧在句末，标记已累积、几何量到的是入场落定后的终值 |
 | JS 逐拍 + 注册属性 transition | 对照窗（`compare()` / `drawCompares()` 写 `--cmp-r`） | 直接写当步 `opt.at`；`--dur-cmp` 为 0 时互补裁切、接缝、四角框与标签同步落终值，两端 0 / 100% 只剩一份 |
 | JS 逐拍写 transform | 拆解视图（`explode()` / `drawExplodes()`） | 直接写当步 `amount` 对应的 `transform`；`--dur-ex` 与错峰延迟归零，拆开 / 合拢都落终值 |
-| JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`） | 导出 / reduced-motion 落 `data-count` 终值（定格里读"量"）；live 播放逐拍滚中间值 |
+| JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`）、量条（`meterWrite`） | 导出 / reduced-motion 落终值（数字落 `data-count` 终值、量条落 `scale(1 1)` 全满，定格里读"量"）；live 播放逐拍滚中间值 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
 口径：
@@ -945,6 +964,10 @@ emoji 只是记号的点睛。
 - [ ] 数字落定：目标值写进呈现属性 `data-count`；首次建档 / 数值未变不滚；滚动起点
       是句首（`stepT0`）；中间值 `easeOutExpo` 现算、同值不重写；导出 / reduced-motion
       落 `data-count` 终值；读数挂 `.roll` 等宽；只做 SVG `<text>`；
+- [ ] 量条：目标长度写进呈现属性 `width`；首次建档 / 长度未变不滚、上一步打断的 scale
+      归位；起点句首、共用 `--dur-roll`；中间长度 `easeOutExpo` 现算、同值不重写；导出 /
+      reduced-motion 落 `scale(1 1)` 全满；`.meter` 自动补、`transition:none`、左缘为轴；
+      只做 rect；
 - [ ] `#ffwd`：帧间差过 `--ff-min`、`linear` 不写 `forwards`、方向与箭头同号、四道
       不演；
 - [ ] `.pregate`：`display` 进清单、`transition-behavior` 单独一行、`@supports`、

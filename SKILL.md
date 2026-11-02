@@ -166,7 +166,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 声画同步 | `cue()` + `.cue`（词拍：旁白念到词时给所指对象套四角括号；词窗按字数 + 标点现算，几何在词到的那拍现量并跟到入场落定） |
 | 对照与差异 | `compare()` + `[data-cmp="a/b"]`（对照窗：两个版本同窗叠放、互补裁切，`--cmp-r` 单一读数驱动接缝与标签；`at` 写当步档位，导出 / reduced-motion 落终值） |
 | 组成与拆解 | `explode()` + `.explode`（拆解视图：一组纯包装件给出装配位，按离锚点距离沿轴分开、外圈先走；`amount` 开合量跨步补间，导出 / reduced-motion 落当步档位） |
-| 数字与读数 | `data-count`（目标值写呈现属性）、`countRollWrite`（audio 时钟现算中间值）、`.roll`（tabular-nums 等宽）——数字落定：计数读数从句首从旧值滚到新值，首次建档与数值未变不滚，导出 / reduced-motion 落终值 |
+| 数字与读数 | `data-count`（目标值写呈现属性）、`countRollWrite`（audio 时钟现算中间值）、`.roll`（tabular-nums 等宽）；`data-meter`（目标长写 width）、`meterWrite`（scaleX 现算中间长）、`.meter`（fill-box 左缘为轴）——数字落定与量条是同一族"量"的两张皮：计数读数从句首从旧值滚到新值、量条从旧长滚到新长，首次建档与数值 / 长度未变不滚，导出 / reduced-motion 落终值 |
 | 交互反馈 | `.opt.rip`（触点涟漪）、`.hot`（触点辉光）、`magMove/magClear` 与 `.mag`（磁吸迎手）、`.gate-next .go.shine`（放行键掠光） |
 | 播放器 | `--ease-spring` 手感、`.bar[data-drag]`（拖动跟手）、`.bar[data-band]` + `--band`（越界橡皮筋）、`#ffwd`（快进掠擦）、`.tick.on`（当前章节）、擦洗态变厚、窥探气泡 |
 | 氛围与排版 | `data-mood` + `--tint`（色温定调）、`--key-soft/softer/act`（主色浅档）、`text-wrap:balance`、`text-box-trim`、`text-spacing-trim`、侧栏折叠、侧栏 `animation-timeline:view()` 入场 |
@@ -204,6 +204,9 @@ HTML/CSS 契约见 `references/layout.md`。
   再插回并重放 CSS 动画（`references/stage.md` §3.4「别这么干」）。
 - **减少动效与导出只切过程**：`data-go`、`data-pan`、几何终态等读数必须让画面落在
   该步的最终一格，不能停在演到一半的中间态。
+- **量条自己身上不挂 transition**：`.meter` 的 `transition:none` 是刻意的（`.nt` 的
+  width / transform 补间会与 meterWrite 逐拍的 scale 双重叠加）；要淡入 / 位移包一层
+  `<g>`，`.in` 挂包装层。量条只做 rect——`width` 是"上一长度"的唯一来源。
 
 ## 6. 门禁设计
 
