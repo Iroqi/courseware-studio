@@ -165,6 +165,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 文字 | `badge(..., dec)`（逐字解码）、`#cap-text` 的 `--lit`（跟读点亮）、`#cap-prog`（句内进度细线）、`.mark` + `markBehind()`（荧光笔）、`.strike` + `strikeThrough()`（反证划线） |
 | 声画同步 | `cue()` + `.cue`（词拍：旁白念到词时给所指对象套四角括号；词窗按字数 + 标点现算，几何在词到的那拍现量并跟到入场落定） |
 | 对照与差异 | `compare()` + `[data-cmp="a/b"]`（对照窗：两个版本同窗叠放、互补裁切，`--cmp-r` 单一读数驱动接缝与标签；`at` 写当步档位，导出 / reduced-motion 落终值） |
+| 组成与拆解 | `explode()` + `.explode`（拆解视图：一组纯包装件给出装配位，按离锚点距离沿轴分开、外圈先走；`amount` 开合量跨步补间，导出 / reduced-motion 落当步档位） |
 | 数字与读数 | `data-count`（目标值写呈现属性）、`countRollWrite`（audio 时钟现算中间值）、`.roll`（tabular-nums 等宽）——数字落定：计数读数从句首从旧值滚到新值，首次建档与数值未变不滚，导出 / reduced-motion 落终值 |
 | 交互反馈 | `.opt.rip`（触点涟漪）、`.hot`（触点辉光）、`magMove/magClear` 与 `.mag`（磁吸迎手）、`.gate-next .go.shine`（放行键掠光） |
 | 播放器 | `--ease-spring` 手感、`.bar[data-drag]`（拖动跟手）、`.bar[data-band]` + `--band`（越界橡皮筋）、`#ffwd`（快进掠擦）、`.tick.on`（当前章节）、擦洗态变厚、窥探气泡 |
@@ -194,6 +195,11 @@ HTML/CSS 契约见 `references/layout.md`。
   原几何与命中区，`data-cmp` 只加 `clip-path`。参考盒（`data-helper="cmp"` 隐藏 rect）
   是量窗用的，`prune()` 要跳过、每步量前先摘，否则它把自己量进包围盒、窗口越量越大。
   标签组首次出现先强制一次布局再写目标值，否则初值 0% 未登记会直接跳变。
+- **拆解回答"由什么组成"**：`explode()` 的 parts 必须同父、都是纯包装 `<g>`，装配位
+  走 `opt.base`，**不要给这层写 transform**——transform 归 `drawExplodes()` 独占，
+  renderer 先写基座会带着上一步的延迟起跑，合拢错峰整个反掉；它不替代入场
+  （`.reveal` / `.in`），拆开的前后件本来就在场；同一步不要再用 `.tuck` / `.flip`
+  争同一层的 transform。
 - **不重复摘挂节点**：对已入树节点每步调用 `appendChild` / `insertBefore` 会摘下
   再插回并重放 CSS 动画（`references/stage.md` §3.4「别这么干」）。
 - **减少动效与导出只切过程**：`data-go`、`data-pan`、几何终态等读数必须让画面落在

@@ -401,6 +401,25 @@
     --cmp-ink:rgba(233,236,243,.28);
     --cmp-before:#8d95a8; --cmp-after:#f5a623;
     --cmp-seam:rgba(245,166,35,.9); --cmp-wash:rgba(245,166,35,.10);
+    /* 拆解视图（0.41.0）：一组纯包装节点沿一条轴分开，露出"它由哪几件组成"。
+       前沿对应是装配图 / 爆炸图（exploded view）、维修手册的分解插画与三维拆解
+       动画：观众不是看一个东西**出现**，而是看一个已经成立的整体**被打开**。
+       与 0.15.0 的揭示的边界：揭示改变"可见量"（从无到有）；拆解不改变可见量，
+       每一件从第一帧就在场，改变的是**件与件之间的距离**。所以它不该拿来当入场，
+       只该拿来回答"这个整体里有什么、谁接着谁"。
+       三枚令牌：
+         · --dur-ex .55s：与描线（--dur-draw .55s）同档，比位移（--dur-move .5s）
+           略慢——拆开是"看清楚"，不是"赶去下一处"；合拢仍走这一档，方向由
+           amount 的增减决定，不另开一套时长；
+         · --ex-stagger .05s：相邻件之间的错峰。拆开时**外圈先走、内圈后走**，
+           合拢时反过来（内圈先回、外圈最后落定）——同一个空间规则读两遍，
+           像拆装图先卸外盖、装回时先归中轴；
+         · --ex-cap .18s：错峰总预算的封顶。件数一多，按件数线性加延迟会让最后
+           一件迟到半秒，拆解成了散架；封顶之后 5 件以上也是"一组动作"。
+       拆解只写 transform（见 .explode 的边界），不改透明度、不改几何属性；
+       所以它不抢 put() 的其它补间，也不会污染 getBBox() 的局部坐标。
+       名字先全仓 grep 过，不与 --dur-* / --ex-* 其它令牌撞。 */
+    --dur-ex:.55s; --ex-stagger:.05s; --ex-cap:.18s;
   }
   /* 焦点弱化的驱动变量（0.13.0）：注册成 <number> 才能被 transition 逐帧补间——
      未注册的自定义属性只做令牌替换，改值时 filter 会整档跳变。没实现
@@ -802,6 +821,28 @@
        cx var(--dur-grow) var(--ease-out),cy var(--dur-grow) var(--ease-out),
        r var(--dur-grow) var(--ease-out),d var(--dur-grow) var(--ease-out),
        --dimmer var(--dur-dim) var(--ease-out),filter var(--dur-dim) var(--ease-out)}
+  /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
+     接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
+     四条边界（写错过任何一条，拆解都会静默失效）：
+       ① **只挂在纯包装 <g> 上，且这层只用来平移**。drawExplodes() 会从
+          transform.baseVal 读回"装配位"，再写"装配位 + 偏移"；如果这层自己还带
+          缩放/旋转，读回矩阵只剩 e/f 两个平移量，旋转会被抹平。要转的东西放进
+          子节点（与 .lift / .tilt 的"纯包装"同一条）。
+       ② **transform 归 drawExplodes() 独占**。renderer 只建节点、给坐标（explode 的
+          `base` 参数），**不要**再往这层写 transform：CSS transition 在属性被写下的
+          那一刻就用当时的 --ex-delay 起跑，若 renderer 先写装配位、drawExplodes 再
+          改延迟，这一趟补间记住的会是上一步的延迟（实测合拢时错峰整个反掉）。
+          节点每步由 renderer 重新挂进 EXPLODE，基座坐标每步重给，不靠读回 DOM。
+       ③ **位移单位是父坐标系，不是屏幕像素**：镜头缩放会一起放大偏移，这正是
+          "拆开的间隙和内容属于同一张图"该有的样子；不要拿屏幕像素去换算它。
+       ④ 只带 transform / opacity / filter / --dimmer 四项。纯包装层不该有
+          fill/stroke/几何属性；需要它们的东西放进子节点，各自的 .nt 照常工作。
+     错峰延迟写在节点上的 --ex-delay（drawExplodes 按距离现算），这里只留一个
+     0s 兜底：没有 JS 时（或 reduced-motion 一刀切）落的是终态，不是半拆。 */
+  .explode{transition:transform var(--dur-ex,.55s) var(--ease-out) var(--ex-delay,0s),
+       opacity .4s ease,
+       filter var(--dur-dim) var(--ease-out),
+       --dimmer var(--dur-dim) var(--ease-out)}
   /* 焦点弱化（0.13.0，前沿做法：注册变量补间 filter）：同一层里"这一步该看的"
      保持原样，其余图元降饱和 + 微压暗——弱化是**材质变化**而不是消失，观众仍
      知道它在那儿当参照。只碰 filter，**不碰 opacity**：CSS 的 opacity 会盖掉
@@ -2205,6 +2246,12 @@
        （关的是补间不是状态读数）。基础规则写在本块之前，同特异度时源序后者胜。 */
     [data-cmp]{transition:none}
     .cmp-seam{transition:none}
+    /* 拆解视图（0.41.0）关的是 **transition**，transform 上的目标偏移留在节点上：
+       拆开的那一格仍是拆开的，合拢的那一格仍是合拢的，只是不再滑过去——与
+       --cmp-r / .cue path 同一判断（关的是补间不是状态读数）。错峰延迟随之失效：
+       transition:none 的节点不进入延迟，所有件同帧落位。本条基础规则写在本块之前，
+       同特异度时源序后者胜。 */
+    .explode{transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -3174,7 +3221,18 @@
      CMP_MARK 记哪些节点此刻带着 data-cmp（对照结束时摘干净）。两者**不随
      begin() 清空**——它们描述的正是"跨步"这件事。 */
   var CMP_R = {}, CMP_MARK = {};
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; CUE = []; CMP = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 拆解视图的登记表（0.41.0）：与 DECODE / COUNT / CALL / CUE / CMP 同一张"每步
+     清空、renderer 重挂"的表——"这一步把哪一组拆到多开"同样是 (scene, step) 的
+     纯函数。renderer 只登记「拆哪几件 + 每件装配位 + 轴向 / 间距 / 开合量」；
+     **偏移量与错峰都在 drawExplodes() 里现算**：renderer 跑在 worldFor() 之前，
+     世界层还停在上一步（与 CALL / CUE / CMP 同一个坑）。part 必须是纯包装 <g>，
+     且 transform 归 drawExplodes() 独占（见 CSS .explode 边界①②）。 */
+  var EXPLODE = [];
+  /* 跨步小账本：EX_R 记每组的上一拍开合量（判方向——拆开外圈先走，合拢内圈先回），
+     EX_MARK 记哪些件此刻带着偏移（某一步不再登记时把它们送回装配位）。两者不随
+     begin() 清空：它们描述的正是"跨步"这件事。 */
+  var EX_R = {}, EX_MARK = {};
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; CALL = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -3698,6 +3756,167 @@
     // 读数账本只保留还在场的对照：下次重新登记时从终值起步，而不是从旧读数补
     for (var k2 in CMP_R) if (!drawn[k2]) delete CMP_R[k2];
     sweep(layer);
+  }
+
+  /* 拆解视图的令牌缓存（0.41.0）：与 cueTokens / rollDur 同一口径——设计期参数，
+     读一次就缓存；改名删名 parseFloat 得 NaN，落回默认档（.05s / .18s）。 */
+  var EX_T = null;
+  function exTokens(){
+    if (EX_T) return EX_T;
+    var cs = getComputedStyle(document.documentElement);
+    function n(name, dflt){
+      var v = parseFloat(cs.getPropertyValue(name));
+      return isFinite(v) ? v : dflt;
+    }
+    EX_T = {stagger:n('--ex-stagger', .05), cap:n('--ex-cap', .18)};
+    return EX_T;
+  }
+  /** 拆解视图（0.41.0）：把一组纯包装节点沿一条轴分开，露出整体由哪几件组成。
+   *  parts 是节点或节点 id 的数组，**必须同父、都是纯包装 <g>**；opt：
+   *    · base     **必填**：[[x,y], …] 与 parts 一一对应的装配位（父坐标系）。
+   *               这一层的 transform 由 drawExplodes() 独占，renderer 不要再写；
+   *               原因见 CSS .explode 边界②——先写装配位再改延迟，CSS 会拿旧延迟
+   *               起跑，错峰方向整个反掉（实测）。给坐标、不给 transform，是这条
+   *               原语唯一跟别的位移图元不同的接线口径。
+   *    · gap      最外件的位移量（默认 24 世界单位）。其余件按"离锚点多远"归一递减：
+   *               最外件走满 gap，越靠内走得越少；对称件向两侧各走 gap，所以它们
+   *               之间的间距实际增加 2 × gap；
+   *    · amount   0..1 开合量。0 = 装配位，1 = 完全拆开（默认 1）。它可跨步变化，
+   *               drawExplodes() 用 CSS 补间从上一拍滑到这一拍；
+   *    · axis     'x'（默认）或 'y'；
+   *    · anchor   某个 part 的序号：它不动，其余相对它展开。不传则取所有件包围盒
+   *               中心的均值；
+   *    · offsets  自定义每件的 [dx,dy]（同样乘 amount），给了就不走 axis + gap。
+   *  与 compare() 同一纪律：explode() 只登记，几何在 drawExplodes() 里现算。
+   *  它**不画**任何东西，也不改透明度——"打开"这件事只由 transform 说。 */
+  function explode(key, parts, opt){ EXPLODE.push({key:key, parts:parts, opt:opt || {}}); }
+
+  /** 把本步登记的拆解组全部排一遍：在 tick() 的 worldFor() 之后、drawCallouts()
+      之前调用。四件事顺序不能换：
+        ① 从 opt.base 取**本步装配位**，再用 getBBox() 的局部盒心补上尺寸差
+           （text-anchor 不同，盒心 ≠ 坐标点）；
+        ② 先落 --ex-delay / --dur-ex，再写目标 transform。CSS transition 是在
+           属性写下的那一刻用当时延迟起跑的，所以**只能写一次**：若先写装配位、
+           再改延迟，这一趟记住的是上一步的延迟（实测合拢错峰反转）；
+        ③ 首次建档且这一拍真有位移：先把 --dur-ex 压成 0s、写装配位并强制一次
+           布局，再恢复时长、写目标——不这样做，新建 + 直接位移会被并成一帧，
+           拆解瞬移到位（与 drawCompares 标签同款修法）；
+        ④ 错峰按离锚点的归一距离：拆开时外圈先走、内圈后走；合拢时反过来（内圈
+           先回、外圈最后落定）。方向只看 amount 相对上一拍的增减，不看步号——
+           擦洗往回拖时，动画方向也跟着回。
+      擦洗 / 导出截图 / reduced-motion 一律把 --dur-ex 压成 0s、延迟归零：手指到
+      哪儿、定格在哪一帧，拆解就停在那一拍的开合量上，不留半程。 */
+  function drawExplodes(){
+    var live = {}, drawn = {}, i, j, k;
+    var instant = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    function f(v){ return +v.toFixed(1); }
+    for (i = 0; i < EXPLODE.length; i++){
+      var reg = EXPLODE[i], parts = reg.parts || [], opt = reg.opt || {}, base = opt.base || [];
+      var P = [], ok = true;
+      for (j = 0; j < parts.length; j++){
+        var n = host(parts[j]);
+        if (!n || !n.isConnected || typeof n.getBBox !== 'function'){ ok = false; break; }
+        var id = n.id || (n.dataset && n.dataset.key);
+        var bp = base[j];
+        if (!id || !bp){ ok = false; break; }
+        var bx = bp.length !== undefined ? +bp[0] : +bp.x;
+        var by = bp.length !== undefined ? +bp[1] : +bp.y;
+        if (!isFinite(bx) || !isFinite(by)){ ok = false; break; }
+        var bb = n.getBBox();
+        P.push({n:n, id:id, bx:bx, by:by,
+                cx:bx + bb.x + bb.width / 2, cy:by + bb.y + bb.height / 2});
+      }
+      if (!ok || !P.length) continue;
+      // 锚点：默认取盒心均值；opt.anchor 指定某一件时，那一件原地不动。
+      var ax = 0, ay = 0;
+      for (j = 0; j < P.length; j++){ ax += P[j].cx; ay += P[j].cy; }
+      ax /= P.length; ay /= P.length;
+      if (typeof opt.anchor === 'number' && P[opt.anchor]){
+        ax = P[opt.anchor].cx; ay = P[opt.anchor].cy;
+      }
+      var amount = opt.amount === undefined ? 1 : +opt.amount;
+      if (!isFinite(amount)) amount = 1;
+      amount = Math.max(0, Math.min(1, amount));
+      var gap = opt.gap === undefined ? 24 : +opt.gap;
+      if (!isFinite(gap)) gap = 24;
+      gap = Math.max(0, gap);
+      var axis = opt.axis === 'y' ? 'y' : 'x';
+      var custom = opt.offsets;
+      // 方向与归一距离：只用轴向投影，横向偏移不参与错峰（那是另一条轴的事）。
+      var proj = [], dist = [], maxA = 0;
+      for (j = 0; j < P.length; j++){
+        var pj = axis === 'y' ? P[j].cy - ay : P[j].cx - ax;
+        proj.push(pj);
+        var a = Math.abs(pj);
+        dist.push(a);
+        if (a > maxA) maxA = a;
+      }
+      for (j = 0; j < dist.length; j++) dist[j] = maxA ? dist[j] / maxA : 0;
+      var prev = EX_R[reg.key];
+      var reverse = prev !== undefined && amount < prev - .0001;
+      var T = exTokens();
+      var spread = Math.min(T.cap, T.stagger * Math.max(0, P.length - 1));
+      for (j = 0; j < P.length; j++){
+        var p = P[j], ox, oy;
+        if (custom && custom[j] !== undefined && custom[j] !== null){
+          var c = custom[j], cx0 = 0, cy0 = 0;
+          if (typeof c === 'number'){ if (axis === 'y') cy0 = c; else cx0 = c; }
+          else if (c.length !== undefined){ cx0 = +c[0] || 0; cy0 = +c[1] || 0; }
+          else { cx0 = +c.x || 0; cy0 = +c.y || 0; }
+          ox = cx0 * amount; oy = cy0 * amount;
+        } else if (maxA){
+          var f0 = proj[j] / maxA * gap * amount;
+          ox = axis === 'y' ? 0 : f0;
+          oy = axis === 'y' ? f0 : 0;
+        } else { ox = 0; oy = 0; }             // 单件 / 全部重合：没有"分开"可演
+        var delay = (reverse ? dist[j] : 1 - dist[j]) * spread;
+        var ds = delay.toFixed(3) + 's';
+        var baseT = 'translate(' + f(p.bx) + ',' + f(p.by) + ')';
+        var targetT = 'translate(' + f(p.bx + ox) + ',' + f(p.by + oy) + ')';
+        var fresh = !EX_MARK[p.id];
+        var moved = Math.abs(ox) > .01 || Math.abs(oy) > .01;
+        if (instant){
+          p.n.style.setProperty('--dur-ex', '0s');
+          p.n.style.setProperty('--ex-delay', '0s');
+          if (p.n.getAttribute('transform') !== targetT) p.n.setAttribute('transform', targetT);
+        } else if (fresh && moved){
+          /* 首次建档：先把时长与延迟都压成 0、写装配位并强制布局，让这一帧真的
+             落成计算样式；随后恢复时长、写这一拍的目标与错峰延迟。没有 flush
+             的话，新建 + 直接改 transform 会被并成一帧，拆解看起来就是瞬移。 */
+          p.n.style.setProperty('--dur-ex', '0s');
+          p.n.style.setProperty('--ex-delay', '0s');
+          p.n.setAttribute('transform', baseT);
+          void p.n.getBoundingClientRect();
+          p.n.style.removeProperty('--dur-ex');
+          p.n.style.setProperty('--ex-delay', ds);
+          if (p.n.getAttribute('transform') !== targetT) p.n.setAttribute('transform', targetT);
+        } else {
+          p.n.style.removeProperty('--dur-ex');
+          p.n.style.setProperty('--ex-delay', ds);
+          if (p.n.getAttribute('transform') !== targetT) p.n.setAttribute('transform', targetT);
+        }
+        live[p.id] = {node:p.n, bx:p.bx, by:p.by, key:reg.key};
+      }
+      drawn[reg.key] = 1;
+      EX_R[reg.key] = amount;
+    }
+    // 本步没再登记的件：送回它上一次的装配位（不拆成 0,0——那会把它从版面上搬走）。
+    // 已经被 sweep 收掉的节点不必救；延迟归零，下一次重建从 0s 起。
+    for (k in EX_MARK) if (!live[k]){
+      var old = EX_MARK[k], on = old.node;
+      if (on && on.isConnected){
+        if (on.style){
+          if (instant) on.style.setProperty('--dur-ex', '0s');
+          else on.style.removeProperty('--dur-ex');
+          on.style.setProperty('--ex-delay', '0s');
+        }
+        var bt = 'translate(' + f(old.bx) + ',' + f(old.by) + ')';
+        if (on.getAttribute('transform') !== bt) on.setAttribute('transform', bt);
+      }
+    }
+    EX_MARK = live;
+    // 开合量账本只保留还在场的组：下次重新登记时从终值起步，而不是从旧读数补
+    for (k in EX_R) if (!drawn[k]) delete EX_R[k];
   }
 
   /** 撤下本步没写过的图元。递归清整棵子树：某一行这一幕还在，但行里"只有这一步
@@ -4416,9 +4635,9 @@
   function renderC(step){
     only('stC');
     var cases = [
-      {sign:'a - b < 0', act:'a 排在 b 前面', col:'#2ecc71', dx:[-100, 100]},
-      {sign:'a - b = 0', act:'两者相等',       col:'#8d95a8', dx:[-72, 72]},
-      {sign:'a - b > 0', act:'a 排在 b 后面', col:'#ef4d4d', dx:[100, -100]}
+      {sign:'< 0', act:'a 排在 b 前面', col:'#2ecc71', dx:[-100, 100]},
+      {sign:'= 0', act:'两者相等',       col:'#8d95a8', dx:[-72, 72]},
+      {sign:'> 0', act:'a 排在 b 后面', col:'#ef4d4d', dx:[100, -100]}
     ];
     // 契约态：s1→<0，s2→=0，s3→>0；s4/s5 不再停留 >0（各给独立画面）
     var pick = (step >= 3 && step < 4) ? 2 : (step === 2) ? 1 : (step === 1) ? 0 : -1;
@@ -4426,21 +4645,51 @@
     var cy = 224;
     put('c-body', 'rect', 'c-formula', {x:240, y:cy-150, width:520, height:58, rx:12,
       fill:'#161a23', stroke:'#2a3140'});
-    // 顶部公式行：引入 → 三种契约 → s4 强调「只看符号」→ s5「落到升降序」
-    var headFill, headText;
-    if (step === 4){ headFill = '#f5a623'; headText = '只看符号：负 / 0 / 正，数值本身不参与'; }
-    else if (step === 5){ headFill = '#f5a623'; headText = 'a - b 升序 · b - a 降序'; }
-    else if (pick === -1){ headFill = '#8d95a8'; headText = '不传比较函数 → 字符串序；要按数值排，得自己传'; }
-    else { headFill = c.col; headText = '(a, b) => a - b    →    ' + c.sign; }
-    var head = txt('c-body', 'c-head', {x:500, y:cy-111, 'text-anchor':'middle', 'font-size':19,
-      'font-family':MONO, fill: headFill}, headText);
-    /* 荧光笔标记（0.27.0）的**唯一消费者**：s4 这句是整幕的结论（"只看符号"），
-       给它在字后面垫一道测出来的琥珀带——划线动作发生在"这句话被说出来"的同一拍。
-       s5 不再调用，带子被 sweep 收掉，画面只剩"落到升降序"那行新结论——标记是
-       一次性的"现在看这句"，不是永久高亮（永久高亮会让 s5 看起来还没讲完）。
-       为什么只给琥珀句：红字配亮带对比度不足 4.5:1，红字那一路要走 .strike
-       （见 CSS .mark 边界②与 renderD）。 */
-    if (step === 4) markBehind('c-body', 'c-mark', head);
+    // 顶部公式行（0.41.0）：s0 把比较函数拆成三件，s1 起合拢成语法骨架，
+    // 右侧接这一拍的契约读数。
+    /* 拆解视图的消费者：s0 那句是"要按数值排序，就得**自己传**比较函数"——观众
+       先得看清"比较函数"这四个字由什么组成。三件从中心向两侧分开：`(a, b)` 是
+       参数、`=>` 是箭头函数的记号、`a - b` 是返回差值。s1 旁白转到契约，三件
+       合拢并整体左移，给右边的 `→ < 0` 让出位置——**拆开的整体不会被撤掉，
+       而是收成后续五句共用的语法骨架**；这也是它与"拆完即走的入场动画"的分界。
+       落点：s0 三件以 500 为心排在 436 / 500 / 564；s1 起装配位在 360 / 424 / 488，
+       尾部读数从 528 起写。标签只在 s0/s1 建档：s0 亮着、s1 随合拢淡出，s2 由
+       sweep 收走。c-head 在 s0 不建档——这一拍的话头是拆开的三件，不是又一行字。 */
+    var TOK_Y = cy - 111;
+    var taken = step === 0;
+    var TOK = [
+      ['c-tok-a', 436, 360, '(a, b)', '参数', '#c9d1e0'],
+      ['c-tok-arrow', 500, 424, '=>', '箭头', '#5d6577'],
+      ['c-tok-b', 564, 488, 'a - b', '返回差值', '#c9d1e0']
+    ];
+    TOK.forEach(function(q){
+      /* 这一层**不写 transform**：拆解视图的基座由 explode() 的 base 参数给出，
+         transform 归 drawExplodes() 独占（见 CSS .explode 边界②）。 */
+      var g = put('c-body', 'g', q[0], {class:'explode in'});
+      txt(g, q[0] + '-t', {class:null, x:0, y:0, 'text-anchor':'middle', 'font-size':19,
+        'font-family':MONO, fill:q[5]}, q[3]);
+      if (step <= 1)
+        txt(g, q[0] + '-lab', {class:null, x:0, y:15, 'text-anchor':'middle', 'font-size':11,
+          fill:'#8d95a8', opacity: taken ? 1 : 0}, q[4]);
+    });
+    explode('c-fn', TOK.map(function(q){ return q[0]; }), {
+      base: TOK.map(function(q){ return [taken ? q[1] : q[2], TOK_Y]; }),
+      gap:36, amount: taken ? 1 : 0});
+    if (step >= 1){
+      var headFill, headText;
+      if (step === 4){ headFill = '#f5a623'; headText = '·  只看符号，不看数值'; }
+      else if (step === 5){ headFill = '#f5a623'; headText = '→  升序 · b - a 降序'; }
+      else { headFill = c.col; headText = '→  ' + c.sign; }
+      var head = txt('c-body', 'c-head', {x:528, y:cy-111, 'text-anchor':'start', 'font-size':19,
+        'font-family':MONO, fill: headFill}, headText);
+      /* 荧光笔标记（0.27.0）的**唯一消费者**：s4 这句是整幕的结论（"只看符号"），
+         给它在字后面垫一道测出来的琥珀带——划线动作发生在"这句话被说出来"的同一拍。
+         s5 不再调用，带子被 sweep 收掉，画面只剩"落到升降序"那行新结论——标记是
+         一次性的"现在看这句"，不是永久高亮（永久高亮会让 s5 看起来还没讲完）。
+         为什么只给琥珀句：红字配亮带对比度不足 4.5:1，红字那一路要走 .strike
+         （见 CSS .mark 边界②与 renderD）。 */
+      if (step === 4) markBehind('c-body', 'c-mark', head);
+    }
     // a / b 两个方块：常驻节点，契约态之间**滑过去**（transform 由 .nt 补间）；
     // s4/s5 收拢居中、描边变橙把视线压到符号上。
     var aX = pick >= 0 ? 500 + cases[pick].dx[0] : 448;
@@ -5659,6 +5908,7 @@
         begin();                                  // 开新步：本步没引用的常驻图元随后撤走
         (RENDER[hit.scene.step_id] || function(){})(hit.index);
         worldFor(hit.scene.step_id, hit.index);   // 主角落位（跨幕延续的那三个数）
+        drawExplodes();                           // 0.41.0：拆解视图，先合成本步装配位
         drawCallouts(hit.scene.step_id, hit.index); // 0.38.0：世界层落位后再量注记
         drawCues();                               // 0.39.0：词拍括号层，世界层落位之后建空框
         drawCompares();                           // 0.40.0：对照窗，世界层落位之后现量两版并集

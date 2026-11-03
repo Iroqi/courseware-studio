@@ -169,6 +169,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
 | 声画同步 | 旁白此刻在念谁 | `cue()` + `.cue`（四角括号）、`cueWrite()` / `cueGeom()` |
 | 对照与差异 | 两个版本差在哪、改了什么 | `compare()` + `[data-cmp]`（对照窗、互补裁切、接缝与标签） |
+| 组成与拆解 | 一个整体由哪几件组成、怎么打开 / 合拢 | `explode()` + `.explode`（按装配位与离锚点距离沿轴分开，错峰开合） |
 | 数字与读数 | 计数怎么滚到新值 | `data-count`、`countRollWrite`、`.roll` |
 | 交互反馈 | 手按下去收到了什么 | `.opt.rip`、`.hot`、磁吸迎手、`.mag`、`.go.shine` |
 | 播放器 | 时间被搬到哪儿 | 擦洗态升级、`#ffwd`、`.bar[data-band]`、`.tip` |
@@ -187,6 +188,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 字母与读数 | `--dur-hl`、`--dur-cap`、`--lit-floor`、`--lit-ramp`、`--flow-seg`、`--dur-flow`、`--dur-roll` |
 | 声画同步 | `--dur-cue`、`--cue-lead`、`--cue-pause`、`--cue-settle`、`--cue-pad`、`--cue-arm`、`--cue-ink` |
 | 对照 | `--dur-cmp-min`、`--dur-cmp-full`、`--cmp-ink`、`--cmp-before/after`、`--cmp-seam`、`--cmp-wash` |
+| 拆解 | `--dur-ex`、`--ex-stagger`、`--ex-cap` |
 | 原语专属 | 每个原语 2–4 个（如 `--dur-settle` / `--squash-x` / `--squash-y`） |
 
 改全局节奏只动一处。曲线是 easeOutExpo 家族（`.22,1,.36,1`）：入场与补间共用它，
@@ -603,6 +605,45 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
     内容"的差异比较，必须同时有 A 与 B，且窗沿、接缝、标签是一套注记。两者可以
     同场，但对照窗不负责入场，也不改变被对照节点的几何与命中区。
 
+**（14）组成与拆解**
+
+- **拆解视图**（`explode()` + `.explode` + `drawExplodes()`，0.41.0）：把一组
+  **纯包装件**沿一条轴分开，露出一个已经成立的整体由哪几件组成。前沿对应是装配图 /
+  爆炸图（exploded view）、维修手册的分解插画与三维拆解动画。它回答的是**组成关系**，
+  不是"这东西怎么出现"——每一件从第一帧就在场，改变的只是件与件之间的距离。所以
+  它不能替代 `.reveal` / `.in`；拆完也不是退场，而是可以留在台上继续当语法骨架
+  （范本 seg-4 s0 拆比较函数、s1 起合拢成整幕共用的公式条）。
+  - **登记、量几何、写位移三拍**：renderer 只登记（`EXPLODE`，与 `CUE` / `CALL` /
+    `CMP` 同一张"每步清空、renderer 重挂"的表），并把每件的**装配位**放进
+    `opt.base`；`drawExplodes()` 在 `worldFor()` 之后按离锚点的轴向距离归一求偏移、
+    按距离算错峰，再写 `transform`。锚点默认取所有件盒心的均值，`opt.anchor` 可钉住
+    某一件；`opt.axis` 选 `'x'` / `'y'`，`opt.offsets` 可逐件给自定义位移。
+  - **`transform` 归原语独占**：renderer **不要**给这一层写 transform。CSS transition
+    是在属性被写下的那一刻、用当时的 `--ex-delay` 起跑的；若 renderer 先写装配位、
+    `drawExplodes()` 之后才改延迟，这一趟补间记住的是上一步的延迟——实测合拢时内外
+    圈错峰整个反掉。正确接线是：节点只给 class 与子图元，装配坐标走 `opt.base`，
+    位移一次写成。这也是它跟 `.nt` / `.lift` 等"作者写目标值"的图元最大的接线差异。
+  - **首次建档要两次写**：新建节点若直接写"拆开后的目标"，浏览器会把创建与位移并成
+    一帧，拆解看起来是瞬移。`drawExplodes()` 对首次参与且有位移的件先把 `--dur-ex`
+    压成 0s、写装配位、`getBoundingClientRect()` 强制一次布局，再恢复时长与错峰、
+    写目标。已经参与过的件不做这两拍——它已有上一拍的计算值可补间。
+  - **错峰方向看 `amount` 的增减**：拆开时外圈先走、内圈后走；合拢时反过来（内圈
+    先回、外圈最后落定）。方向只看这一拍相对上一拍的开合量，不看步号，所以往回擦洗
+    时动画方向也跟着回。单件组或所有件重合时没有"分开"可演，直接落装配位。
+  - **开合量是状态**：`opt.amount` 0 = 装配位、1 = 完全拆开，中间值合法；`EX_R` 记住
+    上一拍的量，用来判方向。`gap` 是最外件的位移量（对称件各走一份，所以它们之间的
+    间距实际增加 2 × gap），不是"最终间距"。
+  - **几何与标注**：偏移写在 `transform` **属性**上，所以 `boxIn()` / `camBox()` 与
+    `getBBox()` 的局部坐标都读得到目标位置；`drawCallouts()` / `drawCompares()` 在
+    `drawExplodes()` 之后跑，注记量到的是拆开后的落点，不是装配位。件内的文字、卡框
+    仍各自走 `.nt`；拆解层只做平移，旋转 / 缩放放进子节点。
+  - **导出 / reduced-motion**：两者都把 `--dur-ex` 与延迟压成 0，目标 `transform`
+    照写，所以定格落在"这一拍该拆多开"的状态上，不是半程；与 `.tuck` / `#spot`
+    同一判断（关的是补间，不是档位）。
+  - **与 `.reveal` / `.flip` 的分工**：`.reveal` 改变可见量，`.flip` 换同一位置上的
+    说法，拆解只改变件间距离；同一步不要再用 `.tuck` / `.flip` 争同一层的 transform
+    （`.explode` 的 transition 简写会顶掉 `.nt`，两套变换会互相覆盖）。
+
 #### 3.4.4 导出与减动效
 
 截图页注入 `transition:none!important;animation:none!important` 且每帧冷启动；
@@ -615,6 +656,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | transition | `.tuck*`、`.flip`、`.ride`、`.tilt`、`.lift`、`.swap`、`#spot`、`--cam-dur`、对焦、`callout` 的收回与跟随 | 落到 after-change style，即那一秒的真实档位 |
 | JS 逐拍状态 + transition | 词拍（`cueWrite()` 写 `.on`、`cueGeom()` 现量几何） | 导出 / reduced-motion 切掉 opacity / scale 补间，括号完整、无缩放；定格帧在句末，标记已累积、几何量到的是入场落定后的终值 |
 | JS 逐拍 + 注册属性 transition | 对照窗（`compare()` / `drawCompares()` 写 `--cmp-r`） | 直接写当步 `opt.at`；`--dur-cmp` 为 0 时互补裁切、接缝、四角框与标签同步落终值，两端 0 / 100% 只剩一份 |
+| JS 逐拍写 transform | 拆解视图（`explode()` / `drawExplodes()`） | 直接写当步 `amount` 对应的 `transform`；`--dur-ex` 与错峰延迟归零，拆开 / 合拢都落终值 |
 | JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`） | 导出 / reduced-motion 落 `data-count` 终值（定格里读"量"）；live 播放逐拍滚中间值 |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
@@ -664,6 +706,11 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   签比这一步的取景窗还宽、或钳回安全区后会压住被注对象时，**整条注记直接跳过**，
   不报错也不留半截。排查顺序：被注节点这一步在不在台上 → 取景窗够不够宽 →
   朝向是不是把签挤到了对象身上。
+- **拆解视图的 transform 被写两次**：renderer 先写装配位、`drawExplodes()` 再写
+  目标时，CSS 已经在第一笔写下时用**上一步的 `--ex-delay`** 起跑；随后改延迟不会
+  改这一趟补间，表现为"拆开正常、合拢时内外圈错峰反了"。修法是 renderer 只给
+  `opt.base` 坐标，不写这层的 transform。另：`opt.base` 缺项 / 非有限数时整组静默
+  跳过，`EXPLODE` 的登记每步都会清空——renderer 忘了重挂，下一步就收回装配位。
 
 ### 3.5 阈值
 
@@ -918,6 +965,10 @@ emoji 只是记号的点睛。
       一份；窗口取并集、隐藏参考盒 `data-helper="cmp"` 被 `prune()` 跳过且每步量前
       先摘；接缝、四角框、标签共用同一 `--dur-cmp`；标签首帧先强制 reflow 再写目标；
       `opt.at` 在导出 / reduced-motion 落终值，`scrubbing` / 截图模式时长为 0；
+- [ ] 拆解视图：parts 同父、纯包装 `<g>`；renderer 只给 `opt.base`，不写这层
+      transform；首次建档先以 `--dur-ex:0s` 落装配位并 reflow，再写目标；拆开外圈
+      先走、合拢内圈先回（方向看 `amount` 增减）；`--ex-delay` 每步重写、reduce /
+      导出归零；标注层在 `drawExplodes()` 之后量几何；不与 `.tuck` / `.flip` 争同层；
 - [ ] `.hot`：坐标 `inherits:true`、位置 `linear`、静止态 `50%`、不用 `:hover` 驱动、
       键盘不点亮；
 - [ ] 磁吸：只写独立 `translate`、委托在 `#gate`、场半径扣位移、触屏 / reduce / 截图
