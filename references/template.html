@@ -341,6 +341,11 @@
        这里**不给引线墨色令牌**：注记的颜色是作者对这一步的语义声明（蓝=过程、
        琥珀=判词、灰=参照），一支墨色收不住三种。 */
     --callout-bg:#141820;
+    /* 关系连线（0.43.0）：--dur-conn 是线"从 a 的边缘长到 b 的边缘"的一拍，与
+       --dur-roll .5s 同档——关系成立是叙事事实，不该比一次计数滚动慢；收回同拍。
+       --conn-ink 取中性墨灰（反证划线 --strike-ink 压色同款）：线表达的是"关系"
+       不是"强调"，琥珀留给标注、红色留给反证。--conn-w 线宽默认 1.5（与引线同款）。 */
+    --dur-conn:.5s; --conn-ink:#8d95a8; --conn-w:1.5;
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -1923,6 +1928,19 @@
   @keyframes calloutLand{from{opacity:0;translate:var(--c-dx,0) var(--c-dy,0)}}
   .callout.gone .lead{stroke-dashoffset:1}
   .callout.gone .callout-lab,.callout.gone .dot{opacity:0}
+  /* 关系连线（0.43.0）：两个已在场的图元之间"关系成立"那一步，一条细线从 a 的边缘
+     长到 b 的边缘。stroke-dashoffset 是 JS 逐拍的读数（1=未长、0=全长）——**不挂
+     transition**，与 .meter 同一课：dashoffset 每帧现算，再叠一条 transition 就是
+     双缓动。d 走 transition：换句时两端现量重写 d，端点跨步移动时线跟着补间（与
+     .callout .lead 同款）。标签透明度同样由 JS 逐拍写（生长过半浮现 / 收回时淡出），
+     终态在属性上。线只做"关系"这一件事，不替代 callout（标注）/ brace（括组）。 */
+  .conn{pointer-events:none}
+  .conn .line{fill:none;stroke:var(--conn-ink);stroke-width:var(--conn-w,1.5);
+              stroke-linecap:round;stroke-linejoin:round;pathLength:1;
+              stroke-dasharray:1;stroke-dashoffset:1;
+              transition:d var(--dur-grow) var(--ease-out)}
+  .conn .lab{fill:var(--conn-ink);font-size:12;font-weight:600;text-anchor:middle;
+             dominant-baseline:central}
 
   /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。它不是"又一个
      注记"——引线标注（0.38.0）说的是"这句话在说谁"，词拍说的是"**此刻**在念谁"：
@@ -2252,6 +2270,11 @@
        transition:none 的节点不进入延迟，所有件同帧落位。本条基础规则写在本块之前，
        同特异度时源序后者胜。 */
     .explode{transition:none}
+    /* 关系连线（0.43.0）关的是 **transition**：dashoffset 与标签透明度是 JS 逐拍的
+       读数，见旗直接落终值（生长落 0 = 线完整、收回落移除）——与 --cmp-r / .cue path
+       同一判断（关的是补间不是状态读数）。这里再关掉 d 的补间：换句现量直接落位。
+       本条基础规则写在本块之前，同特异度时源序后者胜。 */
+    .conn .line{transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -2912,6 +2935,7 @@
                  聚光暗幕之下：压住卡片与连线，又不挡灯。每步由 drawCallouts() 重排，
                  sweep() 按 key 收人；指针一律穿透（CSS .callout）。 -->
             <g id="callouts"></g>
+            <g id="connects"></g>
 
             <!-- 词拍层（0.39.0）：四角括号不进任何一幕的子树——它标的是"旁白此刻
                  念到的那件东西"，而目标可能住在世界层（跨幕常驻）、可能就是门禁热区。
@@ -3216,6 +3240,10 @@
      renderer 跑在主角落位之前，世界层 transform 还停在上一步，那时量出来的盒是旧
      位置（0.24.0 量放映框踩过同一坑）。 */
   var CALL = [];
+  var CONN = [];       // 关系连线（0.43.0）：与 CALL 同一张"每步清空、renderer 重挂"的
+                       // 表——"这一步谁和谁有关系"同样是 (scene, step) 的纯函数。
+  var CONN_GONE = {};  // 跨步小账本（同 EX_MARK）：显式 gone 的线正在收回——它已经
+                       // 不在 CONN 里了，收回进度得有地方记；收回完成即移除并清账。
   /* 词拍的登记表（0.39.0）：与 DECODE / COUNT / CALL 同一张"每步清空、renderer 重挂"
      的表——"这一步点名谁"同样是 (scene, step) 的纯函数。renderer 只登记
      「框谁 + 哪个词 + 第几次出现」；**几何与相位都不在这里算**：drawCues() 在世界层
@@ -3244,7 +3272,7 @@
      EX_MARK 记哪些件此刻带着偏移（某一步不再登记时把它们送回装配位）。两者不随
      begin() 清空：它们描述的正是"跨步"这件事。 */
   var EX_R = {}, EX_MARK = {};
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -3407,6 +3435,11 @@
    *  点取并（同 camBox 的口径）。量不到（display:none、空盒、老引擎没有 DOMMatrix）
    *  就返回 null——宁可不括，也不括一个错的位置（与 spotOn 同口径）。 */
   function boxIn(node, stop){
+    /* 换句重量必先失效几何缓存（0.43.0）：复用节点改了几何属性后，getBBox 可能返回
+       上一帧的缓存盒（同帧多量尤甚）。同位置重插一次强制浏览器重算该节点几何——
+       不改渲染顺序，量到新几何；与 0.24.0「量放映框踩坑」同课。 */
+    var p = node.parentNode;
+    if (p) p.insertBefore(node, node.nextSibling);
     var bb = node.getBBox();
     if (!bb.width || !bb.height || !window.DOMMatrix) return null;
     var m = new DOMMatrix(), n = node;
@@ -3501,6 +3534,174 @@
     var win = (CAM[sid] || [])[step] || FULL;
     CALL.forEach(function(c){ layoutCallout(layer, c, win); });
     sweep(layer);
+  }
+
+  /** 关系连线（0.43.0）：两个已在场的图元之间"关系成立"拉一条细线（比较 / 匹配 /
+   *  归并都算）。作者只给 key / 两端元素 key / 可选短标签；几何每帧从 boxIn() 现量
+   *  ——端点取各自 bbox 边缘与中心连线的交点、再外伸 2，线贴在两件东西的表面，不是
+   *  穿心（与 callout 圆点同一条纪律）。时序分两拍：
+   *   · **生长**：首次登记时 dashoffset 从 1 → 0（句首 stepT0 起、--dur-conn、
+   *     easeOutExpo，connTock 逐拍写）；复用同一 key 不重放（关系没断，线保持完整）；
+   *   · **收回**：`gone:true` 显式声明"关系解除"——线沿原路收回（dashoffset 0 → 1）
+   *     再移除，live 播放可见收回，导出帧落在已收回的格上（线不在 = 关系不成立）；
+   *   · **不登记即消失**：本步没登记、也没在收回的旧线直接摘掉（与 CALL sweep 同口径）。
+   *  标签塞得下才画（中点居中、生长过半浮现）；`pointer-events:none`；线只做"关系"
+   *  这一件事，不替代 callout（标注）/ brace（括组）；同一步不要与 #spot 并用。 */
+  function connect(key, a, b, opt){ CONN.push({key:key, a:a, b:b, opt:opt || {}}); }
+
+  /** 换句布局：在 tick() 的 worldFor() 之后、camSet() 之前调用（与 drawCallouts 同批）。
+   *  只在这一拍建节点 / 跟几何 / 转收回 / 摘旧线；生长与收回的逐拍推进归 connTock。 */
+  function layoutConnects(){
+    var layer = el('connects');
+    if (!layer) return;
+    var seen = {};
+    CONN.forEach(function(c){
+      seen[c.key] = 1;
+      if (c.opt && c.opt.gone){ startConnGone(layer, c); return; }
+      var g = el('cn-' + c.key);
+      if (!g){ g = newConn(layer, c); if (!g) return; }
+      placeConn(g, c);
+      if (CONN_GONE[c.key]){              // 收回中复活：关系又成立了，线立即回到全长
+        delete CONN_GONE[c.key];
+        writeConn(g, 0, 1);
+      }
+    });
+    // 摘旧线：本步没登记、也没在收回的 .conn 组直接移除（关系没被声明 = 不存在）
+    for (var i = layer.children.length - 1; i >= 0; i--){
+      var ch = layer.children[i];
+      if (!ch.id || ch.id.indexOf('cn-') !== 0) continue;
+      var k = ch.id.slice(3);
+      if (!seen[k] && !CONN_GONE[k]) layer.removeChild(ch);
+    }
+  }
+
+  /** 逐拍推进：每帧调用（与 countRollWrite / meterWrite 同批）。对已登记未 gone 的线
+   *  推进生长（句首 stepT0 起），对 CONN_GONE 里的线推进收回；见旗直接落终值——
+   *  生长落 dashoffset 0（线完整：定格里读"这两件有关系"）、收回落移除（关系已解除）。 */
+  function connTock(t){
+    var layer = el('connects');
+    if (!layer) return;
+    var full = window.__coursewareShotMode || mqReduce.matches;
+    CONN.forEach(function(c){
+      if (c.opt && c.opt.gone) return;    // gone 走 CONN_GONE
+      var g = el('cn-' + c.key);
+      if (!g) return;
+      if (full){ writeConn(g, 0, 1); return; }
+      var dur = connDur(), p = Math.max(0, Math.min(1, (t - g.__t0) / dur)), e = 1 - Math.pow(2, -10 * p);
+      if (p >= 1){ writeConn(g, 0, 1); return; }        // 收尾那一帧不许留 0.001 的缝（与 meter 同课）
+      writeConn(g, 1 - e, Math.max(0, Math.min(1, (p - .35) / .65)));
+    });
+    for (var k in CONN_GONE){
+      var e2 = CONN_GONE[k];
+      if (full){ finishConnGone(layer, k); continue; }
+      var p2 = Math.max(0, Math.min(1, (t - e2.t0) / connDur())), ee = 1 - Math.pow(2, -10 * p2);
+      if (p2 >= 1){ finishConnGone(layer, k); continue; }   // 收到头：移除（不留 0.999 的缝）
+      writeConn(el('cn-' + k), e2.from + (1 - e2.from) * ee, 1 - ee);
+      if (p2 >= 1) finishConnGone(layer, k);
+    }
+  }
+
+  function connDur(){ var d = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dur-conn')); return isFinite(d) && d > 0 ? d : .5; }
+  function f1(v){ return +v.toFixed(1); }
+  /** 一条新线：建包装组 + 线 path，量标签（探针、塞不下不画），记生长起点与当前读数。 */
+  function newConn(layer, c){
+    var ra = el(c.a), rb = el(c.b);
+    if (!ra || !rb) return null;
+    var ua = boxIn(ra, el('cam')), ub = boxIn(rb, el('cam'));
+    if (!ua || !ub) return null;
+    var p1 = connEdge(ua, ub), p2 = connEdge(ub, ua);
+    if (!p1 || !p2) return null;
+    if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 24) return null;   // 贴得太近：不连
+    var g = document.createElementNS(NS, 'g');
+    g.setAttribute('id', 'cn-' + c.key);
+    g.setAttribute('class', 'conn');
+    var line = document.createElementNS(NS, 'path');
+    line.setAttribute('class', 'line');
+    line.setAttribute('pathLength', '1');
+    line.setAttribute('stroke-dasharray', '1');
+    line.setAttribute('stroke-dashoffset', '1');
+    g.appendChild(line);
+    layer.appendChild(g);
+    g.__t0 = stepT0;                       // 生长起点：本句句首（与 count roll 同拍）
+    g.__off = 1;
+    if (c.opt && c.opt.label){
+      var probe = document.createElementNS(NS, 'text');
+      probe.setAttribute('font-size', '12'); probe.setAttribute('font-weight', '600');
+      probe.textContent = c.opt.label;
+      layer.appendChild(probe);
+      var tw = probe.getComputedTextLength ? probe.getComputedTextLength() : 0;
+      layer.removeChild(probe);
+      if (tw && tw + 16 <= Math.hypot(p2.x - p1.x, p2.y - p1.y)){
+        var lab = document.createElementNS(NS, 'text');
+        lab.setAttribute('class', 'lab');
+        lab.textContent = c.opt.label;
+        g.appendChild(lab);
+        g.__lab = lab;
+      }
+    }
+    placeConn(g, c);
+    return g;
+  }
+  /** 每帧现量：d 从 a 边缘到 b 边缘、标签中点居中（换句时调用；端点跨步移动时
+   *  CSS 的 d transition 负责中间几帧的补间）。 */
+  function placeConn(g, c){
+    var ra = el(c.a), rb = el(c.b);
+    if (!ra || !rb) return;
+    var ua = boxIn(ra, el('cam')), ub = boxIn(rb, el('cam'));
+    if (!ua || !ub) return;
+    var p1 = connEdge(ua, ub), p2 = connEdge(ub, ua);
+    if (!p1 || !p2) return;
+    var line = g.querySelector('.line');
+    line.setAttribute('d', 'M' + f1(p1.x) + ' ' + f1(p1.y) + 'L' + f1(p2.x) + ' ' + f1(p2.y));
+    var lab = g.__lab;
+    if (lab){
+      lab.setAttribute('x', f1((p1.x + p2.x) / 2));
+      lab.setAttribute('y', f1((p1.y + p2.y) / 2));
+    }
+  }
+  /** 显式 gone：把这条线转入收回账本。几何以当前节点为准（换句布局时端点已现量），
+   *  from 取当前 dashoffset——线长到一半就解除时，从半截往回收。 */
+  function startConnGone(layer, c){
+    var g = el('cn-' + c.key);
+    if (!g) return;                        // 本就没线：无事可收
+    var line = g.querySelector('.line');
+    var cur = line ? parseFloat(line.getAttribute('stroke-dashoffset') || '1') : 1;
+    if (isNaN(cur)) cur = 1;
+    CONN_GONE[c.key] = {t0: stepT0, from: Math.min(1, Math.max(0, cur))};
+  }
+  /** 写一条线的当前读数：off = dashoffset（0 全长 / 1 未长）、op = 标签透明度；同值不重写。 */
+  function writeConn(g, off, op){
+    if (!g) return;
+    var line = g.querySelector('.line');
+    if (line){
+      var so = String(+off.toFixed(4));
+      if (so !== g.__off){ line.setAttribute('stroke-dashoffset', so); g.__off = so; }
+    }
+    var lab = g.__lab;
+    if (lab){
+      var o = String(+op.toFixed(3));
+      if (o !== g.__lop){ lab.setAttribute('opacity', o); g.__lop = o; }
+    }
+  }
+  /** 收回完成：移除节点并清账。 */
+  function finishConnGone(layer, k){
+    var g = el('cn-' + k);
+    if (g && layer) layer.removeChild(g);
+    delete CONN_GONE[k];
+  }
+  /** 端点：从 u 的中心朝 v 的中心出发，射线与 u 的 bbox 边缘相交处再外伸 2——线贴
+   *  在两件东西的表面，不是穿心。两心重合（或射线过短）时量不出方向，返回 null。 */
+  function connEdge(u, v){
+    var cx = u.x + u.w / 2, cy = u.y + u.h / 2;
+    var dx = v.x + v.w / 2 - cx, dy = v.y + v.h / 2 - cy;
+    var ax = Math.abs(dx), ay = Math.abs(dy);
+    if (ax < .01 && ay < .01) return null;
+    var tx = ax > .01 ? (u.w / 2) / ax : Infinity;
+    var ty = ay > .01 ? (u.h / 2) / ay : Infinity;
+    var t = Math.min(tx, ty);
+    if (!isFinite(t) || t < .01) return null;
+    var L = Math.sqrt(dx * dx + dy * dy) || 1;
+    return {x: cx + dx * t + dx / L * 2, y: cy + dy * t + dy / L * 2};
   }
 
   /** 一条注记的全部几何。文字宽度用**探针**量（detached text 挂进同一组、量完就摘）：
@@ -5973,6 +6174,7 @@
         drawCallouts(hit.scene.step_id, hit.index); // 0.38.0：世界层落位后再量注记
         drawCues();                               // 0.39.0：词拍括号层，世界层落位之后建空框
         drawCompares();                           // 0.40.0：对照窗，世界层落位之后现量两版并集
+        layoutConnects();                         // 0.43.0：关系连线，世界层落位之后现量两端
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -6045,6 +6247,11 @@
     // 换句分支里 put() 才重挂 METER（目标长度写在 width 呈现属性上），写在前面会拿
     // 上一句的登记表算这一句。导出截图页每帧只跑一次 tick()：shot 模式下落全满。
     meterWrite(t);
+    // 关系连线（0.43.0）：与上面几个逐拍读数同一个位置——layoutConnects() 只在换句
+    // 分支里跑（建节点 / 跟几何 / 转收回），生长与收回的 dashoffset / 标签透明度是
+    // 逐拍读数，得在这里每帧推进。导出截图页每帧只跑一次 tick()：见旗直接落终值
+    // （生长落 0 = 线完整，定格里读"这两件有关系"）。
+    connTock(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到

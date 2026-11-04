@@ -163,7 +163,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 入场与节拍 | 新东西怎么上台 | `.in`、`--delay` / `.st1–3`、`.stag`、`.pop`、`.pulse`、`.draw` |
 | 位置与状态 | 已在台上的东西怎么变 | `.nt`、几何补间、`#cam`、`#depth`、`.swF/.swB`、`--cam-dur`、对焦 |
 | 揭示与退场 | 怎么长出来 / 怎么让位 | `.reveal`、`.featherR/L`、`.tuckR/L`、`.bloom` |
-| 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`callout()`、`.flow`、`.halo`、`.crisp` |
+| 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`callout()`、`connect()`、`.flow`、`.halo`、`.crisp` |
 | 行进与换位 | 谁走到哪儿、谁先动、刚才怎么换的 | `.ride`、`.wake`、`.swap`、`.trail`、`.traces` |
 | 判定与重量 | 结论落下来、天平读出方向 | `.settle`、`.wind`、`.lift`、`.tilt` |
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
@@ -351,6 +351,29 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   - `pointer-events:none`；文案进 `put()` 的 text 通道，`check_gates.py` 的双字幕
     比对看得见它；`dec:true` 与 `badge` 同义。同一步**不要与 `#spot` 并用**：
     两套注意力装置各说各的"看这儿"，读者只会两个都不看。
+- **关系连线**（`connect()` + `layoutConnects()` / `connTock()`，0.43.0）：比较 /
+  匹配 / 归并等**两个已在场图元之间的双边关系**成立当拍，一条细线从 a 的 bbox 边缘
+  长到 b 的边缘。与 callout / brace 同一张"纯注解层"纪律：
+  - **登记与布局分两拍**：renderer 只登记（`CONN`，与 `CALL` 同一张"每步清空、
+    renderer 重挂"的表），`layoutConnects()` 在 `worldFor()` **之后**、`camSet()`
+    **之前**现量（与 `drawCallouts()` / `drawCompares()` 同批）——renderer 跑在
+    主角落位之前，世界层还停在上一步；
+  - **端点贴面不穿心**：两端取两中心连线与各自 bbox 边缘的交点、再沿该方向外伸 2
+    （与 callout 圆点同纪律）；`boxIn()` 在量前同位置重插一次强制失效几何缓存
+    （复用节点改了几何属性后 `getBBox()` 可能返回旧盒），保证跟走量到新几何；
+  - **边界三不连**：线长 < 24px 不连（贴脸不画线）、量不到两端不连（节点不在台上 /
+    空盒直接跳过）、标签塞不下不画（中点居中，生长 35% 后才浮现，`pointer-events:
+    none`）；
+  - **时序**：生长（句首 `stepT0` 起、`--dur-conn:.5s`、easeOutExpo——与 count roll /
+    meter 同拍，`dashoffset` 1 → 0 是 JS 逐拍读数）→ 复用同 key 不重放（关系未断线
+    保持完整）→ `gone:true` 沿原路收回再移除（显式"关系解除"）；**不登记即消失**
+    （旧线直接摘掉，与 CALL sweep 同口径）；`.conn .line` 只挂 `d` 的 transition
+    （端点跨步移动时线的补间），`dashoffset` / 标签透明度逐拍、无 transition
+    （防双缓动，与 `.meter` 同课）；
+  - **导出 / reduced-motion 落终值**：生长落 `stroke-dashoffset 0`（线完整，定格里
+    读"这两件有关系"）、收回落移除（关系不成立）；复用同 key 不重放；
+  - 线只做"关系"这一件事，不替代 callout（标注）/ brace（括组）；`pointer-events:
+    none`。
 - `.flow`：沿线流光，`pathLength:1` + `dasharray` + `dashoffset`，必须**叠在一条
   看得见的 `.draw` 底线之上**、分两个节点（同节点会互相顶掉）。静止态与终态都
   "看不见"——掠光是**事件**不是状态。`pointer-events:none`（虚线空隙不命中）。
@@ -677,6 +700,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | JS 逐拍 + 注册属性 transition | 对照窗（`compare()` / `drawCompares()` 写 `--cmp-r`） | 直接写当步 `opt.at`；`--dur-cmp` 为 0 时互补裁切、接缝、四角框与标签同步落终值，两端 0 / 100% 只剩一份 |
 | JS 逐拍写 transform | 拆解视图（`explode()` / `drawExplodes()`） | 直接写当步 `amount` 对应的 `transform`；`--dur-ex` 与错峰延迟归零，拆开 / 合拢都落终值 |
 | JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`）、量条（`meterWrite`） | 导出 / reduced-motion 落终值（数字落 `data-count` 终值、量条落 `scale(1 1)` 全满，定格里读"量"）；live 播放逐拍滚中间值 |
+| JS 逐拍（dashoffset）+ 仅 d 的 transition | 关系连线（`connect()` / `connTock()`） | 生长落 `stroke-dashoffset 0`（线完整，定格里读"这两件有关系"）、`gone` 收回落移除（关系不成立）；`dashoffset` / 标签透明度逐拍、`d` 走 transition（切掉即"已跟到位"） |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
 口径：
@@ -725,6 +749,10 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   签比这一步的取景窗还宽、或钳回安全区后会压住被注对象时，**整条注记直接跳过**，
   不报错也不留半截。排查顺序：被注节点这一步在不在台上 → 取景窗够不够宽 →
   朝向是不是把签挤到了对象身上。
+- **关系连线静默不画**：`connect()` 的几何是现量的，量不到（节点不存在 / 空盒）、
+  或两端距离 < 24px（贴脸）时**整条线直接跳过**，不报错也不留半截；标签塞不下时
+  线照画、标签缺席（生长 35% 后才浮现）。排查顺序：两端节点这一步在不在台上 →
+  间距够不够 → 标签测量时字体是否就绪。
 - **拆解视图的 transform 被写两次**：renderer 先写装配位、`drawExplodes()` 再写
   目标时，CSS 已经在第一笔写下时用**上一步的 `--ex-delay`** 起跑；随后改延迟不会
   改这一趟补间，表现为"拆开正常、合拢时内外圈错峰反了"。修法是 renderer 只给

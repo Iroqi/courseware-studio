@@ -159,7 +159,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 入场与节拍 | `.in`（`--delay` / `.st1–.st3`）、`.pop`、`.pulse`、`.draw`、`.stag`（自动错峰）、`.gather`（字距归位）、`.chFlip`（章节头翻场）、`.el.swF/.swB`（换节方向感） |
 | 位置与状态 | `.nt`（transform / 几何 / 颜色补间）、`#cam` + `camRun()`（位移定拍）、`#depth`（远景视差）、`#cam.blurpass`（运镜模糊）、对焦（`#depth` 随推近失焦）、`[data-dim="1"]`（焦点弱化） |
 | 揭示与退场 | `.reveal/.revealL`（硬边擦除）、`.featherR/.featherL`（羽化揭示）、`.tuckR/.tuckL`（收拢退场）、`.bloom`（圆形绽开）、`.flip`（当面翻面）、`.pregate`（浮层离散进出） |
-| 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`callout()`（引线标注：点→线→签，几何现量、随对象跟走）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
+| 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`callout()`（引线标注：点→线→签，几何现量、随对象跟走）、`connect()`（关系连线：两图元边缘贴面细线，生长 / 收回、复用同 key 不重放）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
 | 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随）、`.traces`（换位弧痕） |
 | 判定与重量 | `.settle`（挤压落位）、`.wind`（预备后蓄）、`.lift`（提牌投影）、`.tilt`（倾侧定盘） |
 | 文字 | `badge(..., dec)`（逐字解码）、`#cap-text` 的 `--lit`（跟读点亮）、`#cap-prog`（句内进度细线）、`.mark` + `markBehind()`（荧光笔）、`.strike` + `strikeThrough()`（反证划线） |
@@ -207,6 +207,12 @@ HTML/CSS 契约见 `references/layout.md`。
 - **量条自己身上不挂 transition**：`.meter` 的 `transition:none` 是刻意的（`.nt` 的
   width / transform 补间会与 meterWrite 逐拍的 scale 双重叠加）；要淡入 / 位移包一层
   `<g>`，`.in` 挂包装层。量条只做 rect——`width` 是"上一长度"的唯一来源。
+- **连线只做"关系"这一件事**：`connect()` 声明两个已在场图元之间的双边关系，不替代
+  `callout()`（标注）/ `.brace`（括组）；`pointer-events:none`；`--conn-ink` 用中性
+  墨灰（非强调色）；量不到两端或距离 < 24px 宁可不连；`.conn .line` 只挂 `d` 的
+  transition——`dashoffset` / 标签透明度走 JS 逐拍、`transition:none`（防与 `.nt`
+  双缓动，与 `.meter` 同课）；复用同 key 不重放、`gone:true` 沿原路收回再移除、
+  不登记即消失。
 
 ## 6. 门禁设计
 

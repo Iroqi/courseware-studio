@@ -336,6 +336,12 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 - 数字落定与量条（`countRollWrite` / `meterWrite`）：**量**不是进度——见旗时直接落终值
   （数字写 `data-count` 终值、量条写 `scale(1 1)` 全满），live 播放才逐拍滚中间值；
   冷启动与直播同一张定格（定格里读得到"比较了 3 次 / 这条有多长"）；
+- 关系连线（`connect()` / `layoutConnects()` / `connTock()`）：`dashoffset` 与标签
+  透明度是 audio 时钟的读数（生长 / 收回逐拍现算），见旗落终值——生长落
+  `stroke-dashoffset 0`（线完整，定格里读"这两件有关系"）、`gone` 收回落移除
+  （关系不成立）；`.conn .line` 的 `d` 走 transition（注入 `transition:none` 后即
+  "已跟到位"）；布局每帧现量、复用同 key 不重放、不登记即消失，冷启动与直播同一张
+  定格；
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -377,6 +383,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | JS 逐拍 + 注册属性 transition | 对照窗（`compare()` 写 `--cmp-r`，裁切 / 接缝 / 标签共用） | 直接落 `opt.at` 终值；两端 0 / 100% 只剩一份，标签、四角框与卡片同步 |
 | JS 逐拍写 transform | 拆解视图（`drawExplodes()` 按 `opt.base` + `amount` 写） | 直接落当步拆开量；`--dur-ex` 与错峰延迟归零，装配位现算 |
 | JS 逐拍，但语义是过程（量） | 数字落定（`countRollWrite`）、量条（`meterWrite`） | 导出 / reduced-motion 落终值（数字 `data-count`、量条 `scale(1 1)` 全满）；live 播放逐拍滚中间值 |
+| JS 逐拍（dashoffset）+ 仅 d 的 transition | 关系连线（`connTock` 写 `dashoffset` / 标签透明度，`d` 走 `.conn .line` 的 transition） | 生长落 `stroke-dashoffset 0`（线完整）；`gone` 收回落移除（关系不成立）；`d` 切掉 transition 即"已跟到位" |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |
