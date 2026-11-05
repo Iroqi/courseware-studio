@@ -163,7 +163,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | 入场与节拍 | 新东西怎么上台 | `.in`、`--delay` / `.st1–3`、`.stag`、`.pop`、`.pulse`、`.draw` |
 | 位置与状态 | 已在台上的东西怎么变 | `.nt`、几何补间、`#cam`、`#depth`、`.swF/.swB`、`--cam-dur`、对焦 |
 | 揭示与退场 | 怎么长出来 / 怎么让位 | `.reveal`、`.featherR/L`、`.tuckR/L`、`.bloom` |
-| 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`callout()`、`connect()`、`.flow`、`.halo`、`.crisp` |
+| 关系、注意力与标注 | 该看哪儿、两者是什么关系 | `[data-dim]`、`#spot`、`#cap-hl`、`.mark`、`.strike`、`.scope`、`.brace`、`callout()`、`connect()`、`loupe()`、`.flow`、`.halo`、`.crisp` |
 | 行进与换位 | 谁走到哪儿、谁先动、刚才怎么换的 | `.ride`、`.wake`、`.swap`、`.trail`、`.traces` |
 | 判定与重量 | 结论落下来、天平读出方向 | `.settle`、`.wind`、`.lift`、`.tilt` |
 | 文字 | 念到哪儿、词怎么成形 | `--lit`、逐字解码、`.gather` |
@@ -359,8 +359,11 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
     **之前**现量（与 `drawCallouts()` / `drawCompares()` 同批）——renderer 跑在
     主角落位之前，世界层还停在上一步；
   - **端点贴面不穿心**：两端取两中心连线与各自 bbox 边缘的交点、再沿该方向外伸 2
-    （与 callout 圆点同纪律）；`boxIn()` 在量前同位置重插一次强制失效几何缓存
-    （复用节点改了几何属性后 `getBBox()` 可能返回旧盒），保证跟走量到新几何；
+    （与 callout 圆点同纪律）；`boxIn()` 的第三参 `flush` 传 `true`——量前同位置重插
+    一次强制失效几何缓存（复用节点改了几何属性后 `getBBox()` 可能返回旧盒）。这个
+    重插会让节点自己的 CSS 动画（`.in` / `.draw`）从头重放，所以**只有 connect 的
+    两个调用点传 `true`**，其余原语走默认 `false`（0.44.0 把 0.43.0 的无条件重插
+    收窄：它等于每句给所有被量的目标重放一次入场）；
   - **边界三不连**：线长 < 24px 不连（贴脸不画线）、量不到两端不连（节点不在台上 /
     空盒直接跳过）、标签塞不下不画（中点居中，生长 35% 后才浮现，`pointer-events:
     none`）；
@@ -374,6 +377,34 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
     读"这两件有关系"）、收回落移除（关系不成立）；复用同 key 不重放；
   - 线只做"关系"这一件事，不替代 callout（标注）/ brace（括组）；`pointer-events:
     none`。
+- **细节镜**（`loupe()` + `layoutLoupes()` / `loupeTock()`，0.44.0）：把一件**已在场**
+  图元的某一小块"拿到眼前"放大——看清一个字符、一个下标、一处差异。与镜头推近
+  （0.35.0 对焦）分工：推近是"我走近了、远景跟着虚"（取景窗整体变化），细节镜是
+  "取景窗不动、旁边的东西不跟着变，只有镜里那块被放大"。与 callout（说谁）/
+  brace（括组）/ connect（什么关系）同一张"纯注解层"纪律：
+  - **登记与布局分两拍**：renderer 只 `loupe(key, node, opt)` 登记（`LOUPE`，与
+    `CALL` / `CONN` 同表），`layoutLoupes()` 在 `layoutConnects()` 之后、`camSet()`
+    之前现量（与 `drawCallouts()` 同批）；
+  - **镜心在目标外侧、四侧择一**：`opt.at` 是观察点在 bbox 内的相对位置（默认
+    `[.5,.5]` 中心）；`opt.side` 默认 `'r'`（目标右缘外 `gap 26 + r`），放不下依次试
+    `l` / `t` / `b`；**四侧全放不下、或取景窗比镜还小（`2r+4` 超窗宽 / 窗高）→
+    整个不画**（宁可不放大，不放大一个错位的块）；
+  - **镜里是定格副本**：`cloneNode` 克隆目标子树、递归摘 id（重复 id 破坏 `REG` /
+    `el()`），根上摘掉 `opacity` / `data-dim`（这块本来可能退居参照，但镜里是"看清"，
+    还原标准亮度）；`.copy *` 关掉克隆体自己的 `animation` / `transition`——镜里不重放
+    入场、也不跟 `.nt` 的中间帧；每换句重克隆一次（对象换了位置 / 文案，镜里跟着换）；
+  - **三层各干一件事**：`lid` 只平移（镜心跟走，走 `--dur-move` transition）、`zoom`
+    只缩放（JS 逐拍写 `scale`，**不挂 transition**，与 `.meter` / `.conn` 同课防双
+    缓动）、`mag` 只 `translate(-u)`。**变换顺序是 scale 在外、translate 在内**：
+    `P′ = k·(P − u)`，写反内容会飞出镜圈（实测踩过）；
+  - **时序**：圈与内容从 `.72` 弹到 1（`--dur-in`）+ 内容从 `k·.92` 定到 k
+    （`--dur-loupe:.45s`、句首 `stepT0` 起、easeOutExpo，`loupeTock()` 逐拍写）；复用
+    同 key 跨步不重放（`__t0` 不动，p 早已到 1 保持 k）；`gone:true` 进 `.gone` 淡出，
+    下一步不再登记时 `layoutLoupes()` 连同 `clipPath` 一起摘掉；
+  - **茎从目标边缘起、到镜圈止**：起点是"观察点 → 镜心"射线与目标 bbox 的交点
+    （从内部起笔会压在字上），终点收在圈内 2（圈边盖住线头）；
+  - **导出 / reduced-motion 落终值**：scale 落 k、透明度 1、`gone` 直接不可见
+    （定格里读"这一块放大后是什么"）；`pointer-events:none`。
 - `.flow`：沿线流光，`pathLength:1` + `dasharray` + `dashoffset`，必须**叠在一条
   看得见的 `.draw` 底线之上**、分两个节点（同节点会互相顶掉）。静止态与终态都
   "看不见"——掠光是**事件**不是状态。`pointer-events:none`（虚线空隙不命中）。
@@ -701,6 +732,7 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
 | JS 逐拍写 transform | 拆解视图（`explode()` / `drawExplodes()`） | 直接写当步 `amount` 对应的 `transform`；`--dur-ex` 与错峰延迟归零，拆开 / 合拢都落终值 |
 | JS 逐拍，但语义是过程 | 数字落定（`countRollWrite`）、量条（`meterWrite`） | 导出 / reduced-motion 落终值（数字落 `data-count` 终值、量条落 `scale(1 1)` 全满，定格里读"量"）；live 播放逐拍滚中间值 |
 | JS 逐拍（dashoffset）+ 仅 d 的 transition | 关系连线（`connect()` / `connTock()`） | 生长落 `stroke-dashoffset 0`（线完整，定格里读"这两件有关系"）、`gone` 收回落移除（关系不成立）；`dashoffset` / 标签透明度逐拍、`d` 走 transition（切掉即"已跟到位"） |
+| JS 逐拍写 scale + animation 入场 | 细节镜（`loupe()` / `loupeTock()`） | 落 `scale(k)` + 透明度 1、`gone` 直接不可见（定格里读"这一块放大后是什么"）；`lid` 的平移 transition 与圈 / 内容的 `@keyframes loupeIn` 切掉即"已落位"，`zoom` 逐拍无 transition |
 | 离散 / 静态 | `.pregate`、`.crisp`、`.halo`、`.stag`、`text-spacing-trim` | `hidden` 即时生效；静态口径本就不变 |
 
 口径：
@@ -753,6 +785,13 @@ class 就是节拍词汇。原语只描述**目标状态**与**一次事件的�
   或两端距离 < 24px（贴脸）时**整条线直接跳过**，不报错也不留半截；标签塞不下时
   线照画、标签缺席（生长 35% 后才浮现）。排查顺序：两端节点这一步在不在台上 →
   间距够不够 → 标签测量时字体是否就绪。
+- **细节镜静默不画**：`loupe()` 的目标要么量不到（节点不在台上 / 空盒），要么
+  **四侧都放不下**——取景窗比镜还小时（`2r+4` 超窗宽或窗高，窄窗里最常见），或
+  目标四周都贴着窗边；两种情况都**整只镜跳过**（不画圈、不画茎），也不报错。
+  排查顺序：取景窗尺寸（镜半径 52 → 至少要 116 的窗宽 / 窗高）→ 目标四周是否
+  有 26 + 52 的空位 → 目标这一步在不在台上。另：镜里是**建镜那一刻的副本**，
+  目标若在之后的同一句里还接着补间，镜里停在旧形态——这是设计（镜读"结果"），
+  要读中间态就别用 loupe。
 - **拆解视图的 transform 被写两次**：renderer 先写装配位、`drawExplodes()` 再写
   目标时，CSS 已经在第一笔写下时用**上一步的 `--ex-delay`** 起跑；随后改延迟不会
   改这一趟补间，表现为"拆开正常、合拢时内外圈错峰反了"。修法是 renderer 只给
@@ -1008,6 +1047,13 @@ emoji 只是记号的点睛。
       从 `boxIn()` 现推、安全区取当步取景窗、量不到 / 塞不下 / 会压住对象时不画、
       点→线→签三拍时序、`gone` 沿引线收回、复用 key 由 `.nt` 跟走、不与 `#spot`
       同步使用；
+- [ ] `loupe()`：登记与布局分两拍（`layoutLoupes` 在 `layoutConnects` 之后、
+      `camSet` 之前）；镜心在目标外侧四侧择一，四侧都放不下 / 窗比镜还小时不画；
+      镜内是定格副本（递归摘 id、根上摘 `opacity` / `data-dim`、`.copy *` 关
+      animation / transition）；`zoom` 逐拍写 scale、不挂 transition；变换顺序
+      **scale 在外、translate 在内**（`P′ = k·(P − u)`）；复用同 key 不重放、
+      `gone` 淡出、不登记即连同 `clipPath` 摘掉；导出 / reduce 落 `scale(k)` +
+      透明度 1；
 - [ ] 词拍：`word` 与本句原字面一致（重复字写 `nth`）；几何在词到那拍由 `cueGeom()`
       现量、`--cue-settle` 内跟到入场落定（不在 `drawCues()` 建层时量）；标记累积到
       本步结束、换步整层重建；`#cues` 在 `#cam` 内且 `pointer-events:none`；墨色

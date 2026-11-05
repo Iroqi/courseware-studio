@@ -159,7 +159,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 入场与节拍 | `.in`（`--delay` / `.st1–.st3`）、`.pop`、`.pulse`、`.draw`、`.stag`（自动错峰）、`.gather`（字距归位）、`.chFlip`（章节头翻场）、`.el.swF/.swB`（换节方向感） |
 | 位置与状态 | `.nt`（transform / 几何 / 颜色补间）、`#cam` + `camRun()`（位移定拍）、`#depth`（远景视差）、`#cam.blurpass`（运镜模糊）、对焦（`#depth` 随推近失焦）、`[data-dim="1"]`（焦点弱化） |
 | 揭示与退场 | `.reveal/.revealL`（硬边擦除）、`.featherR/.featherL`（羽化揭示）、`.tuckR/.tuckL`（收拢退场）、`.bloom`（圆形绽开）、`.flip`（当面翻面）、`.pregate`（浮层离散进出） |
-| 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`callout()`（引线标注：点→线→签，几何现量、随对象跟走）、`connect()`（关系连线：两图元边缘贴面细线，生长 / 收回、复用同 key 不重放）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
+| 关系、注意力与标注 | `.scope` + `scopeFrame()`（对位镜）、`.brace` + `braceUnder()`（集合括注）、`callout()`（引线标注：点→线→签，几何现量、随对象跟走）、`connect()`（关系连线：两图元边缘贴面细线，生长 / 收回、复用同 key 不重放）、`loupe()`（细节镜：把已在场图元的某一小块拿到眼前放大，镜心在目标外侧、镜内是定格副本）、`#spot`（落点灯）、`#cap-hl`（结论句划重点）、`.halo`（描边光环）、`.crisp`（恒定线宽）、`.flow`（沿线流光） |
 | 行进与换位 | `.ride`（沿线抵达）、`.wake`（行进余像）、`.swap`（换位弧凸）、`.trail`（拖尾跟随）、`.traces`（换位弧痕） |
 | 判定与重量 | `.settle`（挤压落位）、`.wind`（预备后蓄）、`.lift`（提牌投影）、`.tilt`（倾侧定盘） |
 | 文字 | `badge(..., dec)`（逐字解码）、`#cap-text` 的 `--lit`（跟读点亮）、`#cap-prog`（句内进度细线）、`.mark` + `markBehind()`（荧光笔）、`.strike` + `strikeThrough()`（反证划线） |
@@ -213,6 +213,14 @@ HTML/CSS 契约见 `references/layout.md`。
   transition——`dashoffset` / 标签透明度走 JS 逐拍、`transition:none`（防与 `.nt`
   双缓动，与 `.meter` 同课）；复用同 key 不重放、`gone:true` 沿原路收回再移除、
   不登记即消失。
+- **细节镜只做"看清局部"这一件事**：`loupe()` 把一件已在场图元的某一小块拿到眼前
+  放大，不替代 `callout()`（说谁）/ `connect()`（什么关系）——不要用它重复讲一个
+  句子里已经说清的事；镜心默认摆在目标外侧（`side`，放不下自动换侧），**四侧都放
+  不下或取景窗比镜还小时不画**；镜内是建镜那一刻的定格副本（`cloneNode` 摘 id、
+  `.copy *` 关掉 animation / transition），zoom 的 scale 走 JS 逐拍、`transition:none`；
+  变换顺序必须 **scale 在外、translate 在内**（写反内容飞出镜圈）；复用同 key 跨步
+  不重放、`gone` 淡出、不登记即连同 `clipPath` 摘掉；导出 / reduced-motion 落
+  `scale(k)` + 透明度 1。
 
 ## 6. 门禁设计
 

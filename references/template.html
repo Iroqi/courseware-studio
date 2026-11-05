@@ -346,6 +346,15 @@
        --conn-ink 取中性墨灰（反证划线 --strike-ink 压色同款）：线表达的是"关系"
        不是"强调"，琥珀留给标注、红色留给反证。--conn-w 线宽默认 1.5（与引线同款）。 */
     --dur-conn:.5s; --conn-ink:#8d95a8; --conn-w:1.5;
+    /* 细节镜（0.44.0）：镜头推近（0.35.0 对焦）说的是"我走近了，远景跟着虚"；
+       细节镜说的是"我把这一小块拿到眼前"——取景窗不动、旁边的东西不跟着变。
+       --dur-loupe 是"镜片落定"的一拍：圈弹开 + 内容从 k·.92 定到 k。比入场
+       （--dur-in .42s）略长、比量条（--dur-roll .5s）略短——它是一次"凑近看"的
+       确认，不是一个新东西上台。--loupe-ink 与 --conn-ink 同取中性墨灰：镜表达
+       的是"细看"，不是"强调"（琥珀留给标注）、也不是"对错"（语义色留给判定）。
+       --loupe-r 52 是 FULL（1000×460）里的 1/9 宽——够放一行 28 号字的三个字符；
+       --loupe-k 1.8 让 14px 的细节读成 25px（"第三位字符"才认得出）。 */
+    --dur-loupe:.45s; --loupe-ink:#8d95a8; --loupe-r:52; --loupe-k:1.8;
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -1941,6 +1950,33 @@
               transition:d var(--dur-grow) var(--ease-out)}
   .conn .lab{fill:var(--conn-ink);font-size:12;font-weight:600;text-anchor:middle;
              dominant-baseline:central}
+  /* 细节镜（0.44.0）：把一件已在场图元的某一小块"拿到眼前"放大。与 callout（说谁）/
+     brace（括一组）/ connect（什么关系）同一张"纯注解层"纪律：pointer-events:none、
+     中性墨色、不碰语义色。三层各干一件事：
+       · lid 只做平移——镜心跟着目标走，走 transition（--dur-move），读作"镜子跟着
+         那块东西挪"，而不是原地重落一次；
+       · zoom 只做缩放——scale 由 JS 逐拍写（loupeTock），**不挂 transition**（与
+         .meter / .conn 同一课：逐拍再叠补间就是双缓动）；
+       · mag 只做 translate(-观察点)——把观察点搬到 lid 原点，zoom 再以原点为心放大。
+     **变换顺序是 scale 在外、translate 在内**：P′ = k·(P − u)；写反了内容会飞出
+     镜圈（实测踩过，见 loupePos 注释）。
+     镜圈：lens 是半透明实底（压住外面的内容，读作"镜片"），ring 是一圈细边；两者
+     `transform-box:fill-box` + `transform-origin:center`，入场从 .72 弹到 1。
+     镜里是**布局那一刻的定格副本**（cloneNode 克隆目标子树并递归摘 id）：不重放
+     克隆体自己的入场（.copy * 关掉 animation / transition），也不跟 .nt 补间的中间
+     帧——读者看镜时对象已经落位，镜读的是"放大后的结果"。 */
+  .loupe{pointer-events:none}
+  .loupe .lens{fill:rgba(20,24,32,.96);stroke:var(--loupe-ink);stroke-width:1.5;
+               stroke-opacity:.9}
+  .loupe .ring{fill:none;stroke:var(--loupe-ink);stroke-width:1;stroke-opacity:.4}
+  .loupe .stem{fill:none;stroke:var(--loupe-ink);stroke-width:1;stroke-opacity:.55;
+               stroke-linecap:round;pathLength:1}
+  .loupe .lid{transition:transform var(--dur-move) var(--ease-out)}
+  .loupe .lens,.loupe .ring{transform-box:fill-box;transform-origin:center;
+                            animation:loupeIn var(--dur-in) var(--ease-out) backwards}
+  .loupe .copy,.loupe .copy *{animation:none!important;transition:none!important}
+  .loupe.gone{opacity:0;transition:opacity var(--dur-tuck) var(--ease-in-out)}
+  @keyframes loupeIn{from{opacity:0;transform:scale(.72)}}
 
   /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。它不是"又一个
      注记"——引线标注（0.38.0）说的是"这句话在说谁"，词拍说的是"**此刻**在念谁"：
@@ -2275,6 +2311,13 @@
        同一判断（关的是补间不是状态读数）。这里再关掉 d 的补间：换句现量直接落位。
        本条基础规则写在本块之前，同特异度时源序后者胜。 */
     .conn .line{transition:none}
+    /* 细节镜（0.44.0）关的是 **transition / animation**：zoom 的 scale 是 JS 逐拍的
+       读数，见旗直接落 k（镜里读到放大后的细节）——与 --cmp-r / .conn 同一判断。
+       圈与内容的弹入同样归零（callout 的点 / 线 / 签同一族）。gone 的那一格直接
+       opacity:0（关系不再需要看：不许停在半透明的中间态）。 */
+    .loupe .lid,.loupe .stem{transition:none}
+    .loupe .lens,.loupe .ring{animation:none}
+    .loupe.gone{opacity:0;transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -2937,6 +2980,12 @@
             <g id="callouts"></g>
             <g id="connects"></g>
 
+            <!-- 细节镜层（0.44.0）：镜圈 / 茎 / 放大副本不进任何一幕的子树——它量的
+                 是"这一步要看清的那一小块"，而目标可能住在世界层（跨幕常驻）。
+                 放在连线之上、词拍之下：压住内容，不挡灯；每步由 layoutLoupes()
+                 重排、按 key 收人；指针一律穿透（CSS .loupe）。 -->
+            <g id="loupes"></g>
+
             <!-- 词拍层（0.39.0）：四角括号不进任何一幕的子树——它标的是"旁白此刻
                  念到的那件东西"，而目标可能住在世界层（跨幕常驻）、可能就是门禁热区。
                  放在所有注记之上、聚光暗幕之下：压住内容，不挡灯；每步由 drawCues()
@@ -3244,6 +3293,10 @@
                        // 表——"这一步谁和谁有关系"同样是 (scene, step) 的纯函数。
   var CONN_GONE = {};  // 跨步小账本（同 EX_MARK）：显式 gone 的线正在收回——它已经
                        // 不在 CONN 里了，收回进度得有地方记；收回完成即移除并清账。
+  var LOUPE = [];      // 细节镜（0.44.0）：与 CALL / CONN 同一张"每步清空、renderer
+                       // 重挂"的表——"这一步把哪一块拿到眼前"同样是 (scene, step) 的
+                       // 纯函数。renderer 只登记「看谁 + 看哪一点 + 多大倍率」，镜心
+                       // 落位与克隆都在 layoutLoupes() 里现算（worldFor() 之后）。 */
   /* 词拍的登记表（0.39.0）：与 DECODE / COUNT / CALL 同一张"每步清空、renderer 重挂"
      的表——"这一步点名谁"同样是 (scene, step) 的纯函数。renderer 只登记
      「框谁 + 哪个词 + 第几次出现」；**几何与相位都不在这里算**：drawCues() 在世界层
@@ -3272,7 +3325,7 @@
      EX_MARK 记哪些件此刻带着偏移（某一步不再登记时把它们送回装配位）。两者不随
      begin() 清空：它们描述的正是"跨步"这件事。 */
   var EX_R = {}, EX_MARK = {};
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -3433,13 +3486,20 @@
    *  **属性**一路乘到 stop（与 camBox 同一条教训：getScreenCTM() 读到的是补间半途
    *  的矩阵，而这里要的是"它最终在哪"）。括注只需要轴对齐的并集，旋转/斜切按两角
    *  点取并（同 camBox 的口径）。量不到（display:none、空盒、老引擎没有 DOMMatrix）
-   *  就返回 null——宁可不括，也不括一个错的位置（与 spotOn 同口径）。 */
-  function boxIn(node, stop){
-    /* 换句重量必先失效几何缓存（0.43.0）：复用节点改了几何属性后，getBBox 可能返回
-       上一帧的缓存盒（同帧多量尤甚）。同位置重插一次强制浏览器重算该节点几何——
-       不改渲染顺序，量到新几何；与 0.24.0「量放映框踩坑」同课。 */
-    var p = node.parentNode;
-    if (p) p.insertBefore(node, node.nextSibling);
+   *  就返回 null——宁可不括，也不括一个错的位置（与 spotOn 同口径）。
+   *  `flush`（0.44.0 起显式化）：复用节点改了**几何属性**（x / width，不是 transform）
+   *  后，getBBox 可能返回上一帧的缓存盒——同帧多量尤甚；要拿新盒就得同位置重插
+   *  一次强制重算。但它有代价：DOM 插入会先摘下再插回，节点自己的 CSS 动画
+   *  （.in / .draw）会从头重放（stage.md §3.4.5 那条）。所以**只在真的会改几何、
+   *  且必须拿到新盒的两个调用点**（connect 的端点）传 true；callout / cue / compare /
+   *  brace 的目标多是改 transform 或换文案（bbox 局部坐标不变，矩阵现读就是新位置），
+   *  走默认 false，不吃重插的副作用。0.43.0 曾把它写成无条件，等于每句给所有被量
+   *  的目标重放一次入场——那是这轮收窄的原因。 */
+  function boxIn(node, stop, flush){
+    if (flush){
+      var p0 = node.parentNode;
+      if (p0) p0.insertBefore(node, node.nextSibling);   // 同位置重插：不改渲染顺序，只失效几何缓存
+    }
     var bb = node.getBBox();
     if (!bb.width || !bb.height || !window.DOMMatrix) return null;
     var m = new DOMMatrix(), n = node;
@@ -3603,11 +3663,12 @@
 
   function connDur(){ var d = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dur-conn')); return isFinite(d) && d > 0 ? d : .5; }
   function f1(v){ return +v.toFixed(1); }
+  function f3(v){ return +v.toFixed(3); }   // 细节镜的倍率读数：1 位小数会把 1.656 写成 1.7（起步态差 2.6%）
   /** 一条新线：建包装组 + 线 path，量标签（探针、塞不下不画），记生长起点与当前读数。 */
   function newConn(layer, c){
     var ra = el(c.a), rb = el(c.b);
     if (!ra || !rb) return null;
-    var ua = boxIn(ra, el('cam')), ub = boxIn(rb, el('cam'));
+    var ua = boxIn(ra, el('cam'), true), ub = boxIn(rb, el('cam'), true);
     if (!ua || !ub) return null;
     var p1 = connEdge(ua, ub), p2 = connEdge(ub, ua);
     if (!p1 || !p2) return null;
@@ -3647,7 +3708,7 @@
   function placeConn(g, c){
     var ra = el(c.a), rb = el(c.b);
     if (!ra || !rb) return;
-    var ua = boxIn(ra, el('cam')), ub = boxIn(rb, el('cam'));
+    var ua = boxIn(ra, el('cam'), true), ub = boxIn(rb, el('cam'), true);
     if (!ua || !ub) return;
     var p1 = connEdge(ua, ub), p2 = connEdge(ub, ua);
     if (!p1 || !p2) return;
@@ -3702,6 +3763,213 @@
     if (!isFinite(t) || t < .01) return null;
     var L = Math.sqrt(dx * dx + dy * dy) || 1;
     return {x: cx + dx * t + dx / L * 2, y: cy + dy * t + dy / L * 2};
+  }
+
+  /** 细节镜（0.44.0）：把一件**已经在场**的图元的某一小块"拿到眼前"放大。
+   *  镜头推近（0.35.0 对焦）说的是"我走近了，远景跟着虚"；这一条是"取景窗不动、
+   *  旁边的东西不跟着变，只有镜里那块被放大"。作者只给 key / 目标 / 观察点
+   *  （bbox 内的相对位置，默认中心）与倍率；镜心默认摆到目标**外侧**（默认右），
+   *  用一条短茎连回目标边缘——读作"这一块被拿出来看"，而不是"镜盖在原件上"。
+   *  六条接线口径：
+   *   ① **登记与布局分两拍**：renderer 只 loupe() 登记（与 CALL / CONN 同表），
+   *      几何在 layoutLoupes() 里、worldFor() 之后现量——renderer 跑在主角落位
+   *      之前，世界层还停在上一步（与 CALL / CUE / CMP 同一个坑）；
+   *   ② **镜心在目标外侧、四侧择一**：默认 side:'r'（右缘外 gap 26 + r），放不下
+   *      依次试 l / t / b；四侧都放不下（或取景窗比镜还小）时**整个不画**——
+   *      宁可不放大，不放大一个错位的块（与 callout 的安全区同口径）；
+   *   ③ **镜里是定格副本**：cloneNode 克隆目标子树、递归摘 id（重复 id 会破坏
+   *      REG / el()），并摘掉根上的 opacity / data-dim（这一块本来可能退居参照，
+   *      但镜里是"看清"，要还原成标准亮度）；CSS .copy * 关掉克隆体自己的
+   *      animation / transition——镜里不重放入场，也不跟 .nt 补间的中间帧；
+   *      每换句重克隆一次，对象换了位置 / 文案，镜里跟着换；
+   *   ④ **三层各干一件事**：lid 只做平移（镜心跟走，走 transition）；zoom 只做
+   *      缩放（JS 逐拍写 scale，不挂 transition）；mag 只做 translate(-观察点)。
+   *      **变换顺序是 scale 在外、translate 在内**：P′ = k·(P − u)；写反了内容
+   *      会飞到镜外（实测踩过：mag 在外时，矩形被搬到 (780,380)，镜里全空）；
+   *   ⑤ **时序**：圈与内容从 .72 弹到 1（--dur-in）+ 内容从 k·.92 定到 k
+   *      （--dur-loupe、句首 stepT0 起、easeOutExpo，loupeTock 逐拍写）；复用同
+   *      key 跨步不重放（p 早已到 1，读数保持 k）；`gone:true` 淡出、下一步不再
+   *      登记时由 layoutLoupes 移除；导出 / reduced-motion 落终值（scale 落 k、
+   *      圈完整、gone 不可见），定格里读"这一块放大后是什么"；
+   *   ⑥ **茎从目标边缘起、到镜圈止**：起点是"观察点 → 镜心"射线与目标 bbox 的
+   *      交点（不是观察点本身——从内部起笔会压在字上）；终点收在圈内 2，圈边把
+   *      线头盖干净（与 callout 引线同款）。茎短、方向明确，读者一眼看出"镜里
+   *      是哪块"。
+   *  `pointer-events:none`；镜只做"看清局部"这一件事，不替代 callout（说谁）/
+   *  connect（什么关系）/ compare（两版差在哪）。 */
+  function loupe(key, node, opt){ LOUPE.push({key:key, node:node, opt:opt || {}}); }
+
+  function loupeDur(){ var d = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dur-loupe')); return isFinite(d) && d > 0 ? d : .45; }
+  function loupeTok(name, dflt){ var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)); return isFinite(v) && v > 0 ? v : dflt; }
+
+  /** 克隆目标子树当"定格副本"：递归摘 id（防重复 id 破坏 REG / el()），根上摘掉
+   *  opacity / data-dim（镜里要看清，不继承"退居参照"的弱化档）。 */
+  function loupeClone(node){
+    var c = node.cloneNode(true), walk = [c];
+    c.removeAttribute('id'); c.removeAttribute('opacity'); c.removeAttribute('data-dim');
+    while (walk.length){
+      var n = walk.pop();
+      if (n.removeAttribute && n !== c) n.removeAttribute('id');
+      if (n.children) for (var i = 0; i < n.children.length; i++) walk.push(n.children[i]);
+    }
+    return c;
+  }
+
+  /** 镜心落位：四侧择一（先试声明的 side），只接受**整圈都在取景窗内**的候选；
+   *  返回镜心与茎的两端。观察点 → 镜心的射线与目标 bbox 相交处是茎的起点。 */
+  function loupePos(u, ux, uy, r, side, win){
+    var pad = 6, x0 = win[0] + pad, y0 = win[1] + pad,
+        x1 = win[0] + win[2] - pad, y1 = win[1] + win[3] - pad;
+    if (r * 2 + 4 > x1 - x0 || r * 2 + 4 > y1 - y0) return null;   // 取景窗比镜还小
+    var gap = 26, order = [side || 'r'], all = ['r','l','t','b'];
+    all.forEach(function(s){ if (order.indexOf(s) < 0) order.push(s); });
+    for (var i = 0; i < order.length; i++){
+      var s = order[i], cx, cy;
+      if (s === 'r'){ cx = u.x + u.w + gap + r; cy = uy; }
+      else if (s === 'l'){ cx = u.x - gap - r; cy = uy; }
+      else if (s === 't'){ cx = ux; cy = u.y - gap - r; }
+      else { cx = ux; cy = u.y + u.h + gap + r; }
+      if (cx - r < x0 || cx + r > x1 || cy - r < y0 || cy + r > y1) continue;
+      // 茎起点：观察点 → 镜心的射线与目标 bbox 边缘的交点（t<=2 时就用观察点）
+      var dx = cx - ux, dy = cy - uy, L = Math.sqrt(dx * dx + dy * dy) || 1;
+      var tx = dx > .01 ? (u.x + u.w - ux) / dx : dx < -.01 ? (u.x - ux) / dx : Infinity;
+      var ty = dy > .01 ? (u.y + u.h - uy) / dy : dy < -.01 ? (u.y - uy) / dy : Infinity;
+      var t = Math.min(tx, ty), ax = ux, ay = uy;
+      if (isFinite(t) && t * L > 2){ ax = f1(ux + dx * t); ay = f1(uy + dy * t); }   // t 是归一化参数，要乘 L 才是单位距离
+      // 终点收在圈内 2：圈边把线头盖干净（与 callout 引线同款）
+      var sx = f1(cx - dx / L * (r - 2)), sy = f1(cy - dy / L * (r - 2));
+      return {cx: f1(cx), cy: f1(cy), ax: ax, ay: ay, sx: sx, sy: sy};
+    }
+    return null;   // 四侧都放不下：宁可不放大
+  }
+
+  /** 建一只镜：茎 + lid（镜底 / 裁剪窗 / zoom / mag / copy / 圈）。层内另挂一条
+   *  clipPath（lid 局部坐标，圆心恒在 0,0）——缩放不会把裁剪框一起放大。 */
+  function newLoupe(layer, c, node, win){
+    var o = c.opt || {};
+    var r = o.r || loupeTok('--loupe-r', 52), k = o.k || loupeTok('--loupe-k', 1.8);
+    var u = boxIn(node, el('cam'));
+    if (!u) return null;
+    var at = o.at || [.5, .5];
+    var ux = u.x + u.w * Math.max(0, Math.min(1, at[0]));
+    var uy = u.y + u.h * Math.max(0, Math.min(1, at[1]));
+    var pos = loupePos(u, ux, uy, r, o.side || 'r', win);
+    if (!pos) return null;
+    // clipPath：与镜一一对应，id 带 key，layout 里按需清理
+    var cp = document.createElementNS(NS, 'clipPath');
+    cp.setAttribute('id', 'lp-clip-' + c.key);
+    cp.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    var cc = document.createElementNS(NS, 'circle');
+    cc.setAttribute('cx', '0'); cc.setAttribute('cy', '0');
+    cc.setAttribute('r', String(Math.max(6, r - 3)));
+    cp.appendChild(cc); layer.appendChild(cp);
+    var g = document.createElementNS(NS, 'g');
+    g.setAttribute('id', 'lp-' + c.key);
+    g.setAttribute('class', 'loupe' + (o.gone ? ' gone' : ''));
+    var stem = document.createElementNS(NS, 'path');
+    stem.setAttribute('class', 'stem draw');
+    stem.setAttribute('pathLength', '1');
+    stem.setAttribute('d', 'M' + pos.ax + ' ' + pos.ay + 'L' + pos.sx + ' ' + pos.sy);
+    var lid = document.createElementNS(NS, 'g');
+    lid.setAttribute('class', 'lid');
+    lid.setAttribute('transform', 'translate(' + pos.cx + ',' + pos.cy + ')');
+    var lens = document.createElementNS(NS, 'circle');
+    lens.setAttribute('class', 'lens'); lens.setAttribute('r', String(r));
+    var winG = document.createElementNS(NS, 'g');
+    winG.setAttribute('class', 'win');
+    winG.setAttribute('clip-path', 'url(#lp-clip-' + c.key + ')');
+    var zoom = document.createElementNS(NS, 'g');
+    zoom.setAttribute('class', 'zoom');
+    zoom.setAttribute('transform', 'scale(' + f3(k * .92) + ')');
+    zoom.setAttribute('opacity', '0');
+    var mag = document.createElementNS(NS, 'g');
+    mag.setAttribute('class', 'mag');
+    mag.setAttribute('transform', 'translate(' + f1(-ux) + ',' + f1(-uy) + ')');
+    var copy = document.createElementNS(NS, 'g');
+    copy.setAttribute('class', 'copy');
+    copy.appendChild(loupeClone(node));
+    mag.appendChild(copy); zoom.appendChild(mag); winG.appendChild(zoom);
+    lid.appendChild(lens); lid.appendChild(winG);
+    var ring = document.createElementNS(NS, 'circle');
+    ring.setAttribute('class', 'ring'); ring.setAttribute('r', String(r));
+    lid.appendChild(ring);
+    g.appendChild(stem); g.appendChild(lid);
+    layer.appendChild(g);
+    g.__t0 = stepT0; g.__k = k; g.__r = r;
+    return g;
+  }
+
+  /** 每句重排：镜心 / 茎 / 观察点现量，镜内副本重克隆（对象可能换了位置 / 文案）。
+   *  同 key 跨步**不重放**（__t0 不动，tock 读到 p>=1 就保持 k）。 */
+  function placeLoupe(g, c, node, win){
+    var o = c.opt || {};
+    var u = boxIn(node, el('cam'));
+    if (!u) return;
+    var at = o.at || [.5, .5];
+    var ux = u.x + u.w * Math.max(0, Math.min(1, at[0]));
+    var uy = u.y + u.h * Math.max(0, Math.min(1, at[1]));
+    var pos = loupePos(u, ux, uy, g.__r, o.side || 'r', win);
+    if (!pos) return;
+    var lid = g.querySelector('.lid');
+    if (lid) lid.setAttribute('transform', 'translate(' + pos.cx + ',' + pos.cy + ')');
+    var mag = g.querySelector('.mag');
+    if (mag) mag.setAttribute('transform', 'translate(' + f1(-ux) + ',' + f1(-uy) + ')');
+    var stem = g.querySelector('.stem');
+    if (stem) stem.setAttribute('d', 'M' + pos.ax + ' ' + pos.ay + 'L' + pos.sx + ' ' + pos.sy);
+    var copy = g.querySelector('.copy');
+    if (copy){
+      while (copy.firstChild) copy.removeChild(copy.firstChild);
+      copy.appendChild(loupeClone(node));
+    }
+  }
+
+  /** 换句布局：在 tick() 的 worldFor() 之后、camSet() 之前调用（与 drawCallouts /
+   *  layoutConnects 同批）。本步没登记、也没留在 gone 档的镜连同它的 clipPath 一起摘掉。 */
+  function layoutLoupes(sid, step){
+    var layer = el('loupes');
+    if (!layer) return;
+    var win = (CAM[sid] || [])[step] || FULL, seen = {};
+    LOUPE.forEach(function(c){
+      seen[c.key] = 1;
+      var node = typeof c.node === 'string' ? el(c.node) : c.node;
+      if (!node) return;                        // 目标不在台上：宁可不放大
+      var g = el('lp-' + c.key);
+      if (!g){ g = newLoupe(layer, c, node, win); if (!g) return; }
+      placeLoupe(g, c, node, win);
+      g.classList.toggle('gone', !!(c.opt && c.opt.gone));
+    });
+    // 摘旧镜：本步没登记的直接移除（关系没被声明 = 不看它了）；clipPath 跟着走
+    Array.prototype.slice.call(layer.children).forEach(function(ch){
+      if (ch.tagName === 'clipPath'){
+        var ck = ch.id.replace('lp-clip-', '');
+        if (!seen[ck]) layer.removeChild(ch);
+        return;
+      }
+      if (!ch.id || ch.id.indexOf('lp-') !== 0) return;
+      if (!seen[ch.id.slice(3)]) layer.removeChild(ch);
+    });
+  }
+
+  /** 逐拍推进：每帧调用（与 countRollWrite / meterWrite / connTock 同批）。zoom 从
+   *  k·.92 定到 k、透明度 0→1（句首 stepT0 起、--dur-loupe、easeOutExpo）；见旗
+   *  直接落终值（scale 落 k、透明度 1）——定格里读"这一块放大后是什么"。 */
+  function loupeTock(t){
+    var layer = el('loupes');
+    if (!layer) return;
+    var full = window.__coursewareShotMode || mqReduce.matches;
+    LOUPE.forEach(function(c){
+      var g = el('lp-' + c.key);
+      if (!g) return;
+      var zoom = g.querySelector('.zoom');
+      if (!zoom) return;
+      if (full){ zoom.setAttribute('transform', 'scale(' + g.__k + ')'); zoom.setAttribute('opacity', '1'); return; }
+      var p = Math.max(0, Math.min(1, (t - g.__t0) / loupeDur()));
+      var e = 1 - Math.pow(2, -10 * p);
+      if (p >= 1){ zoom.setAttribute('transform', 'scale(' + g.__k + ')'); zoom.setAttribute('opacity', '1'); return; }   // 收尾精确落 k（不留 .999）
+      var s = f3(g.__k * (.92 + .08 * e));
+      zoom.setAttribute('transform', 'scale(' + s + ')');
+      zoom.setAttribute('opacity', String(+e.toFixed(3)));
+    });
   }
 
   /** 一条注记的全部几何。文字宽度用**探针**量（detached text 挂进同一组、量完就摘）：
@@ -6175,6 +6443,7 @@
         drawCues();                               // 0.39.0：词拍括号层，世界层落位之后建空框
         drawCompares();                           // 0.40.0：对照窗，世界层落位之后现量两版并集
         layoutConnects();                         // 0.43.0：关系连线，世界层落位之后现量两端
+        layoutLoupes(hit.scene.step_id, hit.index); // 0.44.0：细节镜，世界层落位之后现量观察点
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -6252,6 +6521,11 @@
     // 逐拍读数，得在这里每帧推进。导出截图页每帧只跑一次 tick()：见旗直接落终值
     // （生长落 0 = 线完整，定格里读"这两件有关系"）。
     connTock(t);
+    // 细节镜（0.44.0）：与上面几个逐拍读数同一个位置——layoutLoupes() 只在换句
+    // 分支里跑（建镜 / 跟心 / 重克隆），镜内 zoom 的 scale 与透明度是逐拍读数，
+    // 得在这里每帧推进。导出截图页每帧只跑一次 tick()：见旗直接落终值（scale 落 k，
+    // 定格里读"这一块放大后是什么"）。
+    loupeTock(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到
