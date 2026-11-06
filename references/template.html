@@ -363,6 +363,18 @@
        getPointAtLength 却是实打实的。--morph-min 1.6 是行程地板（用户坐标 px）：
        逐点最大位移不到 1.6px 就不演——那点差别演出来只是抖（与"数值未变不滚"同族）。 */
     --dur-morph:.55s; --morph-pts:48; --morph-min:1.6;
+    /* 路径进度（0.46.0）：课堂里唯一一件"本来就该停在半路"的事——一条推导线 /
+       流程线走到第几段。上面所有原语都是"抵达 / 出现 / 消失 / 形变"，它们都终将
+       落定；进度是**状态**，停在 60% 就是它这一拍的全部内容，不该被当成没演完。
+       --dur-path .5s 与 --dur-move / --dur-conn 同档：走一段是位移，不是入场。
+       时间走向**分两种**：第一次长出来（0→p）用 easeOutExpo（"画出来"是动作），
+       之后每次推进用 linear（"走到 60%"要能被读成比例——ease 会让前 30% 就吃掉
+       一半行程，观众对"还剩多少"的判断就错了，与进度条同一课）。
+       --path-ghost 是"还没走到"那一段的墨色（同 --conn-ink 的中性灰，压到 .42：
+       它是上下文、不是内容）；--path-dash 7 6 是虚线段长/间隔（viewBox 单位，
+       不随路径长短变——归一化的百分比虚线上长下短，读起来像两种语法）。 */
+    --dur-path:.5s; --path-ghost:rgba(141,149,168,.42);
+    --path-dash:7 6;
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -860,6 +872,31 @@
        cx var(--dur-grow) var(--ease-out),cy var(--dur-grow) var(--ease-out),
        r var(--dur-grow) var(--ease-out),
        --dimmer var(--dur-dim) var(--ease-out),filter var(--dur-dim) var(--ease-out)}
+  /* 路径进度（0.46.0）：一条路分成"已走 / 未走"两截——已走实线、未走虚线。这是
+     导航与流程图的通用语法（地图的已行路线、gui.de 的流向线、推导链的"走到这一
+     步"）。作者只画一条 `<path>`，drawTo() 替它建一条同 d 的虚线副本垫在下面，
+     所以"还剩多少"从来不用作者再画一遍。
+     五条边界：
+       ① **进度写属性、不挂 transition**：`.seg` 上的 `transition:none` 是刻意的
+          ——`stroke-dasharray` 是可动画属性，作者那条路若同时挂了 `.nt` / 自带
+          transition，CSS 会追着 JS 每帧写下的值再补一次，收尾落不回精确进度
+          （与 `.meter` 的 width、`.conn .line` 的 dashoffset 同一课）；
+       ② **初值不可见**：`stroke-dasharray:0 9999` 让"还没开始"就是零可见——实段 0、
+          空段比整条长得多，所以整条路不显形。这里必须写**大周期**而不是 `0 1`：
+          后者周期只有 1 个用户单位，0/1 交替落在亚像素尺度上，抗锯齿会把它渲染成
+          "半透明的实线"（实测整条路仍看得见，只是颜色淡了一半）——那不是"没开始"，
+          是"线脏了"；
+       ③ **副本不带 id、不抢命中**：`.seg-g` 是纯注解（`data-helper="seg"`，
+          prune() 跳过、`pointer-events:none`），与真实路径**同父、紧跟其后**，
+          坐标系天然一致——不靠 transform 换算把 d 搬到别的层（那会随镜头缩放
+          错位，`#loupes` / `#connects` 那种"单开一层"在这里行不通）；
+       ④ **圆头**：`stroke-linecap:round` 让端点读作"走到这里"；平头在细线上
+          会被读成"线断了"；
+       ⑤ 它**不进** reduced-motion 清单：没有 CSS 补间，逐拍是 JS 的读数，
+          见旗（导出 / 减动效 / 擦洗）由 segTock 直接落作者声明的 at。 */
+  .seg{transition:none;stroke-linecap:round;stroke-dasharray:0 9999}
+  .seg-g{stroke:var(--path-ghost);stroke-dasharray:var(--path-dash);
+         stroke-linecap:round;fill:none;pointer-events:none}
   /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
      接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
      四条边界（写错过任何一条，拆解都会静默失效）：
@@ -3363,7 +3400,14 @@
      所以 morphTock() 只在自己的 p 到 1 时收账（落作者那条 d），或被 sweep 摘走节点
      时顺手清账；renderer 每一步重申同一个目标也是空转（新旧 d 相同就直接返回）。 */
   var MORPH = {};
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 路径进度（0.46.0）：SEG 是"这一步声明了哪条路走到哪"的登记表——与 CALL / CONN /
+     LOUPE 同一张"每步清空、renderer 重挂"的表，"这一步走到第几段"同样是 (scene,
+     step) 的纯函数。但**进度本身是跨步状态**：走到哪存在 SEG_P（按 key），不随
+     begin() 清空——理由与 MORPH 飞行表同族而且更硬：清掉它，下一步就会把一条已经
+     走到 60% 的路重新当成"还没开始"，从 0 再长一遍（那读起来是"这条路重启了"）。
+     正在跑的那一趟存 SEG_RUN（key → 这一趟的 from / to / 起点 / 时长 / 走法）。 */
+  var SEG = [], SEG_RUN = {}, SEG_P = {}, SEG_G = {};
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -4134,6 +4178,141 @@
         out[i] = [f.a[i][0] + (f.b[i][0] - f.a[i][0]) * e,
                   f.a[i][1] + (f.b[i][1] - f.a[i][1]) * e];
       f.n.setAttribute('d', morphPath(out, f.closed));
+    }
+  }
+
+  /* ── 路径进度（0.46.0）═════════════════════════════════════════════
+     课堂里唯一一件"本来就该停在半路"的事：一条推导线 / 流程线走到第几段。
+     上面所有原语都是"抵达 / 出现 / 消失 / 形变"，它们最终都要落定；进度是
+     **状态**——停在 60% 就是这一拍的全部内容，不该被当成"没演完"。
+     与三条例子上形近的原语的分工（写清楚是因为它们最容易混）：
+       · `.draw` = "这条线被写出来了"——**事件**，一次 0→1，终态满线；
+       · `.flow` = "刚有一次通过"——瞬时掠光，静止与终态都不可见；
+       · `.ride` = "有人沿着这条路走到那头"——移动的是**物件**，路本身不变；
+       · `drawTo()` = "这条路走到第几段"——移动的是**路自己的已走段**，
+         可停可退、跨句保持，导出帧落作者声明的那一格。
+     作者只画一条 path（灰的、静的），drawTo 替它做三件事：① 建一条同 d 的虚线
+     副本垫在下面（"还没走到"的部分读得出来）；② 把已走段的 dasharray 逐拍写长；
+     ③ 可选地把一个 head 节点钉在进度末端（走头）。 */
+  function segDur(){ return morphTok('--dur-path', .5); }
+
+  /** 登记这一步"这条路走到哪"。all 参数同族：at 是 0..1；给 stops + step 时按站取。 */
+  function drawTo(key, node, opt){
+    var o = opt || {};
+    var n = typeof node === 'string' ? el(node) : node;
+    // 只对 <path> 有效：别的形状没有弧长可量，进度（比例）在它们身上没有意义；
+    // 要"部分出现"用 .reveal / .tuck（按几何裁切，与比例无关）。
+    if (!n || n.tagName !== 'path') return;
+    var at = o.at;
+    if (o.stops && o.stops.length){
+      var i = Math.round(+o.step || 0);
+      at = o.stops[Math.max(0, Math.min(o.stops.length - 1, i))];
+    }
+    if (!isFinite(at)) at = 1;
+    at = Math.max(0, Math.min(1, +at));
+    SEG.push({key:key, n:n, at:at, gone:o.gone === true,
+              head: o.head ? (typeof o.head === 'string' ? el(o.head) : o.head) : null,
+              dur: isFinite(+o.dur) && +o.dur > 0 ? +o.dur : 0});
+  }
+
+  /** 虚线副本：同父、紧跟原路之后（同坐标系，镜头缩放不会错位）。
+   *  不带 data-key——prune() 只按 key 收节点，无 key 的它不会摘（与对照窗的
+   *  `data-helper="cmp"` 同一处判断，这里连 skip 都不需要）；带 data-helper="seg"
+   *  只为 QA / 探针认得出它。原路被 sweep 摘走时由 layoutSegs 顺手收账。 */
+  function segGhost(n){
+    var id = n.dataset.key || n.id, g = SEG_G[id];
+    if (g && g.n === n && g.c.parentNode === n.parentNode) return g.c;
+    if (g && g.c.parentNode) g.c.parentNode.removeChild(g.c);
+    var c = document.createElementNS(NS, 'path');
+    c.setAttribute('data-helper', 'seg');
+    c.setAttribute('class', 'seg-g');
+    c.setAttribute('d', n.getAttribute('d'));
+    n.parentNode.insertBefore(c, n.nextSibling);
+    SEG_G[id] = {c:c, n:n};
+    return c;
+  }
+
+  /** 写一个进度值：dasharray = [已走长, 空段长]（空段比整条更长，所以只出现一次实段）。
+   *  v=0 时实段长为 0（整条不可见）、v=1 时实段盖满整条——两端都不需要特判。
+   *  走头的位置用 getPointAtLength 现算：head 必须与原路同坐标系（文档里写明）。 */
+  function segWrite(s, v){
+    var L = s.__L, n = s.n;
+    var dash = f1(v * L) + ' ' + f1(L + 2);
+    // **属性 + inline style 两处都写**：CSS 的 presentation attribute 优先级最低，
+    // `.seg` 那条 `stroke-dasharray:0 9999` 会盖掉写在属性上的进度（实测整条路停在
+    // "没开始"）。inline style 才压得住 class 规则；属性留着是给 QA / 导出脚本读的
+    // （"读数落在属性上"的纪律在这条原语上要两处一起落）。
+    n.setAttribute('stroke-dasharray', dash);
+    n.style.strokeDasharray = dash;
+    if (s.head && s.head.isConnected){
+      var pt = n.getPointAtLength(Math.max(0, Math.min(L, v * L)));
+      if (pt && isFinite(pt.x) && isFinite(pt.y)){
+        s.head.setAttribute('cx', f1(pt.x));
+        s.head.setAttribute('cy', f1(pt.y));
+      }
+    }
+  }
+
+  /** 布局这一拍的进度（worldFor 之后、camSet 之前，与 layoutConnects / layoutLoupes 同批）。
+   *  这里只量弧长、定这一趟的起止与走法；中间帧在 segTock 逐拍写。
+   *  **不登记 ≠ 收回**：下一步没再声明这条路，它停在原处（进度是累积状态，与
+   *  MORPH 飞行表同族；与 `.conn` 的"不登记即消失"相反——那条线断掉是事实，
+   *  这条路走到的位置不是）。要收就用 gone:true 显式收回。 */
+  function layoutSegs(stepId, index){
+    var full = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    // ① 先收孤儿：原路被 sweep 摘走的副本，父亲已经没了它，留着就是一条悬空的虚线
+    for (var id in SEG_G){
+      var g = SEG_G[id];
+      if (!g.n || !g.n.isConnected){
+        if (g.c.parentNode) g.c.parentNode.removeChild(g.c);
+        delete SEG_G[id];
+      }
+    }
+    // ② 逐条：副本对齐 d（morph 可能改过这条路的形状）、量弧长、定这一趟
+    SEG.forEach(function(s){
+      var n = s.n, key = s.key;
+      if (!n.isConnected) return;
+      var L = 0;
+      try { L = n.getTotalLength(); } catch (e){ return; }
+      if (!isFinite(L) || L <= 0) return;                 // 量不到：宁可不画
+      if (!/\bseg\b/.test(n.getAttribute('class') || ''))
+        n.setAttribute('class', ((n.getAttribute('class') || '') + ' seg').trim());
+      var c = segGhost(n);
+      if (c.getAttribute('d') !== n.getAttribute('d')) c.setAttribute('d', n.getAttribute('d'));
+      var prev = SEG_P[key], to = s.gone ? 0 : s.at;
+      var from, mode;
+      if (s.gone) { from = (prev === undefined) ? s.at : prev; mode = 'linear'; }
+      else if (prev === undefined) { from = 0; mode = 'in'; }   // 首次：从路头长出来
+      else { from = prev; mode = 'linear'; }                    // 推进 / 回退：按比例读
+      s.__L = L; s.__from = from; s.__to = to; s.__t0 = stepT0;
+      s.__dur = s.dur || segDur(); s.__mode = mode;
+      // 起点先落进属性：CSS 的 `stroke-dasharray:0 1` 只是"首帧不闪一条满线"的兜底，
+      // 真正的读数必须在属性上（QA / 导出 / 探针直接读它，与"终态落在属性上"同一条纪律）
+      segWrite(s, from);
+      if (full || Math.abs(to - from) < .002){
+        if (full) segWrite(s, to);
+        SEG_P[key] = full ? to : from;                        // 见旗落 at；没动就保持
+        delete SEG_RUN[key]; return;
+      }
+      SEG_RUN[key] = s;
+    });
+  }
+
+  /** 逐拍（与 countRollWrite / meterWrite / connTock / loupeTock / morphTock 同批）。
+   *  首次长出来（in）走 easeOutExpo——"画出来"是一个动作；之后推进（linear）
+   *  按比例读——走到 60% 就必须是 60% 的行程，ease 会让观众对"还剩多少"判断错。
+   *  导出 / 减动效 / 擦洗：直接落作者声明的 at，定格里读到的是"走到这一格"。 */
+  function segTock(t){
+    var full = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    for (var key in SEG_RUN){
+      var s = SEG_RUN[key];
+      if (!s.n.isConnected){ delete SEG_RUN[key]; continue; }  // 节点被摘：顺手清账
+      if (full){ segWrite(s, s.__to); SEG_P[key] = s.__to; delete SEG_RUN[key]; continue; }
+      var p = s.__dur > 0 ? (t - s.__t0) / s.__dur : 1;
+      if (p <= 0){ segWrite(s, s.__from); continue; }
+      if (p >= 1){ segWrite(s, s.__to); SEG_P[key] = s.__to; delete SEG_RUN[key]; continue; }
+      var e = s.__mode === 'linear' ? p : (1 - Math.pow(2, -10 * p));
+      segWrite(s, s.__from + (s.__to - s.__from) * e);
     }
   }
 
@@ -6609,6 +6788,7 @@
         drawCompares();                           // 0.40.0：对照窗，世界层落位之后现量两版并集
         layoutConnects();                         // 0.43.0：关系连线，世界层落位之后现量两端
         layoutLoupes(hit.scene.step_id, hit.index); // 0.44.0：细节镜，世界层落位之后现量观察点
+        layoutSegs(hit.scene.step_id, hit.index); // 0.46.0：路径进度，世界层落位之后量弧长、定这一趟
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -6696,6 +6876,12 @@
     // 它**不进 begin()**：下一步不再登记时也要把形状落定，否则停在半路的折线上。
     // 导出截图页每帧只跑一次 tick()：见旗直接落作者那条 d（定格里读到精确轮廓）。
     morphTock(t);
+    // 路径进度（0.46.0）：与上面几个逐拍读数同一个位置——layoutSegs() 只在换句分支
+    // 里跑（建虚线副本 / 量弧长 / 定这一趟），已走段的 dasharray 与走头位置是逐拍
+    // 读数。它**不随 begin() 清空进度**：下一步没再声明这条路，它停在原处
+    // （与 morph 飞行表同一族理由）。导出截图页每帧只跑一次 tick()：见旗直接落
+    // 作者声明的 at（定格里读到"走到这一格"，不是一段没演完的中间态）。
+    segTock(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到
