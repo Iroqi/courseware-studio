@@ -347,6 +347,10 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
   透明度 1（定格里读"这一块放大后是什么"）；`lid` 的平移与圈 / 内容的 `loupeIn`
   是 transition / animation（切掉即"已落位 / 已完整"）；镜心与观察点每步现量、
   镜内副本每次重建，冷启动与直播同一张定格；`gone` 见旗直接不可见。
+- 形变（`morph()` / `morphTock()`）：**终态在登记那一刻就写进 `d`**——见旗（导出 /
+  减动效 / 擦洗）不登记飞行、在飞的直接落回作者那条 `d`，所以成片读到的是精确轮廓，
+  不是 48 段采样折线；冷启动首见即建档（第一帧不演），逐帧与直播同一张定格。
+  `.morph` 的 transition 清单里没有 `d`，注入 `transition:none` 对它没有额外要求。
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -390,6 +394,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | JS 逐拍，但语义是过程（量） | 数字落定（`countRollWrite`）、量条（`meterWrite`） | 导出 / reduced-motion 落终值（数字 `data-count`、量条 `scale(1 1)` 全满）；live 播放逐拍滚中间值 |
 | JS 逐拍（dashoffset）+ 仅 d 的 transition | 关系连线（`connTock` 写 `dashoffset` / 标签透明度，`d` 走 `.conn .line` 的 transition） | 生长落 `stroke-dashoffset 0`（线完整）；`gone` 收回落移除（关系不成立）；`d` 切掉 transition 即"已跟到位" |
 | JS 逐拍写 scale + animation 入场 | 细节镜（`loupeTock` 写 `zoom` 的 `scale` / 透明度，`lid` 的平移走 transition，圈 / 内容走 `loupeIn`） | 落 `scale(k)` + 透明度 1（定格里读"这一块放大后是什么"）；`gone` 见旗直接不可见；圈 / 内容切掉动画即完整 |
+| JS 逐拍写 `d`（中间帧是采样折线） | 形变（`morph()` 登记即落终态，`morphTock()` 逐拍补中间帧） | 落**作者声明的那条 `d`**：见旗不登记飞行、在飞的直接收账落 `to`；冷启动首见即建档，成片每格都是精确轮廓；`.morph` 清单里没有 `d`，切不切都不影响落点 |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |

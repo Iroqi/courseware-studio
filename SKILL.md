@@ -166,6 +166,7 @@ HTML/CSS 契约见 `references/layout.md`。
 | 声画同步 | `cue()` + `.cue`（词拍：旁白念到词时给所指对象套四角括号；词窗按字数 + 标点现算，几何在词到的那拍现量并跟到入场落定） |
 | 对照与差异 | `compare()` + `[data-cmp="a/b"]`（对照窗：两个版本同窗叠放、互补裁切，`--cmp-r` 单一读数驱动接缝与标签；`at` 写当步档位，导出 / reduced-motion 落终值） |
 | 组成与拆解 | `explode()` + `.explode`（拆解视图：一组纯包装件给出装配位，按离锚点距离沿轴分开、外圈先走；`amount` 开合量跨步补间，导出 / reduced-motion 落当步档位） |
+| 形变与连续 | `morph()` + `.morph` + `morphTock()`（形变：同一件 `<path>` 换轮廓——登记那一刻先把作者那条 `d` 落进属性，中间帧由两端各采 48 点、搜顶点对应后逐拍写成折线，落定回到精确轮廓；非 `<path>` / 量不到 / 行程小于 `--morph-min` 不演，导出 / reduced-motion / 擦洗都落终态。跨"角 ↔ 弧"这种命令序列不同构的形状更替，`.nt` 的 `d` 补间接不住，走这一条） |
 | 数字与读数 | `data-count`（目标值写呈现属性）、`countRollWrite`（audio 时钟现算中间值）、`.roll`（tabular-nums 等宽）；`data-meter`（目标长写 width）、`meterWrite`（scaleX 现算中间长）、`.meter`（fill-box 左缘为轴）——数字落定与量条是同一族"量"的两张皮：计数读数从句首从旧值滚到新值、量条从旧长滚到新长，首次建档与数值 / 长度未变不滚，导出 / reduced-motion 落终值 |
 | 交互反馈 | `.opt.rip`（触点涟漪）、`.hot`（触点辉光）、`magMove/magClear` 与 `.mag`（磁吸迎手）、`.gate-next .go.shine`（放行键掠光） |
 | 播放器 | `--ease-spring` 手感、`.bar[data-drag]`（拖动跟手）、`.bar[data-band]` + `--band`（越界橡皮筋）、`#ffwd`（快进掠擦）、`.tick.on`（当前章节）、擦洗态变厚、窥探气泡 |
@@ -221,6 +222,12 @@ HTML/CSS 契约见 `references/layout.md`。
   变换顺序必须 **scale 在外、translate 在内**（写反内容飞出镜圈）；复用同 key 跨步
   不重放、`gone` 淡出、不登记即连同 `clipPath` 摘掉；导出 / reduced-motion 落
   `scale(k)` + 透明度 1。
+- **形变只做"同一件东西换了轮廓"这一件事**：`morph()` 的 `d` 归原语独占——建档时也
+  不要把 `d` 写进 `put()` 的属性表，`put` 在换句时把半路的折线顶成新目标，`morph()`
+  读到的"旧轮廓"就等于新目标，于是**只剩跳档、且不报错**；节点必须挂 `.morph`
+  （清单里没有 `d`，否则 JS 与 CSS 抢同一条轮廓，收尾落不回精确形状）；它不替代
+  `.flip`（同一位置换说法）、`compare()`（两版对照）、`.reveal` / `.tuck`（上台让位），
+  顶点数差得远时中间帧会有轻微穿边（终态不受影响），要读"结果"就等它落定。
 
 ## 6. 门禁设计
 

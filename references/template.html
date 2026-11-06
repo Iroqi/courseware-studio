@@ -355,6 +355,14 @@
        --loupe-r 52 是 FULL（1000×460）里的 1/9 宽——够放一行 28 号字的三个字符；
        --loupe-k 1.8 让 14px 的细节读成 25px（"第三位字符"才认得出）。 */
     --dur-loupe:.45s; --loupe-ink:#8d95a8; --loupe-r:52; --loupe-k:1.8;
+    /* 形变（0.45.0）：--dur-morph 是"同一件东西换了轮廓"的一拍。它比"凑近看"
+       （--dur-loupe .45s）略长、比镜头行程（--dur-move .5s）略长一档：轮廓是内容
+       本身在变，读者要认出"还是它"——太快像换了一张图，太慢像两个动作。
+       --morph-pts 48 是两端各采的点数：折角在中间帧会被摊成 48 段折线，终态永远落回
+       作者写的那条 d，所以定格不糊；再翻倍肉眼读不出差别，每帧多几十次
+       getPointAtLength 却是实打实的。--morph-min 1.6 是行程地板（用户坐标 px）：
+       逐点最大位移不到 1.6px 就不演——那点差别演出来只是抖（与"数值未变不滚"同族）。 */
+    --dur-morph:.55s; --morph-pts:48; --morph-min:1.6;
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -834,6 +842,23 @@
        rx var(--dur-grow) var(--ease-out),ry var(--dur-grow) var(--ease-out),
        cx var(--dur-grow) var(--ease-out),cy var(--dur-grow) var(--ease-out),
        r var(--dur-grow) var(--ease-out),d var(--dur-grow) var(--ease-out),
+       --dimmer var(--dur-dim) var(--ease-out),filter var(--dur-dim) var(--ease-out)}
+  /* 形变（0.45.0）：**morph() 独占 d**，所以这一条把 .nt 的清单原样抄一遍、只删掉
+     `d`（写在 .nt 之后、同特异度，整串简写以本条为准——见 §3.4.5「CSS 简写互相顶掉」）。
+     留着 `d` 就是双重缓动：JS 每帧写的是一条 48 段折线，CSS 的 d 补间再去追自己
+     刚写下的那一帧，中间帧永远落在 JS 那一帧的后面，收尾也落不回作者那条精确轮廓
+     （与 .meter 的 width、.conn .line 的 dashoffset 同一课）。其余十六项照旧——
+     正在变形的图元仍然可以同拍走位移、透明度与描边色。
+     为什么不用 .nt 自带的 d 补间：那条要求两条路径**命令序列同构**，否则整条跳档
+     （M L L vs M C 直接不补间，实测见 stage.md §3.4.3（15））；形变正是把这个限制
+     拆掉——顶点数不同、有弧有角都能连续，代价是中间帧是采样折线。 */
+  .morph{transition:transform var(--dur-move) var(--ease-out),opacity .4s ease,
+       fill .35s ease,stroke .35s ease,stroke-width .3s ease,
+       x var(--dur-grow) var(--ease-out),y var(--dur-grow) var(--ease-out),
+       width var(--dur-grow) var(--ease-out),height var(--dur-grow) var(--ease-out),
+       rx var(--dur-grow) var(--ease-out),ry var(--dur-grow) var(--ease-out),
+       cx var(--dur-grow) var(--ease-out),cy var(--dur-grow) var(--ease-out),
+       r var(--dur-grow) var(--ease-out),
        --dimmer var(--dur-dim) var(--ease-out),filter var(--dur-dim) var(--ease-out)}
   /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
      接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
@@ -2318,6 +2343,12 @@
     .loupe .lid,.loupe .stem{transition:none}
     .loupe .lens,.loupe .ring{animation:none}
     .loupe.gone{opacity:0;transition:none}
+    /* 形变（0.45.0）关的是 **transition**，而它本来就没有 d 的补间：中间帧那几条
+       采样折线由 morphTock() 逐拍写，见旗（导出 / 减动效 / 擦洗）直接落作者声明的
+       那条 d——关掉的是过程，不是档位，定格永远读得到"这一拍该是什么形状"。
+       这里归零的是从 .nt 抄来的其余各项（位移、透明度、描边色）。
+       本条基础规则写在本块之前，同特异度时源序后者胜。 */
+    .morph{transition:none}
     #gate .gate-next .go,#gate .act-row .go{transition:none}
   }
 
@@ -3325,6 +3356,13 @@
      EX_MARK 记哪些件此刻带着偏移（某一步不再登记时把它们送回装配位）。两者不随
      begin() 清空：它们描述的正是"跨步"这件事。 */
   var EX_R = {}, EX_MARK = {};
+  /* 形变（0.45.0）：MORPH 不是"这一步登记了什么"，而是"哪些轮廓还在路上"——
+     它按 key 存一趟飞行（旧采样、新采样、作者那条 d、句首、时长），**不随 begin()
+     清空**，理由与 CMP_R / EX_R 同族但更强：登记表清掉时，别的原语最多是"这一拍不
+     再声明这件事"，而飞行表若清空，节点会停在半路的采样折线上——形状读成"裂了一半"。
+     所以 morphTock() 只在自己的 p 到 1 时收账（落作者那条 d），或被 sweep 摘走节点
+     时顺手清账；renderer 每一步重申同一个目标也是空转（新旧 d 相同就直接返回）。 */
+  var MORPH = {};
   function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
@@ -3970,6 +4008,133 @@
       zoom.setAttribute('transform', 'scale(' + s + ')');
       zoom.setAttribute('opacity', String(+e.toFixed(3)));
     });
+  }
+
+  /** 形变（0.45.0）：让**同一件东西**换轮廓——旧轮廓连续走到新轮廓，而不是撤掉再
+   *  建一张图。前沿对应是 flubber / MorphSVG 那条"轮廓插值"：两端各采同样多的点、
+   *  配好顶点对应关系、逐点走线，最后落回目标形状。`.nt` 本来就补间 `d`，但那条要求
+   *  两条路径**命令序列同构**（`M L L` 对 `M C` 直接跳档），这一条把限制拆掉：顶点数
+   *  不同、有弧有角都能连续，代价是中间帧是采样折线、终态仍是作者那条精确轮廓。
+   *  它回答的是"**它自己变了形**"——身份不变、形状变，读出来是连续的一件事；
+   *  `.flip` 是同一位置上换了个说法（两面），`compare` 是两个版本叠一扇窗，
+   *  `.tuck` / `.reveal` 是让位与上台，都不说"轮廓在变"。
+   *  七条接线口径（写错任何一条都会静默退化成一个跳变）：
+   *   ① **`d` 归 morph() 独占**：建档时也不要往 put() 的属性表里写 d。put 只在值
+   *      不同时覆写属性，于是换句那一步它会把半路的采样折线直接顶成新的目标，
+   *      紧接着 morph() 读到的"旧轮廓"已经是新形状 → 无飞行可登记 → 跳档。
+   *      正确接线：put 只给 class 与样式，形状只从 morph() 声明。
+   *   ② **两端都在节点自己身上现量**：先按旧 d 采一轮，写上 to 之后再采一轮，两次
+   *      采样在同一段同步 JS 里，中间那一帧不上屏。不引进 helper 元素，也就不参与
+   *      getBBox / prune（对照窗那枚参考盒被自己量进包围盒、窗口越量越大的同一坑）。
+   *   ③ **顶点配对**：闭合轮廓先试原序与翻转、再整体旋转，取逐点位移平方和最小的一档
+   *      （48×2 次比较，部分和一旦超最优就跳出）。不配对的后果是"两个三角形对转"——
+   *      起点差半圈的对应关系会把形变演成扭绞。**不做 flubber 的加权插值**：它补的是
+   *      "周长差得多、点位速度不均"，在 48 点与一句的尺度里读不出差别，却要多一倍
+   *      采样和一段距离场。开放路径（`opt.open:true`）锚在起点上、不搜配对——搜了
+   *      会把线头挪到轮廓中间去。
+   *   ④ **终态永远落回作者那条 d**：中间帧才是折线，所以折角在句末是精确的，定格帧
+   *      读得到"它就是那个形状"（纪律：状态写在属性上，动画只负责过程）。
+   *   ⑤ **首见即建档、不演**（与数字落定 / 量条同口径）：冷启动、导出逐帧、擦洗、
+   *      减动效都直接落当步形状——export_video 的每一格永远是精确轮廓，不会有半截。
+   *   ⑥ **宁不变形**：不是 `<path>` 的节点原样不动（rect / circle 的形状由自己的几何
+   *      属性写着，`.nt` 那条属性补间本来就在兜）；量不到（零长度 / NaN）或逐点最大
+   *      位移小于 `--morph-min`（差别小到只是抖）也不演。注意"不演"从来不等于"不落"：
+   *      终态在登记那一刻就已经写进 `d` 了，不演的只是中间那些帧。
+   *   ⑦ **不与 `.draw` 并用**：两条都在读同一条轮廓的"过程"，读者分不清这是正在被
+   *      画出来还是正在换形状；`.morph` 的 transition 清单里也没有 `d`（防双重缓动，
+   *      与 .meter / .conn .line 同课）。命中区跟着形状走——这是内容节点本身，
+   *      不像注记层要 `pointer-events:none`。 */
+  function morphTok(name, dflt){ var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)); return isFinite(v) && v > 0 ? v : dflt; }
+  function morphDur(){ return morphTok('--dur-morph', .55); }
+
+  /** 沿弧长均匀采 n 个点（闭合轮廓取 i/n，不含收尾那一点——它是循环的）。 */
+  function morphPts(node, n){
+    var L = 0;
+    try { L = node.getTotalLength(); } catch (e){ return null; }
+    if (!isFinite(L) || L <= 0) return null;
+    var pts = [];
+    for (var i = 0; i < n; i++){
+      var p = node.getPointAtLength(L * i / n);
+      if (!p || !isFinite(p.x) || !isFinite(p.y)) return null;
+      pts.push([p.x, p.y]);
+    }
+    return pts;
+  }
+
+  /** 给闭合轮廓找一对最省事的顶点对应：原序 / 翻转 × 整体旋转 n 档，比平方和。 */
+  function morphAlign(a, b){
+    var n = a.length, best = null;
+    for (var s = 0; s < 2; s++){
+      var q = s ? b.slice().reverse() : b;
+      for (var off = 0; off < n; off++){
+        var sum = 0, i = 0;
+        for (; i < n; i++){
+          var p = q[(i + off) % n], dx = p[0] - a[i][0], dy = p[1] - a[i][1];
+          sum += dx * dx + dy * dy;
+          if (best && sum >= best[0]) break;       // 部分和已超最优：这一档不用算完
+        }
+        if (i === n && (!best || sum < best[0])) best = [sum, q, off];
+      }
+    }
+    if (!best) return b;
+    var out = [];
+    for (var j = 0; j < n; j++) out.push(best[1][(j + best[2]) % n]);
+    return out;
+  }
+
+  /** 采样点写成一条路径；闭合就补 Z（终态不用它——终态是作者那条 d）。 */
+  function morphPath(pts, closed){
+    var d = 'M' + f1(pts[0][0]) + ' ' + f1(pts[0][1]);
+    for (var i = 1; i < pts.length; i++) d += 'L' + f1(pts[i][0]) + ' ' + f1(pts[i][1]);
+    return closed ? d + 'Z' : d;
+  }
+
+  /** 声明"这个节点这一拍长成 to 这条轮廓"。旧轮廓从节点当前的 d 现读——所以中间
+   *  被打断也能接着走（读回来的是半路的折线，正好是它此刻在屏幕上的形状）。 */
+  function morph(key, node, to, opt){
+    var o = opt || {};
+    var n = typeof node === 'string' ? el(node) : node;
+    // 只对 <path> 有效：rect / circle 那些的形状由自己的几何属性写着，本来就有
+    // .nt 的属性补间兜着；这里没有 d 可落，动它只会写出一条无效属性。
+    if (!n || n.tagName !== 'path' || typeof to !== 'string' || !to) return;
+    var from = n.getAttribute('d');
+    if (from === to){ delete MORPH[key]; return; }   // 轮廓未变：不滚（与数值未变不滚同族）
+    var closed = o.open !== true;
+    var S = Math.round(morphTok('--morph-pts', 48));
+    if (!(S >= 4)) S = 48;                            // 令牌被写成 0 / 非数：退回默认档
+    var a = morphPts(n, S);                           // 旧轮廓：此刻节点还带着 from
+    n.setAttribute('d', to);                          // 终态先落属性，过程只是补中间的帧
+    var b = morphPts(n, S);                           // 新轮廓：同一段同步 JS，不上屏
+    if (from === null || scrubbing || window.__coursewareShotMode ||
+        mqReduce.matches || !a || !b){ delete MORPH[key]; return; }   // 建档 / 擦洗 / 定格 / 减动效 / 量不到
+    if (closed) b = morphAlign(a, b);
+    var mx = 0, floor = morphTok('--morph-min', 1.6);
+    for (var i = 0; i < S; i++){
+      var dx = b[i][0] - a[i][0], dy = b[i][1] - a[i][1], dd = dx * dx + dy * dy;
+      if (dd > mx) mx = dd;
+    }
+    if (!(mx >= floor * floor)){ delete MORPH[key]; return; }   // 行程地板：只是抖就不演
+    MORPH[key] = {n:n, a:a, b:b, to:to, closed:closed, t0:stepT0, dur:morphDur()};
+  }
+
+  /** 逐拍推进（与 countRollWrite / meterWrite / connTock / loupeTock 同批）：p 从
+   *  句首起、`--dur-morph` 内 easeOutExpo 走完，中间帧写采样折线；p 到 1 落回作者
+   *  那条 d 并收账。见旗（导出 / 减动效 / 擦洗）同样落终值——**不随 begin() 清空**，
+   *  所以下一步不再登记时它照样会落定，不会停在半路的裂形上。 */
+  function morphTock(t){
+    var full = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    for (var key in MORPH){
+      var f = MORPH[key];
+      if (!f.n || !f.n.isConnected){ delete MORPH[key]; continue; }   // 节点被 sweep 摘走：顺手清账
+      if (full){ f.n.setAttribute('d', f.to); delete MORPH[key]; continue; }
+      var p = Math.max(0, Math.min(1, (t - f.t0) / f.dur));
+      if (p >= 1){ f.n.setAttribute('d', f.to); delete MORPH[key]; continue; }   // 收尾精确落作者的轮廓
+      var e = 1 - Math.pow(2, -10 * p), out = new Array(f.a.length);
+      for (var i = 0; i < f.a.length; i++)
+        out[i] = [f.a[i][0] + (f.b[i][0] - f.a[i][0]) * e,
+                  f.a[i][1] + (f.b[i][1] - f.a[i][1]) * e];
+      f.n.setAttribute('d', morphPath(out, f.closed));
+    }
   }
 
   /** 一条注记的全部几何。文字宽度用**探针**量（detached text 挂进同一组、量完就摘）：
@@ -6526,6 +6691,11 @@
     // 得在这里每帧推进。导出截图页每帧只跑一次 tick()：见旗直接落终值（scale 落 k，
     // 定格里读"这一块放大后是什么"）。
     loupeTock(t);
+    // 形变（0.45.0）：与上面几个逐拍读数同一个位置——飞行表由 renderer 在换句分支里
+    // 填（旧轮廓从节点当前的 d 现读），中间帧是逐拍读数，得在这里每帧推进。
+    // 它**不进 begin()**：下一步不再登记时也要把形状落定，否则停在半路的折线上。
+    // 导出截图页每帧只跑一次 tick()：见旗直接落作者那条 d（定格里读到精确轮廓）。
+    morphTock(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到
