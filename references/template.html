@@ -412,6 +412,28 @@
        / 游标同一支笔）。 */
     --lane-h:6; --lane-gap:5; --lane-pad:11; --lane-min:40; --lane-fs:10;
     --lane-track:rgba(141,149,168,.22); --lane-ink:#f5a623;
+    /* 区间窗（0.49.0）：词表能说"这条路走到第几段"（drawTo）、"这件东西绕到第几回"
+       （loopTo）、"这几件各自做到哪儿"（lanes）——全在时间轴上；没有一条说**取的是
+       哪几件**。而 `slice` / `substring` / 二分查找的候选区间 / 滑动窗口 / 分页，讲的
+       都是"从第几件到第几件这一段"：宽度本身就是读数，而且它**会走**——同一个宽度
+       扫过整排，才叫窗口在滑。
+       这一条把"取哪一段"落成一条会移动的取景带：作者只给序列与两个序号，左右切口、
+       上下沿、序号读数全从各件的盒现推。
+         · 两条竖切口落在**所取那几件的外沿之外 pad**——切口落在件与件之间的缝里，
+           所以它读作"从这里切开"，不是"这几件算一组"（后者是 .brace 的活）；
+         · 带子在换句那一刻定住起点，之后每一拍往**当拍量到的**目标追（easeOutExpo）。
+           对象还在入场 / 还在挪位时，带子跟着它落位，而不是钉在入场前一瞬的位置上；
+         · 读数签写 `from–to / n`（0 基，与 slice 同一个口径），整签压回取景窗内；
+           `lab` 可以整句换成作者的话，`num:false` 只留带子与切口。
+       --dur-range .42s 与 --dur-in 同档：这是**一条注记改位置**的时长，不是过程读数。
+       --range-pad 5 是切口到物件外沿的净空（它必须小于相邻两件之间的缝，否则切口
+       会压到邻居身上）；--range-cap 7 是切口线向带外伸出的长度（让"切开"这件事
+       在上下都看得见）；--range-fs 10 是读数字号。
+       --range-wash 是带内底色（强调橙的极浅档，与 .mark / #cap-hl 同一支笔的高亮，
+       不是"选中"的蓝）；--range-edge 是两条切口；--range-ink 是读数签。 */
+    --dur-range:.42s; --range-pad:5; --range-cap:7; --range-fs:10;
+    --range-wash:rgba(245,166,35,.13); --range-edge:rgba(245,166,35,.78);
+    --range-ink:#f5a623;
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -979,6 +1001,28 @@
   .ln-n{stroke:var(--lane-ink);stroke-width:1.2;fill:none}
   .ln-head{fill:var(--lane-ink)}
   .ln-lab{font-size:var(--lane-fs);font-weight:600;fill:var(--lane-ink)}
+  /* 区间窗（0.49.0）：一条会移动的取景带 + 两道切口 + 序号读数，说的是**取哪几件**
+     ——宽度是读数，移动是内容。整族由 layoutRanges() 建、rangeTock() 逐拍写几何，
+     所以这一族**一条 transition 都不需要**（与 .ln 同一课：JS 每帧写几何，CSS 再补
+     一遍就是双重缓动，追踪缓动在 rangeTock 里按 easeOutExpo 逐拍算，见 §7.2 的同款）：
+       · `.rg` = 整条带的根：纯注解层，`pointer-events:none`，`data-helper="range"`
+         让 prune() 不去按 GEN 收它——它由 layoutRanges() 自己按 key 建与摘；
+       · `.rg-f` 带内底色：只写 `x` / `y` / `width` / `height`，逐拍、无补间（与
+         `.meter` 的 width、`.ln-t` 的 x/width 同一课）。它画在内容**之上**——
+         也就是"荧光笔划在整排上"那一档，不是卡片底下的衬色（衬色会被卡片的 fill
+         盖掉，只剩两道切口能看见，"取的是这段"就读不出来）；
+       · `.rg-e` 两道切口：`width` 恒 1，`height` = 带高 + 2×--range-cap，上下各探
+         出去一截，让"这里切开"在物件上下都看得见；填色不描边，避免 1px 描边在
+         镜头推近时糊成一条杠（与 `.crisp` 想解决的是同一件事，这里直接用 rect）；
+       · `.rg-lab` 读数签带 `.halo`：压在卡片上沿也读得清；整签放不下就压回取景窗，
+         宁可往里缩也不能被裁掉（与 `.ln-lab` / `callout` 的"量不到就不注"反着来：
+         读数在这条原语里是主角，不能因为挤就整个不画）。
+     `prefers-reduced-motion` 清单里没有它：没有 CSS 补间，见旗（导出 / 减动效 /
+     擦洗）由 layoutRanges / rangeTock 直接落作者声明的那一格。 */
+  .rg{pointer-events:none}
+  .rg-f{fill:var(--range-wash)}
+  .rg-e{fill:var(--range-edge)}
+  .rg-lab{font-size:var(--range-fs);font-weight:600;fill:var(--range-ink)}
   /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
      接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
      四条边界（写错过任何一条，拆解都会静默失效）：
@@ -3123,6 +3167,16 @@
               <g id="g-body"></g>
             </g>
 
+            <!-- 区间窗层（0.49.0）：取景带 / 两道切口 / 序号读数不进任何一幕的子树
+                 ——它量的是"这一步取的是哪几件"，而那几件可能住在世界层（跨幕常驻）。
+                 放在所有幕之上、其余注记**之下**：带子的底色是"荧光笔划在整排上"，
+                 它得压住卡片（衬在卡片底下会被卡片自己的 fill 盖掉，只剩两道切口
+                 看得见），却又不该压住引线 / 词拍 / 圈数 / 时序带这些真正的注记。
+                 几何一律映到 #cam 的孩子空间（与 #lanes / #loops 同一条口径），
+                 镜头推拉时跟着内容一起缩放。每步由 layoutRanges() 按 key 建与摘、
+                 rangeTock() 逐拍写几何；指针一律穿透（CSS .rg）。 -->
+            <g id="ranges"></g>
+
             <!-- 引线标注层（0.38.0）：注记不进任何一幕的子树——它量的是"这一步对象
                  最终在哪"，而对象可能住在世界层（跨幕常驻）。单开一层放在所有幕之上、
                  聚光暗幕之下：压住卡片与连线，又不挡灯。每步由 drawCallouts() 重排，
@@ -3523,7 +3577,15 @@
      不需要 SEG_P / LOOP_P 那种历史。（对照窗 CMP_R 之所以要账本，是因为它的 `at`
      是作者给的状态读数；这里的 `at` 就是时钟本身。） */
   var LANE = [], LANE_G = {}, LANE_LIVE = {}, LANE_T = null;
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; LANE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 区间窗（0.49.0）：RANGE 是"这一步取的是哪几件"的登记表——与 CALL / CONN / SEG /
+     LOOP / LANE 同一张"每步清空、renderer 重挂"的表。这里**没有跨步账本**：窗口的
+     位置不是历史（"取第 1 到第 3 件"是这一拍的读数，不是"曾经取到哪儿"），所以
+     擦洗 / 逐帧冷启动 / 导出读的都是同一格。RANGE_P 只存**上一拍写到的四个数**
+     （l/r/y/h），用途只有一个：换句那一刻让窗口从原处滑过去，而不是瞬移——它随
+     节点被摘一起清账（对象都不在场了，"窗口上一拍在哪儿"没有所指，留着只会让
+     重建出来的同一个 key 从一个不相干的位置滑进来）。 */
+  var RANGE = [], RANGE_G = {}, RANGE_P = {}, RANGE_T = null;
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; LANE = []; RANGE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -4983,6 +5045,208 @@
       if (!laneWrite(s, laneAt(t, s.__dur))) removeLane(s.key);
     }
   }
+
+  /* ── 区间窗（0.49.0）═══════════════════════════════════════════════════
+     词表已经能说"这条路走到第几段"（drawTo）、"这件东西绕到第几回"（loopTo）、
+     "这几件各自做到哪儿"（lanes）——全都在**时间轴**上；没有一条说"取的是哪几件"。
+     而 `slice` / `substring` / 二分查找的候选区间 / 滑动窗口 / 分页，讲的都是
+     "从第几件到第几件这一段"：宽度本身就是读数，而且它**会走**——同一个宽度扫过
+     整排，才叫窗口在滑。此前这件事只能靠旁白说"我们要中间这三个"，画面里没有
+     任何东西在说"中间"是哪三个。
+     作者只给序列（of）与两个序号（from / to，闭区间、0 基）：左右切口、上下沿、
+     序号读数全从各件的盒现推，作者不填坐标。
+     四条分工（与形近的原语最容易混的地方）：
+       · `.brace` + `braceUnder()` = **这几件算一组**（静态括注、没有序号、不会走）；
+       · `#spot` / `[data-dim]`    = **只看这一处 / 其余是上下文**（不是一个区间）；
+       · `lanes()`                 = 这几件**各自**做到哪儿了（时间上的并行关系）；
+       · `drawTo()`                = **一条路**自己的已走段（路径的比例，不是序号区间）；
+       · `range()`                 = **取哪几件**（序号区间：宽度是读数，而且会滑）。 */
+  function rangeTokens(){
+    if (RANGE_T) return RANGE_T;
+    var T = {pad:morphTok('--range-pad', 5), cap:morphTok('--range-cap', 7),
+             fs:morphTok('--range-fs', 10), dur:morphTok('--dur-range', .42)};
+    RANGE_T = T;
+    return T;
+  }
+
+  /** 登记一条取景带。opt：
+   *    · of   必填：被取的那一排（id 或节点），声明顺序 = 序号顺序；
+   *    · from 可选：起点序号（0 基、**含**），缺省 0；
+   *    · to   可选：终点序号（0 基、**含**），缺省 = from（"只取一件"）；
+   *             越界夹取到 [0, of.length − 1]，`to < from` 收成 `to = from`；
+   *    · lab  可选：读数签的整句文案（缺省 `from–to / n`）；
+   *    · num  可选：`false` 时不画读数签，只留带子与两道切口。
+   *  of 为空、或有任一节点不在这一步的台上：整条静默不登记（半条窗比没有窗更
+   *  误导，与 lanes / loupe / callout 的"量不到就不注"同一口径）。
+   *  **没有 gone**：这条带记的是"这一句取的是哪几件"，不是对象的历史——不登记
+   *  即摘掉（与 callout / connect / lanes 同族）。 */
+  function range(key, opt){
+    var o = opt || {}, it = o.of || [];
+    if (!it.length) return;
+    var ns = [];
+    for (var i = 0; i < it.length; i++){
+      var n = typeof it[i] === 'string' ? el(it[i]) : it[i];
+      if (!n || !n.isConnected) return;                 // 有一件不在场：整条不画
+      ns.push(n);
+    }
+    var last = ns.length - 1;
+    var a = Math.round(isFinite(+o.from) ? +o.from : 0);
+    var b = (o.to === undefined || o.to === null) ? a : Math.round(+o.to);
+    a = Math.max(0, Math.min(last, a));
+    b = Math.max(a, Math.min(last, isFinite(b) ? b : a));
+    RANGE.push({key:key, n:ns, from:a, to:b, lab:o.lab || null, num:o.num !== false});
+  }
+
+  /** 同值不重写：这一族每帧都跑，属性重写一次就是一次布局失效（与 laneSet 同课）。
+   *  比之前先 String()：数值属性取回来是字符串，`'3' !== 3` 会让它形同虚设。 */
+  function rangeSet(e, k, v){
+    v = String(v);
+    if (e.getAttribute(k) !== v) e.setAttribute(k, v);
+  }
+
+  /** 这一拍的目标那一块：所取那几件的盒并集，四边外扩 --range-pad。切口因此落在
+   *  **件与件之间的缝**里而不是压在字上——这是"从这里切开"读得出来的原因。
+   *  pad 必须小于相邻两件的缝，否则切口会压到邻居身上（文档里写成边界）。
+   *  量不到任一件返回 null（宁缺，不画一条糊在错误位置的带子）。 */
+  function rangeBox(s){
+    var cam = el('cam'), u = null, i, b;
+    for (i = s.from; i <= s.to; i++){
+      b = boxIn(s.n[i], cam);
+      if (!b) return null;
+      if (!u){ u = {x:b.x, y:b.y, x2:b.x + b.w, y2:b.y + b.h}; }
+      else { u.x = Math.min(u.x, b.x); u.y = Math.min(u.y, b.y);
+             u.x2 = Math.max(u.x2, b.x + b.w); u.y2 = Math.max(u.y2, b.y + b.h); }
+    }
+    if (!u) return null;
+    var T = rangeTokens(), p = T.pad;
+    return {l:u.x - p, r:u.x2 + p, y:u.y - p, h:(u.y2 - u.y) + p * 2};
+  }
+
+  /** 按 key 建一条带（底色 / 两道切口 / 读数签），建过就复用。全部 createElementNS、
+   *  不进 put()：注记没有"上一状态"要补间，每拍由 rangeWrite() 写死（与 .ln / 游标
+   *  的同一课）。节点数不参与结构（带的形状只由四个数决定），所以只需要按 key 复用。 */
+  function rangeBuild(s){
+    var g = RANGE_G[s.key];
+    if (g && g.root.parentNode) return g;
+    if (g && g.root.parentNode) g.root.parentNode.removeChild(g.root);
+    var layer = el('ranges');
+    if (!layer) return null;
+    var root = document.createElementNS(NS, 'g');
+    root.setAttribute('class', 'rg');
+    root.setAttribute('data-helper', 'range');
+    var band = document.createElementNS(NS, 'rect');
+    band.setAttribute('class', 'rg-f'); band.setAttribute('rx', '3');
+    var e1 = document.createElementNS(NS, 'rect'); e1.setAttribute('class', 'rg-e');
+    var e2 = document.createElementNS(NS, 'rect'); e2.setAttribute('class', 'rg-e');
+    var lab = document.createElementNS(NS, 'text');
+    lab.setAttribute('class', 'rg-lab halo'); lab.setAttribute('text-anchor', 'middle');
+    root.appendChild(band); root.appendChild(e1); root.appendChild(e2); root.appendChild(lab);
+    layer.appendChild(root);
+    g = RANGE_G[s.key] = {root:root, band:band, e1:e1, e2:e2, lab:lab, labw:0, labt:null, s:s};
+    return g;
+  }
+
+  /** 摘掉一条带（只摘注记——这条带本来就没有账本要留）。 */
+  function removeRange(key){
+    var g = RANGE_G[key];
+    if (g){
+      if (g.root.parentNode) g.root.parentNode.removeChild(g.root);
+      delete RANGE_G[key];
+    }
+  }
+
+  /** 把一块几何写进这条带（四个数一次写齐，逐拍无补间）。读数签：
+   *   · 文案只在变了时改（宽度也只在那时量一次）——量之前先把 `display` 属性
+   *     **临时请回来**，藏起来的元素量出 0（与 laneLabW 同一个坑）；
+   *   · 整签**压回取景窗**：读数是这条原语的主角，宁可往里缩也不能被裁掉；
+   *     窗口比签还窄就居中（这时它已经比窗宽，缩不进任何地方）。
+   *   · 签在上沿外 6；上方被取景窗顶住了就落到带子下方（别探到画外）。 */
+  function rangeWrite(s, q){
+    var T = rangeTokens(), g = rangeBuild(s);
+    if (!g) return false;
+    rangeSet(g.band, 'x', f1(q.l)); rangeSet(g.band, 'y', f1(q.y));
+    rangeSet(g.band, 'width', f1(Math.max(0, q.r - q.l))); rangeSet(g.band, 'height', f1(q.h));
+    var cap = T.cap;
+    rangeSet(g.e1, 'x', f1(q.l)); rangeSet(g.e2, 'x', f1(q.r - 1));
+    rangeSet(g.e1, 'y', f1(q.y - cap)); rangeSet(g.e2, 'y', f1(q.y - cap));
+    rangeSet(g.e1, 'width', 1); rangeSet(g.e2, 'width', 1);
+    rangeSet(g.e1, 'height', f1(q.h + cap * 2)); rangeSet(g.e2, 'height', f1(q.h + cap * 2));
+    if (!s.num){ rangeSet(g.lab, 'display', 'none'); return true; }
+    rangeSet(g.lab, 'display', 'inline');
+    var txt = s.lab || (s.from + '–' + s.to + ' / ' + s.n.length);
+    if (g.labt !== txt){
+      g.lab.textContent = txt; g.labt = txt;
+      var off = g.lab.getAttribute('display');
+      if (off === 'none') g.lab.removeAttribute('display');
+      g.labw = g.lab.getComputedTextLength ? g.lab.getComputedTextLength() : 0;
+      if (off === 'none') g.lab.setAttribute('display', 'none');
+    }
+    var A = s.__win || FULL, w = g.labw || 0, cx = (q.l + q.r) / 2;
+    if (w && A[2] > w + 4) cx = Math.max(A[0] + w / 2 + 2, Math.min(A[0] + A[2] - w / 2 - 2, cx));
+    else if (A[2] <= w + 4) cx = A[0] + A[2] / 2;
+    var ty = q.y - 6;
+    if (ty < A[1] + T.fs) ty = q.y + q.h + T.fs + 4;     // 上方顶住 → 落到带子下方
+    rangeSet(g.lab, 'x', f1(cx)); rangeSet(g.lab, 'y', f1(ty));
+    return true;
+  }
+
+  /** 排这一句的区间窗（layoutLanes 之后、camSet 之前，与其余 layout 同批）。
+   *  只做三件事：收孤儿、定这一句的起点（上一拍写到的那四个数）、按起点摆一格。
+   *  **起点要定住**：窗口从"上一句停在的位置"滑到这一句的位置，而不是瞬移——
+   *  这是"窗口会走"这条读法的一半（另一半在 rangeTock 里逐拍追目标）。 */
+  function layoutRanges(stepId, index){
+    var live = {}, k, g;
+    var win = (CAM[stepId] || [])[index] || FULL;        // 本步声明的取景窗 = 读数签的安全区
+    var full = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    for (k in RANGE_G){                                  // ① 节点被摘 → 那条带整条摘
+      g = RANGE_G[k];
+      if (!g.s) { removeRange(k); continue; }
+      for (var i = 0; i < g.s.n.length; i++){
+        if (!g.s.n[i].isConnected){ removeRange(k); delete RANGE_P[k]; break; }
+      }
+    }
+    RANGE.forEach(function(s){
+      live[s.key] = 1; s.__win = win; s.__t0 = stepT0;
+      var q = rangeBox(s);
+      if (!q){ removeRange(s.key); return; }             // ② 量不到就不画
+      var p = RANGE_P[s.key];
+      s.__q0 = (!full && p) ? p : null;                  // 起点：上一拍写到的位置
+      rangeWrite(s, full ? q : (s.__q0 || q));
+      /* 账本记的是"屏幕上现在那一块"，不是"目标"：第一帧也要有起点（否则同一个 key
+         第一次登记的下一句会瞬移，而不是从它刚才停的位置滑过去）。 */
+      RANGE_P[s.key] = full ? q : (s.__q0 || q);
+    });
+    for (k in RANGE_G) if (!live[k]) removeRange(k);     // ③ 不登记即摘（无账本）
+  }
+
+  /** 逐拍（与 lanesTock / loopTock 同批）。窗口从换句那一刻的起点往**当拍量到的**
+   *  目标追（easeOutExpo，--dur-range）：对象还在入场 / 还在挪位时带子跟着它落位，
+   *  而不是钉在入场前一瞬的位置上。追上了（p ≥ 1）就改成直写目标——之后对象再动，
+   *  带子跟着动，不再补间（否则每一步会再多滑一次）。
+   *  见旗（导出 / 减动效 / 擦洗）直接落作者声明的那一格：定格里读到"取的是这几件"，
+   *  不是一段没滑完的中间态。 */
+  function rangeTock(t){
+    var full = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    var T = rangeTokens();
+    for (var i = 0; i < RANGE.length; i++){
+      var s = RANGE[i];
+      if (!RANGE_G[s.key]) continue;
+      var q = rangeBox(s);
+      if (!q){ removeRange(s.key); continue; }
+      if (full || !s.__q0){ rangeWrite(s, q); RANGE_P[s.key] = q; continue; }
+      var p = (t - s.__t0) / T.dur;
+      if (p <= 0){ rangeWrite(s, s.__q0); RANGE_P[s.key] = s.__q0; continue; }
+      var a = s.__q0;
+      // 落定那一格必须精确是那一格：easeOutExpo 在 p=1 时是 1−2⁻¹⁰=.99902，
+      // 会把窗口停在离目标半像素的地方（与 segTock / loopTock 同一纪律）
+      var e = p >= 1 ? 1 : 1 - Math.pow(2, -10 * p);
+      var cur = {l:a.l + (q.l - a.l) * e, r:a.r + (q.r - a.r) * e,
+                 y:a.y + (q.y - a.y) * e, h:a.h + (q.h - a.h) * e};
+      rangeWrite(s, cur); RANGE_P[s.key] = cur;
+      if (p >= 1) s.__q0 = null;
+    }
+  }
+
 
   /** 一条注记的全部几何。文字宽度用**探针**量（detached text 挂进同一组、量完就摘）：
    *  药丸宽必须一次写对——先落占位再改宽会让 .nt 把框从占位宽补向真宽，而字已经是
@@ -7459,6 +7723,7 @@
         layoutSegs(hit.scene.step_id, hit.index); // 0.46.0：路径进度，世界层落位之后量弧长、定这一趟
         layoutLoops(hit.scene.step_id, hit.index); // 0.47.0：圈数，世界层落位之后现算落点与每圈时长
         layoutLanes(hit.scene.step_id, hit.index); // 0.48.0：时序带，世界层落位之后现量各 item 并集
+        layoutRanges(hit.scene.step_id, hit.index); // 0.49.0：区间窗，世界层落位之后现量那几件的并集
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -7566,6 +7831,13 @@
     // 导出截图页每帧只跑一次 tick()：见旗把句子进度直接当 1 落（定格里读"这几件事
     // 都做完了"，不是针停在半路的中间态）。
     lanesTock(t);
+    // 区间窗（0.49.0）：与上面几个逐拍读数同一个位置——layoutRanges() 只在换句分支里跑
+    // （建带 / 定起点 / 量并集），窗口从起点往当拍的目标追是逐拍读数。它**不随
+    // begin() 清空窗口位置**：下一步没再声明这条窗，它整条摘掉，但"上一拍停在哪儿"
+    // 留着——同一个 key 再登记时从原处滑过去，而不是瞬移（与 SEG_P 同族理由，只是
+    // 它记的是注记的位置而不是对象的状态）。导出截图页每帧只跑一次 tick()：见旗直接
+    // 落作者声明的那一格（定格里读到"取的是这几件"，不是一段没滑完的中间态）。
+    rangeTock(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到
