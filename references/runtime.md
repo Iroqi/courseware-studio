@@ -357,6 +357,14 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
   读法都给到；副本是静态虚线（`stroke-dasharray` 写在 `.seg-g` 上、不走 JS），
   `transition:none` 只保证逐拍写值不被补间拖住；冷启动时 `layoutSegs()` 在换句分支
   里现量弧长、同一帧写值，逐帧与直播同一张定格。
+- 圈数（`loopTo()` / `layoutLoops()` / `loopTock()`）：见旗直接落作者声明的那一圈
+  `at`——落点 = `base + stops[at]` 现算，游标、`k/n` 读数与落点痕同批摆回原处，
+  定格里读"绕到第 k 圈"而不是一段没跑完的中间趟；`LOOP_RUN` 见旗即收账，不留飞行中
+  的趟。痕**不记流水账**（每一枚的位置由落点梯现推），所以逐帧冷启动不需要"上一帧"
+  也能算出同一格；`LOOP_P`（key → 已绕圈数）跨句保持、只在节点被 `sweep()` 摘走时
+  清账。`.lp` 的 `transition:none` 保证逐拍写的 `transform` 不被补间追；确认拍那枚
+  `.lp-pop` 的 `@keyframes` 切掉即 `scale:1`（静止态就是终态，不进 reduced-motion
+  清单）；`gone` 见旗落回基位并连账本与注记一起收。
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -402,6 +410,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | JS 逐拍写 scale + animation 入场 | 细节镜（`loupeTock` 写 `zoom` 的 `scale` / 透明度，`lid` 的平移走 transition，圈 / 内容走 `loupeIn`） | 落 `scale(k)` + 透明度 1（定格里读"这一块放大后是什么"）；`gone` 见旗直接不可见；圈 / 内容切掉动画即完整 |
 | JS 逐拍写 `d`（中间帧是采样折线） | 形变（`morph()` 登记即落终态，`morphTock()` 逐拍补中间帧） | 落**作者声明的那条 `d`**：见旗不登记飞行、在飞的直接收账落 `to`；冷启动首见即建档，成片每格都是精确轮廓；`.morph` 清单里没有 `d`，切不切都不影响落点 |
 | JS 逐拍写 `stroke-dasharray`（属性 + inline style） | 进度（`drawTo()` / `segTock()` 写已走段，副本 `.seg-g` 是静态虚线） | 落作者声明的 `at`（`stops` / `step` 按站取档），已走段与副本一起定格；`transition:none` 只为防补间拖帧 |
+| JS 逐拍写 `transform` 属性（落点由落点梯现算） | 圈数（`loopTo()` / `layoutLoops()` / `loopTock()` 写落点，游标与落点痕在 `#loops` 现摆） | 落作者声明的那一圈 `at`（`base + stops[at]`），游标、`k/n`、痕同批摆回原处；`LOOP_RUN` 收账、`gone` 落回基位并清账；`.lp` 的 `transition:none` 防双重缓动，`.lp-pop` 的 `@keyframes` 静止态即终态、不进兜底清单 |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |

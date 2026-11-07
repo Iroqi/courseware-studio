@@ -375,6 +375,26 @@
        不随路径长短变——归一化的百分比虚线上长下短，读起来像两种语法）。 */
     --dur-path:.5s; --path-ghost:rgba(141,149,168,.42);
     --path-dash:7 6;
+    /* 圈数（0.47.0）：课堂里另一件没有任何原语覆盖的事——**同一件事反复做**。
+       上面全部词表说的都是"一次"：上台、挪位、擦除、形变、走到第几段。而迭代、
+       逼近、逐位比较、周期运动说的是"绕了几回、每回落在哪儿"，它是一个**计数 +
+       一串落点**，不是一个时长。
+       时间**归句子**（与词拍 cueAt 同一课）：一圈多长不由作者填，而是本句时长 ÷
+       本步要绕的圈数，夹在 --loop-per-min / --loop-per-max 之间——句子念到哪儿，
+       圈就绕到哪儿；句子太短装不下这么多圈时，剩下的**溢到下一步继续**（与 seg
+       的"进度跨句保持"同族），而不是把每圈压成看不清的抽搐。
+       每圈内部再分两段：走 --loop-run 占比（行程封顶 --dur-loop），其余**停**——
+       那一段静止就是确认拍，观众据此数圈。算法动画那一支（Soda / ALGO 起的
+       iteration highlighting + 轮次计数）早就把"循环体要有可数的落点"当结论；
+       这里把它落成结构，而不是让作者多写一个 class。
+       --dur-loop .5s 与 --dur-move / --dur-path 同档：一圈之内是一次位移。
+       --loop-mark 是落点痕的墨色（中性灰，与 --path-ghost 同档：痕是"已经绕过的
+       回"，是上下文不是话头）；--loop-ink 是游标（开口环 + 3/8 读数）的强调色，
+       与徽标 / 引线的 #f5a623 同一支笔。--loop-r 7 是环半径（世界单位），
+       --loop-dot 2.2 是落点痕半径。 */
+    --dur-loop:.5s; --loop-run:.62; --loop-per-min:.5; --loop-per-max:1.6;
+    --loop-mark:rgba(141,149,168,.45); --loop-ink:#f5a623;
+    --loop-r:7; --loop-dot:2.2;
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -897,6 +917,31 @@
   .seg{transition:none;stroke-linecap:round;stroke-dasharray:0 9999}
   .seg-g{stroke:var(--path-ghost);stroke-dasharray:var(--path-dash);
          stroke-linecap:round;fill:none;pointer-events:none}
+  /* 圈数（0.47.0）：一件东西绕 N 回，每回落一站。三层各司其职：
+       · `.lp` = **作者交给原语的那一层**（纯包装 <g>）。`transition:none` 是刻意的
+         ——每圈的落点是 loopTock() 逐拍写进 `transform` **属性**的，CSS 再补一次
+         就成了双重缓动，收尾落不回精确的那一格（与 .meter 的 width、.seg 的
+         dasharray 同一课）。要淡入 / 换色挂在这一层的**内容**上，别挂在这一层；
+         同理，renderer 不要再给这层写 transform——它归原语独占（与 .explode 同规）。
+       · `.lp-cur` = 游标（开口环 + 3/8 读数）与落点痕所在的整层：纯注解，
+         `pointer-events:none`，`data-helper="loop"` 让 prune() 不去按 GEN 收它
+         （它由 layoutLoops() 自己按 key 建与摘，与 .seg-g 同判据）。
+       · `.lp-pop` 是游标里**唯一会动的那一层**：落定那一顿走独立变换属性 `scale`
+         （与 `.settle` / `.swap` 同一族写法），定位仍归父层的 transform 属性——
+         两个属性互不顶替，一条 transition 简写都不需要（见 §3.4.5「一个节点只写
+         一条 transition 简写」）。`.lp-pop` 里那枚 `stroke:none / fill:none` 的
+         **隐形整圆不是装饰**：`transform-box:fill-box` 的 50% 50% 取的是 bbox
+         中心，而带缺口的弧 bbox 并不在环心上，少了它落定那一顿会连着横向抖一下。
+     `prefers-reduced-motion` 清单里**没有它**：没有 CSS 补间，逐拍是 JS 的读数，
+     见旗（导出 / 减动效 / 擦洗）由 loopTock 直接落作者声明的那一圈。 */
+  .lp{transition:none}
+  .lp-cur{pointer-events:none}
+  .lp-dot{fill:var(--loop-mark)}
+  .lp-arc{fill:none;stroke:var(--loop-ink);stroke-width:1.6;stroke-linecap:round}
+  .lp-num{font-size:11;font-weight:700;fill:var(--loop-ink)}
+  .lp-pop{transform-box:fill-box;transform-origin:50% 50%;scale:1}
+  @keyframes lpTock{from{scale:.62}58%{scale:1.16}to{scale:1}}
+  .lp-pop.on{animation:lpTock var(--dur-pop) var(--ease-out) backwards}
   /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
      接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
      四条边界（写错过任何一条，拆解都会静默失效）：
@@ -3067,6 +3112,14 @@
                  指针一律穿透（CSS .cmp-frame）。 -->
             <g id="cmp"></g>
 
+            <!-- 圈数层（0.47.0）：游标（开口环 + k/n 读数）与落点痕不进任何一幕的子树
+                 ——它们说的是"这件东西绕到第几回、每一回落在哪儿"，而对象可能住在
+                 世界层（跨幕常驻）。坐标一律映到 #cam 的孩子空间（世界坐标），所以
+                 镜头推拉时游标与痕跟着一起缩放、不脱开对象；描边挂 .crisp 钉回屏幕
+                 像素。放在对照窗之上、聚光暗幕之下：压住内容，不挡灯。每步由
+                 layoutLoops() 按 key 建与摘，指针一律穿透（CSS .lp-cur）。 -->
+            <g id="loops"></g>
+
             <!-- 移动聚光（0.22.0）：一块盖住**整个取景框**的暗幕，被一枚会走位的洞裁开。
                  它是 #cam 的最后一个孩子——盖在所有幕上面、但不进字幕带（#cap 在相机
                  之外，见下面的注释；整层又被 #frameClip 裁着）。坐标空间与常驻图元
@@ -3407,7 +3460,17 @@
      走到 60% 的路重新当成"还没开始"，从 0 再长一遍（那读起来是"这条路重启了"）。
      正在跑的那一趟存 SEG_RUN（key → 这一趟的 from / to / 起点 / 时长 / 走法）。 */
   var SEG = [], SEG_RUN = {}, SEG_P = {}, SEG_G = {};
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 圈数（0.47.0）：LOOP 是"这一步声明了谁要绕几圈"的登记表——与 SEG / CONN / LOUPE
+     同一张"每步清空、renderer 重挂"的表，"这一拍绕到第几圈"同样是 (scene, step) 的
+     纯函数。绕到第几圈**本身**存在 LOOP_P（key → 圈数），不随 begin() 清空：清掉它，
+     下一步会把已经绕到第 5 圈的东西当成第 0 圈重走一遍（那读起来是"重启"，不是
+     "接着绕"，与 SEG_P 同族理由）。正在跑的那一趟存 LOOP_RUN，注记（游标 + 痕）存
+     LOOP_G，本步登记过的 key 存 LOOP_LIVE——落定之后没再登记，注记摘掉，但**落点
+     留在节点身上**（痕是注记，跟着话头走；走到第几圈是状态，跟着对象走）。
+     与 MORPH 的飞行表不同，节点被 sweep 摘走时 LOOP_P 一起清账：对象都不在场了，
+     "它绕到第几圈"就没有所指，留着只会让重建出来的新节点凭空少绕几圈。 */
+  var LOOP = [], LOOP_RUN = {}, LOOP_P = {}, LOOP_G = {}, LOOP_LIVE = {}, LOOP_T = null;
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -4313,6 +4376,327 @@
       if (p >= 1){ segWrite(s, s.__to); SEG_P[key] = s.__to; delete SEG_RUN[key]; continue; }
       var e = s.__mode === 'linear' ? p : (1 - Math.pow(2, -10 * p));
       segWrite(s, s.__from + (s.__to - s.__from) * e);
+    }
+  }
+
+  /* ── 圈数（0.47.0）═══════════════════════════════════════════════════
+     课堂里另一件没有任何原语覆盖的事：**同一件事反复做**。上面整张词表说的都是
+     "一次"——上台、挪位、擦除、形变、走到第几段，全部终将落定。而迭代、逼近、
+     逐位比较、周期运动说的是"绕了几回、每一回落在哪儿"：它不是一个时长，是
+     **一个计数 + 一串落点**。
+     四条分工（与形近的原语最容易混的地方）：
+       · `.pulse`   = "该看这儿 / 等你点"——一个**没有内容**的呼吸，不数回；
+       · `.ride`    = "**有人**沿这条路走到那头"——连续、有目的、中途不停；
+       · `drawTo()` = "这条路走到第几段"——连续的比例，可以停在半路；
+       · `loopTo()` = "这件东西绕到第几回"——**离散**的落点，只能停在第 k 圈，
+         每一圈内部还要再分"走一段 / 停一下"，那一段静止就是确认拍（观众据此数圈）。
+     收敛由运动本身说出来：落点梯 `stops` 是相对基位的位移，作者把它写成越走越短，
+     每圈时长又**归句子**（一句念完，正好绕完这一格的圈数），于是"每圈花同样久、
+     每圈挪得越来越少"就是"它正在逼近"——不需要旁白解释，也不需要额外的缓动档位。
+     作者只给几何（基位 + 落点梯）与这一拍的读数 `at`，**不填时间**：时间与坐标
+     两边都是现量的，与词拍同一个口径。 */
+  function loopTokens(){
+    if (LOOP_T) return LOOP_T;
+    var T = {min:morphTok('--loop-per-min', .5), max:morphTok('--loop-per-max', 1.6),
+             run:morphTok('--loop-run', .62), dur:morphTok('--dur-loop', .5),
+             r:morphTok('--loop-r', 7), dot:morphTok('--loop-dot', 2.2)};
+    // 占比写野了不许把"停"吃掉：封顶 .95，留 5% 给确认拍的起跳；时长上下限也兜住
+    T.run = Math.min(.95, Math.max(.05, T.run));
+    if (T.max < T.min) T.max = T.min;
+    LOOP_T = T;
+    return T;
+  }
+
+  /** 登记"这件东西绕到第几圈"。node 必须是**纯包装 <g>**，它的 `transform` 归
+   *  本原语独占（同 explode 口径）：renderer 给 `base`，不要在这一层写 transform。
+   *  opt：
+   *    · base   必填 [x,y]：基位（父坐标系），第 0 圈就停在这儿；
+   *    · stops  必填：完整落点梯，每一圈一站，写的是**相对 base 的位移** [dx,dy]
+   *             （纯数字 = 沿 x 轴）。每一步都重申整条梯子——状态是 `at` 一个数、
+   *             几何全量声明（与 drawTo 的 at / explode 的 amount 同一口径），
+   *             所以回退、擦洗、冷启动定格算出来的都是同一格；
+   *    · at     本步读到第几圈（默认 = stops.length，全绕完）。它就是这一拍的
+   *             读数，停在第 3 圈不是"没演完"；
+   *    · per    可选：一圈几秒。缺省 = 本句时长 ÷ 本步要绕的圈数，夹在
+   *             --loop-per-min / --loop-per-max 之间——时间归句子；
+   *    · gone   收回：从当前落点走回基位，圈数归 0，游标与痕一起摘。
+   *  基位或落点量不到、stops 是空的：静默不演（与 connect / loupe 同口径）。 */
+  function loopTo(key, node, opt){
+    var o = opt || {};
+    var n = typeof node === 'string' ? el(node) : node;
+    var st = o.stops;
+    if (!n || !o.base || !st || !st.length) return;
+    var bx = +o.base[0], by = +o.base[1];
+    if (!isFinite(bx) || !isFinite(by)) return;
+    LOOP.push({key:key, n:n, base:o.base, stops:st,
+               at:o.at === undefined ? st.length : Math.round(+o.at),
+               per:isFinite(+o.per) && +o.per > 0 ? +o.per : 0,
+               gone:o.gone === true});
+  }
+
+  /** 第 k 圈的位移（k=0 → 基位）。越界钳到梯子两端：作者少写一格不该把东西搬到
+   *  (0,0) 去——那是"跳走了"，不是"少绕一圈"。 */
+  function loopPos(s, k){
+    if (!(k > 0)) return {x:0, y:0};
+    var c = s.stops[Math.min(s.stops.length - 1, k - 1)];
+    if (!c) return {x:0, y:0};
+    var dx = c.length !== undefined ? +c[0] : +c.x;
+    var dy = c.length !== undefined ? +c[1] : +c.y;
+    return {x:isFinite(dx) ? dx : 0, y:isFinite(dy) ? dy : 0};
+  }
+
+  /** 把"父坐标系里的这一层落在这里"映到世界坐标（#cam 的孩子空间）。走 transform
+   *  **属性**（baseVal）逐层现推，与 boxIn 同一口径——不用 getScreenCTM()：补间半途
+   *  取到的是上一帧位置。从 parentNode 起步，所以祖先写的位移算进来、这一层被原语
+   *  写的 translate 不重复计入（它就是传进来的 tx / ty 两个数）。
+   *  顺带回传**世界单位下的半宽** hw：读数 k/n 要躲开对象本体，而"本体有多宽"
+   *  只有这一层量得到——宿主可能是 26 宽的筹码，也可能是 400 宽的卡片，写死偏移
+   *  必然在一头压字。取的是水平半宽（右沿到中心），祖先带缩放或斜切时也照实。 */
+  function loopWorld(n, tx, ty){
+    if (!window.DOMMatrix || typeof n.getBBox !== 'function') return null;
+    var bb;
+    try { bb = n.getBBox(); } catch (e){ return null; }
+    if (!bb || !isFinite(bb.width) || !isFinite(bb.height)) return null;
+    var m = new DOMMatrix(), p = n.parentNode, cam = el('cam');
+    while (p && p !== cam){
+      var l = p.transform && p.transform.baseVal;
+      if (l && l.numberOfItems){
+        var t = new DOMMatrix();
+        for (var i = 0; i < l.numberOfItems; i++) t = t.multiply(l.getItem(i).matrix);
+        m = t.multiply(m);
+      }
+      p = p.parentNode;
+    }
+    var cy = ty + bb.y + bb.height / 2;
+    var q = new DOMPoint(tx + bb.x + bb.width / 2, cy).matrixTransform(m);
+    var e = new DOMPoint(tx + bb.x + bb.width, cy).matrixTransform(m);
+    if (!isFinite(q.x) || !isFinite(q.y) || !isFinite(e.x)) return null;
+    q.hw = Math.abs(e.x - q.x);
+    return q;
+  }
+
+  /** 游标的开口环：缺口中心角随本圈占比转满一周——"绕了一圈"就画在环上。
+   *  0 圈时缺口朝正上方（-90°），箭头钉在缺口的顺时针一端、沿切线退两撇。
+   *  环口用 **d** 转、不用 rotate：省掉一层变换属性，也省掉支点算错的抖动。 */
+  function loopRingD(r, deg){
+    var a0 = (deg - 90) * Math.PI / 180;
+    function at(off){
+      var t = a0 + off * Math.PI / 180;
+      return [+(r * Math.cos(t)).toFixed(2), +(r * Math.sin(t)).toFixed(2)];
+    }
+    var p0 = at(34), p1 = at(326);
+    var tan = Math.atan2(p1[1], p1[0]) + Math.PI / 2, h = Math.max(2.8, r * .46);
+    function barb(s){
+      var t = tan + s * .52;
+      return [+(p1[0] - h * Math.cos(t)).toFixed(2), +(p1[1] - h * Math.sin(t)).toFixed(2)];
+    }
+    var b1 = barb(1), b2 = barb(-1);
+    return 'M' + p0[0] + ' ' + p0[1] + 'A' + r + ' ' + r + ' 0 1 1 ' + p1[0] + ' ' + p1[1] +
+           'M' + b1[0] + ' ' + b1[1] + 'L' + p1[0] + ' ' + p1[1] + 'L' + b2[0] + ' ' + b2[1];
+  }
+
+  /** 按 key 建一枚游标（落点痕容器 + 定位层 + 环 + k/n 读数），建过就复用。
+   *  全部 createElementNS、**不进 put()**：注记没有"上一状态"要补间，每拍由
+   *  loopWrite() 把读数写死——挂 .nt 只会让 CSS 去追 JS 刚写下的那一帧（与
+   *  newConn / loupe 的副本同一课）。隐形整圆给 .lp-pop 定支点，见 CSS 边界。 */
+  function loopCursor(s){
+    var g = LOOP_G[s.key];
+    if (g && g.n === s.n && g.pos.parentNode) return g;
+    if (g && g.pos.parentNode) g.pos.parentNode.removeChild(g.pos);
+    var layer = el('loops');
+    if (!layer) return null;
+    var T = loopTokens();
+    function g0(cls, tag){
+      var e = document.createElementNS(NS, tag || 'g');
+      if (cls) e.setAttribute('class', cls);
+      return e;
+    }
+    var cur = g0('lp-cur');
+    cur.setAttribute('data-helper', 'loop');
+    var dots = g0('lp-dots');
+    var pos = g0(null);
+    var pop = g0('lp-pop');
+    var anchor = g0(null, 'circle');
+    anchor.setAttribute('r', T.r);
+    anchor.setAttribute('fill', 'none');
+    anchor.setAttribute('stroke', 'none');
+    var arc = g0('lp-arc crisp', 'path');
+    arc.setAttribute('d', loopRingD(T.r, 0));
+    pop.appendChild(anchor); pop.appendChild(arc);
+    var num = g0('lp-num roll halo', 'text');
+    num.setAttribute('x', (T.r + 5).toFixed(1));
+    num.setAttribute('y', 3.6);
+    num.setAttribute('text-anchor', 'start');
+    pos.appendChild(pop); pos.appendChild(num);
+    cur.appendChild(dots); cur.appendChild(pos);
+    layer.appendChild(cur);
+    // k = -1：第一拍只落读数，不演确认拍（跨句续绕时不至于凭空弹一下）
+    g = LOOP_G[s.key] = {n:s.n, pos:pos, pop:pop, arc:arc, num:num, dots:dots, k:-1, d:-1};
+    return g;
+  }
+
+  /** 摘掉一枚游标（连同落点痕）：只摘注记，**不动节点的落点**——绕到第几圈是
+   *  对象的状态，注记只是这一步的话头（与 .conn"不登记即消失"同一半，另一半见
+   *  SEG_P 那条）。 */
+  function removeLoop(key){
+    var g = LOOP_G[key];
+    if (g){
+      if (g.pos.parentNode) g.pos.parentNode.removeChild(g.pos);
+      delete LOOP_G[key];
+    }
+  }
+
+  /** 写这一拍的全部读数：节点的 transform 属性、游标定位、k/n、环口角度、落点痕。
+   *  `k` 是**已落定的圈数**（读数写它，不写半圈——"第 3 圈"没有 2.5 圈），
+   *  ox / oy 可以是两圈之间的插值，frac 只喂环口（它按占比匀速转，一圈就是一圈）。
+   *  痕**不记流水账**：每一圈的位置由落点梯现算（loopWorld），所以冷启动的那一帧
+   *  也算得出来——导出与擦洗不会读到"一屏没有痕"的定格（与 drawTo 的 at 同一纪律）。 */
+  function loopWrite(s, k, ox, oy, frac, full){
+    var n = s.n, T = loopTokens();
+    var tx = +s.base[0] + ox, ty = +s.base[1] + oy;
+    var tf = 'translate(' + f1(tx) + ',' + f1(ty) + ')';
+    if (n.getAttribute('transform') !== tf) n.setAttribute('transform', tf);
+    var g = loopCursor(s);
+    if (!g) return;
+    var w = loopWorld(n, tx, ty);
+    if (!w) return;                       // 量不到：节点已经落好，这一拍不动注记
+    g.pos.setAttribute('transform', 'translate(' + f1(w.x) + ',' + f1(w.y) + ')');
+    // 读数让开本体：环是锚点级的，宽卡片上"1/5"压在对象身上就读成了对象的一部分
+    var nx = (Math.max(T.r, w.hw + 4) + 5).toFixed(1);
+    if (g.num.getAttribute('x') !== nx) g.num.setAttribute('x', nx);
+    g.num.textContent = k + '/' + s.stops.length;
+    g.arc.setAttribute('d', loopRingD(T.r, (frac || 0) * 360));
+    // 痕：已经落定的每一圈一个小圆点，落在当前位置上的那一枚不画（环就是它）
+    var want = 0, i;
+    for (i = 1; i <= k; i++){
+      var p = loopPos(s, i);
+      if (Math.abs(p.x - ox) < .5 && Math.abs(p.y - oy) < .5) continue;
+      want++;
+    }
+    if (g.d !== want){
+      while (g.dots.firstChild) g.dots.removeChild(g.dots.firstChild);
+      var made = 0;
+      for (i = 1; i <= k && made < want; i++){
+        var q = loopPos(s, i);
+        if (Math.abs(q.x - ox) < .5 && Math.abs(q.y - oy) < .5) continue;
+        var wp = loopWorld(n, +s.base[0] + q.x, +s.base[1] + q.y);
+        if (!wp) continue;
+        var c = document.createElementNS(NS, 'circle');
+        c.setAttribute('class', 'lp-dot');
+        c.setAttribute('r', T.dot);
+        c.setAttribute('cx', f1(wp.x));
+        c.setAttribute('cy', f1(wp.y));
+        g.dots.appendChild(c); made++;
+      }
+      g.d = want;
+    }
+    // 确认拍：落定数真的变了才弹（首拍 k=-1 → 不弹，见 loopCursor）
+    if (k !== g.k){
+      var first = g.k < 0;
+      g.k = k;
+      if (!first && !full){
+        g.pop.classList.remove('on'); void g.pop.getBoundingClientRect();
+        g.pop.classList.add('on');
+      }
+    }
+  }
+
+  /** 直接落定在第 k 圈（起跑点、见旗终态、不演的那些格子都走这一条）。 */
+  function loopLand(s, k, quiet){
+    var p = loopPos(s, k);
+    LOOP_P[s.key] = k;
+    loopWrite(s, k, p.x, p.y, 0,
+              quiet || scrubbing || window.__coursewareShotMode || mqReduce.matches);
+  }
+
+  /** 排这一拍的圈数（worldFor 之后、camSet 之前，与 layoutSegs 同批）。
+   *  只做四件事：收孤儿、定这一趟的起止与每圈时长、把起点落进属性、把见旗的格子
+   *  直接落终值。**不登记 ≠ 收回**：下一步没再声明这件东西，它停在已经落定的那一圈
+   *  （与 SEG_P 同族——绕到的圈数是它的历史，不是这一拍的新内容）；要收就走 gone。 */
+  function layoutLoops(stepId, index){
+    var full = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    var T = loopTokens(), live = {}, k;
+    var sent = sentAt(stepT0).sentence;
+    var dur = sent ? +sent.duration : 0;
+    if (!isFinite(dur) || dur < 0) dur = 0;
+    // ① 孤儿先清：节点被 sweep 摘走 → 注记一起摘，**圈数账本也清掉**（对象不在场了，
+    //    "它绕到第几圈"就没有所指；留着只会让重建出来的新节点凭空少绕几圈）
+    for (k in LOOP_G){
+      if (!LOOP_G[k].n || !LOOP_G[k].n.isConnected){ removeLoop(k); delete LOOP_P[k]; }
+    }
+    for (k in LOOP_RUN){
+      if (!LOOP_RUN[k].n.isConnected){ delete LOOP_RUN[k]; removeLoop(k); delete LOOP_P[k]; }
+    }
+    // ② 逐条定这一趟
+    LOOP.forEach(function(s){
+      var n = s.n;
+      if (!n.isConnected || typeof n.getBBox !== 'function') return;
+      // 档位自动补齐：忘挂 `.lp` = CSS 的 .nt 会去追 JS 每帧写下的落点（双重缓动，
+      // 收尾落不回那一格），而且不报错——与 layoutSegs 补 `.seg` 同一处兜底。
+      if (!/\blp\b/.test(n.getAttribute('class') || ''))
+        n.setAttribute('class', ((n.getAttribute('class') || '') + ' lp').trim());
+      var prev = LOOP_P[s.key];
+      if (!isFinite(prev)) prev = 0;
+      var to = s.gone ? 0 : Math.max(0, Math.min(s.stops.length, s.at));
+      live[s.key] = 1;
+      s.__prev = prev; s.__to = to; s.__t0 = stepT0;
+      var laps = Math.abs(to - prev);
+      if (full || laps === 0){
+        loopLand(s, to);
+        delete LOOP_RUN[s.key];
+        if (s.gone){ removeLoop(s.key); delete LOOP_P[s.key]; }
+        return;
+      }
+      var per = s.per > 0 ? s.per : (dur > 0 ? dur / laps : T.min);
+      per = Math.max(T.min, Math.min(T.max, per));
+      var run = Math.min(per * T.run, T.dur);
+      s.__per = per; s.__run = run > 0 ? run : per; s.__dir = to > prev ? 1 : -1;
+      loopLand(s, prev);                    // 起点先落进属性：探针 / 导出直接读它
+      LOOP_RUN[s.key] = s;
+    });
+    LOOP_LIVE = live;
+    // ③ 本步没再登记、也没在飞的注记：摘掉（落点留在节点身上）
+    for (k in LOOP_G) if (!live[k] && !LOOP_RUN[k]) removeLoop(k);
+  }
+
+  /** 逐拍（与 segTock / morphTock / connTock 同批）。一圈分两段：走 `--loop-run`
+   *  占比（行程封顶 --dur-loop）用 easeOutExpo，剩下的**停**——那段静止就是确认拍，
+   *  环口却按整圈占比匀速转（一圈就是一圈，缓动会把"绕完"这件事转歪）。
+   *  导出 / 减动效 / 擦洗：直接落声明的那一圈，定格里读到"绕到第 k 圈"，
+   *  不是一段没演完的中间态。 */
+  function loopTock(t){
+    var full = scrubbing || window.__coursewareShotMode || mqReduce.matches;
+    for (var key in LOOP_RUN){
+      var s = LOOP_RUN[key];
+      if (!s.n.isConnected){
+        delete LOOP_RUN[key]; removeLoop(key); delete LOOP_P[key]; continue;
+      }
+      if (full){
+        loopLand(s, s.__to, true); delete LOOP_RUN[key];
+        if (s.gone) removeLoop(key); else if (!LOOP_LIVE[key]) removeLoop(key);
+        continue;
+      }
+      var e = t - s.__t0;
+      if (e <= 0){ loopLand(s, s.__prev); continue; }   // 起跑之前（seek 回句首前）
+      var laps = Math.abs(s.__to - s.__prev);
+      var j = Math.floor(e / s.__per);
+      if (j >= laps){
+        loopLand(s, s.__to);
+        delete LOOP_RUN[key];
+        if (s.gone){ delete LOOP_P[key]; removeLoop(key); }
+        else if (!LOOP_LIVE[key]) removeLoop(key);       // 越句 spill 到这一步才落完
+        continue;
+      }
+      var lapT = e - j * s.__per;
+      var q = Math.min(1, lapT / s.__run);
+      var a = s.__prev + s.__dir * j, b = a + s.__dir;
+      var pa = loopPos(s, a), pb = loopPos(s, b);
+      // 落定那一格必须**精确**是那一格：easeOutExpo 在 q=1 时是 1−2⁻¹⁰=.99902，
+      // 会把每一圈推开半像素（与 segTock 的 `p >= 1` 直接落终值同一纪律）
+      var eq = q >= 1 ? 1 : 1 - Math.pow(2, -10 * q);     // easeOutExpo：走的那一段
+      loopWrite(s, q >= 1 ? b : a,
+                pa.x + (pb.x - pa.x) * eq, pa.y + (pb.y - pa.y) * eq,
+                Math.min(1, lapT / s.__per), full);
     }
   }
 
@@ -6789,6 +7173,7 @@
         layoutConnects();                         // 0.43.0：关系连线，世界层落位之后现量两端
         layoutLoupes(hit.scene.step_id, hit.index); // 0.44.0：细节镜，世界层落位之后现量观察点
         layoutSegs(hit.scene.step_id, hit.index); // 0.46.0：路径进度，世界层落位之后量弧长、定这一趟
+        layoutLoops(hit.scene.step_id, hit.index); // 0.47.0：圈数，世界层落位之后现算落点与每圈时长
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -6882,6 +7267,13 @@
     // （与 morph 飞行表同一族理由）。导出截图页每帧只跑一次 tick()：见旗直接落
     // 作者声明的 at（定格里读到"走到这一格"，不是一段没演完的中间态）。
     segTock(t);
+    // 圈数（0.47.0）：与上面几个逐拍读数同一个位置——layoutLoops() 只在换句分支里跑
+    // （定这一趟的起止与每圈时长、把起点落进属性），每圈的落点位移、k/n 读数、环口
+    // 角度与落点痕都是逐拍读数。它**不随 begin() 清空圈数**：下一步没再声明这件东西，
+    // 它停在已经落定的那一圈（与 SEG_P / MORPH 飞行表同一族理由）。导出截图页每帧只
+    // 跑一次 tick()：见旗直接落作者声明的 at（定格里读到"绕到第 k 圈"，不是一段没演
+    // 完的中间态）。
+    loopTock(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到
