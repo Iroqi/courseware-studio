@@ -365,6 +365,15 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
   清账。`.lp` 的 `transition:none` 保证逐拍写的 `transform` 不被补间追；确认拍那枚
   `.lp-pop` 的 `@keyframes` 切掉即 `scale:1`（静止态就是终态，不进 reduced-motion
   清单）；`gone` 见旗落回基位并连账本与注记一起收。
+- 时序带（`lanes()` / `layoutLanes()` / `lanesTock()`）：见旗把句子进度直接当 1——
+  几条实心段一起满、"现在"针停在带右缘，定格里读"这一句念完，这几件事都做完了"，不是
+  针停在半路的中间态。这一族**没有跨步账本**：实心段宽 = `W × laneFill(at, phase)`、
+  针位 = `x + W × at`，`at = (t − stepT0) ÷ dur`，三个量全是当前读数的函数，所以逐帧
+  冷启动、擦洗、导出与直播天然同一格（探针直接断言"直播句末 == 冷启动定格"）。摆位由
+  `layoutLanes()` 每步现量各 item 的 `boxIn()` 并集，安全区取本步声明的取景窗
+  （`(CAM[sid] || [])[step] || FULL`）而不是 `VIEW`；两头放不下就整条不画并 `removeLane`，
+  下一拍不重试，等换句再判。`LANE` 登记表随 `begin()` 清空、**没有 `LANE_P`**：
+  不登记即摘（与 `callout` / `connect` 同族）。
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -411,6 +420,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | JS 逐拍写 `d`（中间帧是采样折线） | 形变（`morph()` 登记即落终态，`morphTock()` 逐拍补中间帧） | 落**作者声明的那条 `d`**：见旗不登记飞行、在飞的直接收账落 `to`；冷启动首见即建档，成片每格都是精确轮廓；`.morph` 清单里没有 `d`，切不切都不影响落点 |
 | JS 逐拍写 `stroke-dasharray`（属性 + inline style） | 进度（`drawTo()` / `segTock()` 写已走段，副本 `.seg-g` 是静态虚线） | 落作者声明的 `at`（`stops` / `step` 按站取档），已走段与副本一起定格；`transition:none` 只为防补间拖帧 |
 | JS 逐拍写 `transform` 属性（落点由落点梯现算） | 圈数（`loopTo()` / `layoutLoops()` / `loopTock()` 写落点，游标与落点痕在 `#loops` 现摆） | 落作者声明的那一圈 `at`（`base + stops[at]`），游标、`k/n`、痕同批摆回原处；`LOOP_RUN` 收账、`gone` 落回基位并清账；`.lp` 的 `transition:none` 防双重缓动，`.lp-pop` 的 `@keyframes` 静止态即终态、不进兜底清单 |
+| JS 逐拍写 width / `d`（无 transition、无账本） | 时序带（`lanes()` / `layoutLanes()` / `lanesTock()` 写实心段宽与"现在"针，注记在 `#lanes` 现摆） | 见旗把 `at` 直接取 1 → 几条实心段一起满、针停在带右缘；宽与针都是 `(t − stepT0) ÷ dur` 的纯函数，逐帧冷启动天然同一格，所以既不需要兜底清单也没有 `gone`（不登记即摘） |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |

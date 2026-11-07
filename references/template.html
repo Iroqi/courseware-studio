@@ -395,6 +395,23 @@
     --dur-loop:.5s; --loop-run:.62; --loop-per-min:.5; --loop-per-max:1.6;
     --loop-mark:rgba(141,149,168,.45); --loop-ink:#f5a623;
     --loop-r:7; --loop-dot:2.2;
+    /* 时序带（0.48.0）：词表里有"走到第几段"（drawTo）与"绕到第几回"（loopTo），
+       却没有一件事的**并行关系**：这两样是不是同时做的、那一样是不是排在后面。
+       并发、流水线、读写重叠、递归的"一路下去再一路回来"，全靠旁白说"同时"两个字，
+       画面里没有任何东西在演它。
+       这一条把"同时 / 先后"落成**相位**：每条泳道声明自己的启动相位 `phase`
+       （0 = 与句子同时起步），带宽与针的位置一律从 audio 时钟现算——作者**不填时间**，
+       相位是内容（谁和谁一起），时间是句子（与 loopTo 的"时间归句子"同一条口径）。
+       于是所有相位相同 → 几条实心段同速长 = 同时；相位递增 → 阶梯式起步 = 先后。
+       一根"现在"针钉在句子进度上，是整条带唯一的时钟证据：观众看针就知道针到哪儿
+       了、哪条道还在走、哪条已经到底。
+       --lane-h 6 是单条道高（世界单位），--lane-gap 5 是道间距，--lane-pad 11 是
+       带沿到对象的净空；--lane-min 40 是带宽下限（对象挤在一列时带子不该细成一条缝），
+       --lane-fs 10 是左侧短标签字号。轨道底色走中性灰（--lane-track，与 --path-ghost
+       同档：它是上下文不是话头），实心段与针共用强调橙 --lane-ink（与徽标 / 引线
+       / 游标同一支笔）。 */
+    --lane-h:6; --lane-gap:5; --lane-pad:11; --lane-min:40; --lane-fs:10;
+    --lane-track:rgba(141,149,168,.22); --lane-ink:#f5a623;
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -942,6 +959,26 @@
   .lp-pop{transform-box:fill-box;transform-origin:50% 50%;scale:1}
   @keyframes lpTock{from{scale:.62}58%{scale:1.16}to{scale:1}}
   .lp-pop.on{animation:lpTock var(--dur-pop) var(--ease-out) backwards}
+  /* 时序带（0.48.0）：几条泳道 + 一根"现在"针，说的是**并行关系**——谁和谁同时、
+     谁在谁之后。整族注记由 layoutLanes() 建、lanesTock() 逐拍写宽与针位，所以
+     这一族**一条 transition 都不需要**（与 .lp 同一课，只是这里连作者那一层都不碰）：
+       · `.ln` = 整条带所在的根：纯注解层，`pointer-events:none`，`data-helper="lane"`
+         让 prune() 不按 GEN 收它——它由 layoutLanes() 自己按 key 建与摘（与 .lp-cur /
+         .seg-g 同判据）；
+       · `.ln-t` 轨道底槽、`.ln-f` 实心段：只写 `x` / `width`，逐拍、无补间（与
+         `.meter` 的 width 同一课——JS 每帧写几何，CSS 再补一遍就是双重缓动）；
+       · `.ln-n` 是"现在"针（竖线 + 顶端小三角），整条带**唯一**的时钟证据：针到
+         哪儿、哪条道就该有多长。描边挂 `.crisp` 钉回屏幕像素，镜头推近时不糊成一条杠；
+       · `.ln-lab` 左侧短标签带 `.halo`，压在连线与图元上也读得清；放不下就整组
+         标签不画（带宽与针照旧，与 callout / loupe 的"量不到就不注"同一口径）。
+     `prefers-reduced-motion` 清单里没有它：没有 CSS 补间，见旗（导出 / 减动效 /
+     擦洗）由 lanesTock 把句子进度直接当 1 落——几条实心段一起满、针停在右端。 */
+  .ln{pointer-events:none}
+  .ln-t{fill:var(--lane-track)}
+  .ln-f{fill:var(--lane-ink)}
+  .ln-n{stroke:var(--lane-ink);stroke-width:1.2;fill:none}
+  .ln-head{fill:var(--lane-ink)}
+  .ln-lab{font-size:var(--lane-fs);font-weight:600;fill:var(--lane-ink)}
   /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
      接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
      四条边界（写错过任何一条，拆解都会静默失效）：
@@ -3120,6 +3157,14 @@
                  layoutLoops() 按 key 建与摘，指针一律穿透（CSS .lp-cur）。 -->
             <g id="loops"></g>
 
+            <!-- 时序带层（0.48.0）：几条泳道与那根"现在"针不进任何一幕的子树——它量的
+                 是"这几件东西**各自**走到哪儿了"，而对象可能住在世界层（跨幕常驻）。
+                 几何一律映到 #cam 的孩子空间（与 #loops 同一条口径），带宽取各 item
+                 的水平并集、上下沿留 --lane-pad 净空，摆不下整带就翻到对象上方。
+                 每步由 layoutLanes() 按 key 建与摘、lanesTock() 逐拍写宽与针位；
+                 指针一律穿透（CSS .ln）。 -->
+            <g id="lanes"></g>
+
             <!-- 移动聚光（0.22.0）：一块盖住**整个取景框**的暗幕，被一枚会走位的洞裁开。
                  它是 #cam 的最后一个孩子——盖在所有幕上面、但不进字幕带（#cap 在相机
                  之外，见下面的注释；整层又被 #frameClip 裁着）。坐标空间与常驻图元
@@ -3470,7 +3515,15 @@
      与 MORPH 的飞行表不同，节点被 sweep 摘走时 LOOP_P 一起清账：对象都不在场了，
      "它绕到第几圈"就没有所指，留着只会让重建出来的新节点凭空少绕几圈。 */
   var LOOP = [], LOOP_RUN = {}, LOOP_P = {}, LOOP_G = {}, LOOP_LIVE = {}, LOOP_T = null;
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 时序带（0.48.0）：LANE 是"这一步声明了哪几件东西在一起做"的登记表——与 CALL /
+     CONN / SEG / LOOP 同一张"每步清空、renderer 重挂"的表。这里**没有跨步账本**，
+     而且是有意的：带子上每一个数（实心段长、针位）都是 audio 时钟的纯函数
+     `(t − stepT0) ÷ dur` 与作者声明的相位算出来的，没有任何"上一拍演到哪儿"要记住
+     ——与 capProgWrite / --lit 同一族。所以擦洗、逐帧冷启动、导出读到的是同一格，
+     不需要 SEG_P / LOOP_P 那种历史。（对照窗 CMP_R 之所以要账本，是因为它的 `at`
+     是作者给的状态读数；这里的 `at` 就是时钟本身。） */
+  var LANE = [], LANE_G = {}, LANE_LIVE = {}, LANE_T = null;
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; LANE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -4697,6 +4750,237 @@
       loopWrite(s, q >= 1 ? b : a,
                 pa.x + (pb.x - pa.x) * eq, pa.y + (pb.y - pa.y) * eq,
                 Math.min(1, lapT / s.__per), full);
+    }
+  }
+
+  /* ── 时序带（0.48.0）═══════════════════════════════════════════════════
+     词表里有"走到第几段"（drawTo）与"绕到第几回"（loopTo），却没有一件事之间的
+     **并行关系**。课堂里"读写重叠""流水线四段同时在不同的工件上""递归一路下去、
+     再一路回来"全靠旁白说"同时"两个字，画面里没有任何东西在演它——而"同时"恰恰是
+     最难用文字讲清的一件事：观众要么看成"一件接一件"，要么看成"一团一起动"。
+     这一条把并行落成**相位**：每条泳道一个启动相位 `phase`（句子进度到了相位才
+     起步），之后与句子同速走完剩下的 (1 − phase)。于是
+       · 相位全 0 → 几条实心段同速长 = **同时**；
+       · 相位递增 → 阶梯式起步 = **先后**；
+       · 相位倒序（后声明的先起步）→ **抢跑**，与"从右往左读"的直觉一致。
+     作者只声明"谁和谁在一起、谁在谁之后"（items + phase）：带宽与上下沿来自各
+     item 在 #cam 里的水平并集（现量），实心段与针的位置来自唯一那只时钟
+     （`(t − stepT0) ÷ dur`，与 capProgWrite / `--lit` 同一个算式）。**没有第二个
+     数要维护**，也就没有"作者填的时长与句子对不上"这一类错，而且这条带天生没有
+     跨步账本——擦洗、逐帧冷启动、导出读的都是同一格。
+     四条分工（与形近的原语最容易混的地方）：
+       · `drawTo()` = **一条路**自己的已走段（单条、连续、可以停在半路）；
+       · `loopTo()` = **一件东西**绕到第几回（单件、离散落点）；
+       · `.ride`    = **有人**沿这条路走到那头（移动的是物件，路不变）；
+       · `lanes()`  = **几件东西各自**走到哪儿了（多轨、共用同一条时钟，比的正是
+         相位差；它不演"顺序执行"本身——那是各步 renderer 的事，它演的是"这几件
+         东西在时间上是什么关系"）。 */
+  function laneTokens(){
+    if (LANE_T) return LANE_T;
+    var T = {h:morphTok('--lane-h', 6), gap:morphTok('--lane-gap', 5),
+             pad:morphTok('--lane-pad', 11), min:morphTok('--lane-min', 40),
+             fs:morphTok('--lane-fs', 10)};
+    LANE_T = T;
+    return T;
+  }
+
+  /** 登记一条时序带。opt：
+   *    · items  必填：参与的那几件东西（id 或节点），**一条泳道一个**，声明顺序 =
+   *             泳道自上而下的顺序；
+   *    · phase  可选：每条道的启动相位（0–1 的句子进度分数），缺省全 0 = 同时起步。
+   *             钳到 [0, .9]：相位写 1 就是"永远不开始"，那不是内容而是笔误；
+   *    · lab    可选：每条道左侧的短标签（整组放不下就都不画，带宽与针照旧）。
+   *  items 为空、或有任一节点不在这一步的台上：整条带静默不登记（半条带比没有带
+   *  更误导，与 loupe / callout 的"量不到就不注"同一口径）。
+   *  **没有 gone**：这条带记的是"这一句在说哪几件一起"，不是对象的历史——不登记
+   *  即摘掉（与 callout / connect 同族，与 SEG_P / LOOP_P 相反）。 */
+  function lanes(key, opt){
+    var o = opt || {}, it = o.items || [];
+    if (!it.length) return;
+    var ns = [], ph = o.phase || [], out = [];
+    for (var i = 0; i < it.length; i++){
+      var n = typeof it[i] === 'string' ? el(it[i]) : it[i];
+      if (!n || !n.isConnected) return;                 // 有一件不在场：整条不画
+      ns.push(n);
+      var v = ph.length ? +ph[i] : 0;
+      out.push(isFinite(v) ? Math.max(0, Math.min(.9, v)) : 0);
+    }
+    LANE.push({key:key, n:ns, phase:out, lab:o.lab || null});
+  }
+
+  /** 句子进度（0–1）：整条带唯一的时间读数。见旗（导出 / 减动效 / 擦洗）直接给 1
+   *  ——定格里读"这一句念完，这几件事都做完了"，而不是"针停在半路"的中间态。 */
+  function laneAt(t, dur){
+    if (scrubbing || window.__coursewareShotMode || mqReduce.matches) return 1;
+    if (!(dur > 0)) return 1;
+    return Math.max(0, Math.min(1, (t - stepT0) / dur));
+  }
+
+  /** 第 i 条道的实心比例：相位到了才起步，之后与句子同速走完剩下的 (1 − phase)。
+   *  纯函数——同一个 (at, phase) 永远算出同一个数，所以冷启动与直播同一格。 */
+  function laneFill(at, ph){
+    if (at <= ph) return 0;
+    return Math.min(1, (at - ph) / (1 - ph));
+  }
+
+  /** 同值不重写：这一族每帧都跑，属性重写一次就是一次布局失效（与 capProgWrite 同课）。
+   *  比之前先 String()：数值属性取回来是字符串，`'3' !== 3` 会让"同值不重写"形同虚设。 */
+  function laneSet(e, k, v){
+    v = String(v);
+    if (e.getAttribute(k) !== v) e.setAttribute(k, v);
+  }
+
+  /** 按 key 建一条带（轨道 / 实心段 / 标签 / 针），建过就复用。全部 createElementNS、
+   *  不进 put()：注记没有"上一状态"要补间，每拍由 laneWrite() 写死（与游标 / 连线
+   *  的副本同一课）。道数或标签文字变了就重建——重建比留着旧的更省心，这一步本来
+   *  每拍都要重写全部几何。 */
+  function laneBuild(s){
+    var sig = s.lab ? s.lab.join('|') : '';
+    var g = LANE_G[s.key];
+    if (g && g.rows.length === s.n.length && g.sig === sig && g.root.parentNode) return g;
+    if (g && g.root.parentNode) g.root.parentNode.removeChild(g.root);
+    var layer = el('lanes');
+    if (!layer) return null;
+    var T = laneTokens(), rx = (T.h / 2).toFixed(1);
+    var root = document.createElementNS(NS, 'g');
+    root.setAttribute('class', 'ln');
+    root.setAttribute('data-helper', 'lane');
+    var rows = [];
+    for (var i = 0; i < s.n.length; i++){
+      var row = document.createElementNS(NS, 'g');
+      var t = document.createElementNS(NS, 'rect');
+      t.setAttribute('class', 'ln-t'); t.setAttribute('rx', rx);
+      var f = document.createElementNS(NS, 'rect');
+      f.setAttribute('class', 'ln-f'); f.setAttribute('rx', rx); f.setAttribute('width', '0');
+      row.appendChild(t); row.appendChild(f);
+      var lab = null;
+      if (s.lab && s.lab[i] !== undefined && s.lab[i] !== null){
+        lab = document.createElementNS(NS, 'text');
+        lab.setAttribute('class', 'ln-lab halo');
+        lab.setAttribute('text-anchor', 'end');
+        lab.textContent = s.lab[i];
+        row.appendChild(lab);
+      }
+      root.appendChild(row);
+      rows.push({t:t, f:f, lab:lab, labw:-1, labt:null});
+    }
+    var nd = document.createElementNS(NS, 'path');      // "现在"针的竖线
+    nd.setAttribute('class', 'ln-n crisp');
+    var hd = document.createElementNS(NS, 'path');      // 针尖那枚小三角
+    hd.setAttribute('class', 'ln-head');
+    root.appendChild(nd); root.appendChild(hd);
+    layer.appendChild(root);
+    g = LANE_G[s.key] = {root:root, rows:rows, nd:nd, hd:hd, n:s.n, sig:sig};
+    return g;
+  }
+
+  /** 摘掉一条带（只摘注记——这条带本来就没有账本要留）。 */
+  function removeLane(key){
+    var g = LANE_G[key];
+    if (g){
+      if (g.root.parentNode) g.root.parentNode.removeChild(g.root);
+      delete LANE_G[key];
+    }
+  }
+
+  /** 标签宽度只在文字变了时量一次（被摘掉显示的元素量出 0，量前先把 `display`
+   *  属性临时请回来——这里藏的是**属性**不是 style，读错一处就永远量到 0）。 */
+  function laneLabW(r){
+    var txt = r.lab.textContent;
+    if (r.labw >= 0 && r.labt === txt) return r.labw;
+    var off = r.lab.getAttribute('display');
+    if (off){ r.lab.removeAttribute('display'); }
+    r.labw = r.lab.getComputedTextLength ? r.lab.getComputedTextLength() : 0;
+    if (off){ r.lab.setAttribute('display', off); }
+    r.labt = txt;
+    return r.labw;
+  }
+
+  /** 摆一条带并写这一拍的全部读数：量各 item 的水平并集 → 定带宽与上下沿 →
+   *  轨道 / 实心段 / 标签 / 针一次写齐。上下沿优先摆在对象**下方**（净空
+   *  --lane-pad）；下方放不下整带就翻到上方；两头都放不下（取景窗太矮）整条带
+   *  不画并返回 false，由调用方收账。带宽下限 --lane-min：几件东西挤在一列时
+   *  带子不该细成一条缝；比并集宽时居中，不让左边那件占便宜。 */
+  function laneWrite(s, at){
+    var T = laneTokens(), g = laneBuild(s);
+    if (!g) return false;
+    // 安全区用**本步声明的取景窗**（与 drawCallouts / layoutLoops 同一口径），不是 VIEW：
+    // 镜头推到 [230,61,580,120] 那一格时，窗外的世界照样"放不下"，拿 VIEW 判会把带子
+    // 摆进看不见的那半截舞台，或反过来在能看见的地方提前翻面。
+    var A = s.__win || FULL;     // [x, y, w, h]，与本步声明的取景窗同形
+    var cam = el('cam'), u = null, i, b;
+    for (i = 0; i < s.n.length; i++){
+      b = boxIn(s.n[i], cam);
+      if (!b) return false;                       // 有一件量不到：整条不摆（宁缺）
+      if (!u) u = {x:b.x, y:b.y, x2:b.x + b.w, y2:b.y + b.h};
+      else { u.x = Math.min(u.x, b.x); u.y = Math.min(u.y, b.y);
+             u.x2 = Math.max(u.x2, b.x + b.w); u.y2 = Math.max(u.y2, b.y + b.h); }
+    }
+    var W = Math.max(T.min, u.x2 - u.x);
+    var H = s.n.length * T.h + (s.n.length - 1) * T.gap;
+    var y = u.y2 + T.pad;
+    if (y + H > A[1] + A[3]) y = u.y - T.pad - H;                       // 翻到上方
+    if (y < A[1] || y + H > A[1] + A[3]) return false;                   // 两头都放不下
+    var x = u.x + ((u.x2 - u.x) - W) / 2;
+    // 道高就是令牌值（--lane-h），rx 取它的一半 → 两头是胶囊；标签的 y 与针一样
+    // 跟着行走，写在 build 期就会把所有标签叠在同一行上（第 2 条道的字飘在台顶）
+    var h2 = f1(T.h);
+    for (i = 0; i < g.rows.length; i++){
+      var r = g.rows[i], ry = f1(y + i * (T.h + T.gap));
+      laneSet(r.t, 'x', f1(x)); laneSet(r.t, 'y', ry);
+      laneSet(r.t, 'width', f1(W)); laneSet(r.t, 'height', h2);
+      laneSet(r.f, 'x', f1(x)); laneSet(r.f, 'y', ry);
+      laneSet(r.f, 'width', f1(W * laneFill(at, s.phase[i]))); laneSet(r.f, 'height', h2);
+      if (r.lab){
+        laneSet(r.lab, 'x', f1(x - 8));
+        laneSet(r.lab, 'y', f1(ry + T.h / 2 + T.fs * .34));
+      }
+    }
+    // 标签是"这一条道是谁"，不是第二条注记：整组放不下就都不画，不留一半
+    if (g.rows.some(function(r){ return !!r.lab; })){
+      var maxw = 0;
+      g.rows.forEach(function(r){ if (r.lab) maxw = Math.max(maxw, laneLabW(r)); });
+      var on = x - 8 - maxw >= A[0];
+      g.rows.forEach(function(r){
+        if (r.lab) laneSet(r.lab, 'display', on ? 'inline' : 'none');
+      });
+    }
+    var nx = f1(x + W * at);
+    laneSet(g.nd, 'd', 'M' + nx + ' ' + f1(y - 3) + 'V' + f1(y + H + 3));
+    laneSet(g.hd, 'd', 'M' + nx + ' ' + f1(y - 3) + 'l-3 -5h6z');
+    return true;
+  }
+
+  /** 排这一拍的时序带（layoutLoops 之后、camSet 之前，与其余 layout 同批）。
+   *  只做三件事：收孤儿、按当前档位摆一遍（句首那一格）、把本步没再登记的摘掉。 */
+  function layoutLanes(stepId, index){
+    var live = {}, k;
+    var win = (CAM[stepId] || [])[index] || FULL;       // 本步声明的取景窗 = 安全区
+    for (k in LANE_G){                                  // ① 节点被摘 → 那条带整条摘
+      var gg = LANE_G[k];
+      for (var i = 0; i < gg.n.length; i++){
+        if (!gg.n[i].isConnected){ removeLane(k); break; }
+      }
+    }
+    var sent = sentAt(stepT0).sentence;
+    var dur = sent ? +sent.duration : 0;
+    if (!isFinite(dur) || dur < 0) dur = 0;
+    LANE.forEach(function(s){
+      live[s.key] = 1; s.__dur = dur; s.__win = win;
+      if (!laneWrite(s, laneAt(stepT0, dur))) removeLane(s.key);   // ② 摆不下就不画
+    });
+    LANE_LIVE = live;
+    for (k in LANE_G) if (!live[k]) removeLane(k);      // ③ 不登记即摘（无账本）
+  }
+
+  /** 逐拍（与 loopTock / segTock 同批）。针与实心段都是时钟的纯函数，没有"在飞的
+   *  一趟"要收账；摆不下（对象正在入场、并集临时越界）就整条摘掉，下一拍不重试，
+   *  等下一次换句的 layoutLanes 再判——避免每帧反复建摘。 */
+  function lanesTock(t){
+    for (var i = 0; i < LANE.length; i++){
+      var s = LANE[i];
+      if (!LANE_G[s.key]) continue;
+      if (!laneWrite(s, laneAt(t, s.__dur))) removeLane(s.key);
     }
   }
 
@@ -7174,6 +7458,7 @@
         layoutLoupes(hit.scene.step_id, hit.index); // 0.44.0：细节镜，世界层落位之后现量观察点
         layoutSegs(hit.scene.step_id, hit.index); // 0.46.0：路径进度，世界层落位之后量弧长、定这一趟
         layoutLoops(hit.scene.step_id, hit.index); // 0.47.0：圈数，世界层落位之后现算落点与每圈时长
+        layoutLanes(hit.scene.step_id, hit.index); // 0.48.0：时序带，世界层落位之后现量各 item 并集
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -7274,6 +7559,13 @@
     // 跑一次 tick()：见旗直接落作者声明的 at（定格里读到"绕到第 k 圈"，不是一段没演
     // 完的中间态）。
     loopTock(t);
+    // 时序带（0.48.0）：与上面几个逐拍读数同一个位置——layoutLanes() 只在换句分支里跑
+    // （建注记、量并集、判上下沿摆不摆得下），实心段长与"现在"针的位置是逐拍读数。
+    // 这一族**没有跨步账本**：两个数都是 `(t − stepT0) ÷ dur` 与声明相位的纯函数，
+    // 与 capProgWrite / --lit 同一个算式，所以擦洗、逐帧冷启动、导出天然读到同一格。
+    // 导出截图页每帧只跑一次 tick()：见旗把句子进度直接当 1 落（定格里读"这几件事
+    // 都做完了"，不是针停在半路的中间态）。
+    lanesTock(t);
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到
