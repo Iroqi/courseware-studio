@@ -434,6 +434,27 @@
     --dur-range:.42s; --range-pad:5; --range-cap:7; --range-fs:10;
     --range-wash:rgba(245,166,35,.13); --range-edge:rgba(245,166,35,.78);
     --range-ink:#f5a623;
+    /* 界线（0.50.0）：整张词表能说"多大 / 到哪儿 / 谁跟谁 / 哪几件 / 几时"，唯一
+       说不出的是**够不够**——量与一条界的关系。meter 画"多长"，这一族画"界在哪、
+       到没到、过了多少"，于是"预算 / 上限 / 容量 / 安全水位 / 超时 / 误差容限 /
+       临界点"这些判断第一次能落在画面上，而不是只在旁白里。
+       读法：一条细界线 + 两个端头（T 形，跨在容器的两端）、界外那一侧的淡染区带
+       （"这一侧都不行"，它是**常驻**的图注，不是越界才出现）、界线读数（界值；
+       越界时多一行"超 N"）。越界那一刻颜色整体切档，是这条原语唯一的"确认拍"。
+       九枚读数：
+         · --dur-lim .24s：只有颜色在补间（界线、区带、读数一起换档）。它比按压
+           （--dur-hover .16s）慢一点、比入场（--dur-in .42s）快——这是"读作一个
+           状态变了"，不是"又一个东西上台"；几何一次也不补间（每拍现量现写）。
+         · --lim-cap 7：界线向容器外伸出的长度（端头落在这儿），让"界"在容器上下
+           都看得见；--lim-fs 10：读数与差值签的字号。
+         · --lim-ink #8d95a8 是界线与读数的中性档（它是尺子，不是话头）；--lim-zone
+           是界外那侧的淡染；--lim-alert #ef5b4b 与 --lim-hot 是越界档（红是唯一
+           一个"这不对"的色，别拿强调橙顶替——橙在这套画面里是"话题"）。
+       注意它**不画量**：量由作者自己的图形（通常是 meter 的条）提供，这一族每拍
+       现量那颗量的边，所以越线那一帧是真实发生的。 */
+    --dur-lim:.24s; --lim-cap:7; --lim-fs:10;
+    --lim-ink:#8d95a8; --lim-alert:#ef5b4b;
+    --lim-zone:rgba(141,149,168,.12); --lim-hot:rgba(239,91,75,.14);
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -1023,6 +1044,32 @@
   .rg-f{fill:var(--range-wash)}
   .rg-e{fill:var(--range-edge)}
   .rg-lab{font-size:var(--range-fs);font-weight:600;fill:var(--range-ink)}
+  /* 界线（0.50.0）：一条细线 + 两个端头 + 界外的区带 + 读数，说的是**够不够**
+     ——量与一条界的关系（过没过、差多少）。这一族与 .rg 相反：几何不补间（每拍由
+     limitWrite() 现量现写），补间**只有颜色**（越界那一刻整族切档，--dur-lim）。
+     四条边界：
+       · `.lim` 是纯注解层：`pointer-events:none`，`data-helper="limit"` 让 prune()
+         不按 GEN 收它（由 layoutLimits() 按 key 建与摘）；
+       · 界线的细与端头都用 rect 填色、不用 1px 描边——镜头推近时描边会糊成一条杠，
+         而 rect 是实的（与 `.rg-e` 同一课）；宽恒 1 视图单位；
+       · 区带是**常驻**的，不是越界才长出来：它画的是"这一侧都不行"这个图注，
+         越界只换档成红。若让它越界才出现，"界"就变成了"事件"而不是"刻度"；
+       · 颜色一律走 class（`.over` / `.hid`），不做每拍写属性——`同值不重写`在这里
+         落成"只在判定变了时切一次 class"（LIM_S 就是这件事的唯一账）。
+     `prefers-reduced-motion` 清单里没有它：补间只有颜色，见旗（导出 / 减动效 /
+     擦洗）切掉 transition 就是终态；判定本身是现量的比较，不是时间决定。 */
+  .lim{pointer-events:none}
+  .lim-l{fill:var(--lim-ink)}
+  .lim-a{fill:var(--lim-ink)}
+  .lim-z{fill:var(--lim-zone)}
+  .lim-lab{font-size:var(--lim-fs);font-weight:600;fill:var(--lim-ink)}
+  .lim-d{font-size:var(--lim-fs);font-weight:700;fill:var(--lim-alert);display:none}
+  .lim-l,.lim-a,.lim-z{transition:fill var(--dur-lim)}
+  .lim-lab{transition:fill var(--dur-lim)}
+  .lim.hid .lim-lab,.lim.hid .lim-d{display:none}
+  .lim.over .lim-l,.lim.over .lim-a{fill:var(--lim-alert)}   /* 界值本身不换色：换的是判定，不是刻度 */
+  .lim.over .lim-z{fill:var(--lim-hot)}
+  .lim.over .lim-d{display:inline}
   /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
      接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
      四条边界（写错过任何一条，拆解都会静默失效）：
@@ -3177,6 +3224,15 @@
                  rangeTock() 逐拍写几何；指针一律穿透（CSS .rg）。 -->
             <g id="ranges"></g>
 
+            <!-- 界线层（0.50.0）：界线 / 端头 / 界外区带 / 读数。它量的是"这一步在
+                 比哪一条界"，参照物（容器）住在世界层或某一幕里，所以不进任何一幕的
+                 子树。放在区间窗之上、引线标注之下：界线是压在内容上的标尺（要能压住
+                 柱子与卡片才读得出"到这儿了"），读数签又要压在区带之上；而它不该压住
+                 引线 / 词拍这些真正的注记。几何一律映到 #cam 的孩子空间，镜头推拉时
+                 跟着内容一起缩放。每步由 layoutLimits() 按 key 建与摘、limitTock()
+                 逐拍现量那颗量的边并按比较切档；指针一律穿透（CSS .lim）。 -->
+            <g id="limits"></g>
+
             <!-- 引线标注层（0.38.0）：注记不进任何一幕的子树——它量的是"这一步对象
                  最终在哪"，而对象可能住在世界层（跨幕常驻）。单开一层放在所有幕之上、
                  聚光暗幕之下：压住卡片与连线，又不挡灯。每步由 drawCallouts() 重排，
@@ -3585,7 +3641,13 @@
      节点被摘一起清账（对象都不在场了，"窗口上一拍在哪儿"没有所指，留着只会让
      重建出来的同一个 key 从一个不相干的位置滑进来）。 */
   var RANGE = [], RANGE_G = {}, RANGE_P = {}, RANGE_T = null;
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; LANE = []; RANGE = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 界线（0.50.0）：LIM 是"这一步在比哪一条界"的登记表——与 CALL / CONN / SEG /
+     LOOP / LANE / RANGE 同一张"每步清空、renderer 重挂"的表。这里同样**没有跨步账本**
+     （界线位置是 of 盒与 at 的纯函数，判定是 probe 边缘与界线的比较），擦洗 / 逐帧
+     冷启动 / 导出读同一格。LIM_S 存的不是历史，是**上一拍的判定结果**，唯一用途是
+     "只在判定变了时切一次 class"——没有它就得每帧写一遍 class，白白让浏览器重算样式。 */
+  var LIM = [], LIM_G = {}, LIM_S = {}, LIM_T = null;
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; LANE = []; RANGE = []; LIM = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -5247,6 +5309,250 @@
     }
   }
 
+
+  /* ── 界线（0.50.0）────────────────────────────────────────────────────────
+     整张词表能说"多大 / 到哪儿 / 谁跟谁 / 哪几件 / 几时"，唯一说不出的是**够不够**：
+     量与一条界的关系——过没过、差多少、越线那一刻是不是另一件事。meter 画"多长"，
+     这一族画"界在哪、到没到"。于是"预算 / 上限 / 容量 / 安全水位 / 超时 / 误差容限 /
+     临界点"这些判断第一次能落在画面上，而不是只在旁白里。
+     它自己**不画量**：量由作者自己的图形提供（meter 的条、一根柱子、一条水位），这一族
+     每一拍现量那颗量的边（probe）与界线比。所以"越线"是**真实发生的**——发生在量真的
+     长过去的那一帧，而不是作者算好放在第几句。不给 probe 就只是一条标尺（"满格到这儿"）。
+     三件东西：界线（一条 + 两端 T 形端头，伸出容器外让"界"在上下都看得见）、界外那一
+     侧的淡染区带（"这一侧都不行"，**常驻**——它是刻度不是事件，越界才出现就成了"这算
+     一个事"）、读数（界值；越界时多一行"超 N"，那才是这条原语的落点）。
+     没有跨步账本：界线位置是 of 盒与 at 的纯函数、判定是现量的比较，擦洗 / 逐帧冷启动
+     / 导出读同一格。见旗时 meter 落满 → 判定自然落"越界"，不必另写兜底。 */
+
+  /** 令牌缓存（与 rangeTokens 同一口径：设计期参数，读一次就缓存；改名删名落默认档）。 */
+  function limitTokens(){
+    if (LIM_T) return LIM_T;
+    LIM_T = {cap:morphTok('--lim-cap', 7), fs:morphTok('--lim-fs', 10)};
+    return LIM_T;
+  }
+
+  /** 登记一条界线。opt：
+   *    · of    必填：参照物（id 或节点）——界线画在它的盒里，`at` 是它这条轴上的比例；
+   *    · at    必填：(0–1) 界线位置，沿**量增长的那个方向**计（x 轴从左往右、y 轴从下
+   *            往上；写 .8 = "八成处"），越界夹取到 [0, 1]；
+   *    · axis  可选：'x'（竖界线，量横向长）/ 'y'（横界线，量纵向长），缺省 'x'；
+   *    · probe 可选：量在哪（id 或节点）。给了才判"量的边 vs 界线"；不给就只是标尺；
+   *    · dir   可选：'max'（量超过界 = 越界，缺省）/ 'min'（量低于界 = 越界：水位、
+   *            最低要求、误差下限）；
+   *    · scale 可选：满量程的数值（缺省 100），把 0–1 的比例翻成人话读数；
+   *    · unit  可选：读数单位（'%' / 'ms' / 'GB'），直接拼在数字后面；
+   *    · lab   可选：界值的整句文案（"预算 80""安全水位"），给了就不写数字；
+   *    · num   可选：false → 只留线与区带，不写任何读数。
+   *    参照物 / 量任一不在台上 → 整条静默不登记（半条界线比没有界线更误导，与
+   *    lanes / range / loupe / callout 同一口径）。 */
+  function limit(key, opt){
+    if (!opt) return;
+    var of = host(opt.of);
+    if (!of || !of.isConnected) return;
+    var at = +opt.at;
+    if (!isFinite(at)) return;
+    at = Math.max(0, Math.min(1, at));
+    var pr = (opt.probe === undefined || opt.probe === null) ? null : host(opt.probe);
+    if ((opt.probe !== undefined) && (opt.probe !== null) && (!pr || !pr.isConnected)) return;
+    var sc = +opt.scale;
+    LIM.push({key:key, of:of, probe:pr, at:at,
+              axis: opt.axis === 'y' ? 'y' : 'x',
+              dir: opt.dir === 'min' ? 'min' : 'max',
+              scale: isFinite(sc) ? sc : 100,
+              unit: opt.unit || '', lab: opt.lab || null,
+              num: opt.num !== false});
+  }
+
+  /** 同值不重写（与 rangeSet / laneSet 同一课：先 String() 再比）。 */
+  function limitSet(e, k, v){
+    v = String(v);
+    if (e.getAttribute(k) !== v) e.setAttribute(k, v);
+  }
+
+  /** 这一拍的几何 + 判定，全现量：
+   *    · of 盒 = 界线所在的那把尺子；probe 盒 = 量的当前位置（**包含 probe 自己的
+   *      transform**——meter 用 scale 长，boxIn 会把这一层的矩阵一起乘进去）；
+   *    · 值沿"量增长的方向"归一成 0–1（x 轴取右缘、y 轴取顶边），与 `at` 同单位比较，
+   *      所以判定不依赖 pixel 数字，也不受镜头推拉影响；
+   *    · 越界侧 = dir 之外那一半（max 时是右/上，min 时是左/下）；
+   *    · 量不到任一件返回 null（宁缺，不画一条糊在错误位置的线）。 */
+  function limitGeom(s){
+    var ofb = boxIn(s.of, el('cam'));
+    if (!ofb || !ofb.w || !ofb.h) return null;
+    var T = limitTokens(), cap = T.cap, ax = s.axis === 'y' ? 'y' : 'x';
+    var line, caps, zone, over = false, dv = 0, vf = 0;
+    if (ax === 'x'){
+      var lx = ofb.x + ofb.w * s.at;
+      line = limRect(lx, ofb.y - cap, 1, ofb.h + cap * 2);
+      caps = [limRect(lx - cap / 2, ofb.y - cap, cap, 1),
+              limRect(lx - cap / 2, ofb.y + ofb.h + cap - 1, cap, 1)];
+      var zx = s.dir === 'min' ? ofb.x : lx;
+      var zx2 = s.dir === 'min' ? lx : ofb.x + ofb.w;
+      zone = limRect(zx, ofb.y, Math.max(0, zx2 - zx), ofb.h);
+    } else {
+      var ly = ofb.y + ofb.h * (1 - s.at);          // y 轴从下往上：at .8 在靠上的位置
+      line = limRect(ofb.x - cap, ly, ofb.w + cap * 2, 1);
+      caps = [limRect(ofb.x - cap, ly - cap / 2, 1, cap),
+              limRect(ofb.x + ofb.w + cap - 1, ly - cap / 2, 1, cap)];
+      var zy = s.dir === 'min' ? ly : ofb.y;
+      var zy2 = s.dir === 'min' ? ofb.y + ofb.h : ly;
+      zone = limRect(ofb.x, zy, ofb.w, Math.max(0, zy2 - zy));
+    }
+    if (s.probe){
+      var pb = boxIn(s.probe, el('cam'));
+      if (!pb) return null;
+      vf = ax === 'x' ? (pb.x + pb.w - ofb.x) / ofb.w : (ofb.y + ofb.h - pb.y) / ofb.h;
+      over = s.dir === 'max' ? vf > s.at + .001 : vf < s.at - .001;
+      dv = Math.abs(vf - s.at) * s.scale;
+    }
+    return {ofb:ofb, line:line, caps:caps, zone:zone, over:over, dv:dv};
+  }
+  function limRect(x, y, w, h){ return {x:x, y:y, w:w, h:h}; }
+
+  /** 按 key 建一条界线（区带 / 线 / 两端头 / 两个读数），建过就复用。全部
+   *  createElementNS、不进 put()：注记没有"上一状态"要补间，每拍由 limitWrite() 写死。
+   *  区带先建（压在线的下面），读数最后建（压在区带上面）。 */
+  function limitBuild(s){
+    var g = LIM_G[s.key];
+    if (g && g.root.parentNode) return g;
+    if (g && g.root.parentNode) g.root.parentNode.removeChild(g.root);
+    var layer = el('limits');
+    if (!layer) return null;
+    var root = document.createElementNS(NS, 'g');
+    root.setAttribute('class', 'lim');
+    root.setAttribute('data-helper', 'limit');
+    var zone = document.createElementNS(NS, 'rect'); zone.setAttribute('class', 'lim-z');
+    var line = document.createElementNS(NS, 'rect'); line.setAttribute('class', 'lim-l');
+    var a1 = document.createElementNS(NS, 'rect'); a1.setAttribute('class', 'lim-a');
+    var a2 = document.createElementNS(NS, 'rect'); a2.setAttribute('class', 'lim-a');
+    var lab = document.createElementNS(NS, 'text');
+    lab.setAttribute('class', 'lim-lab halo'); lab.setAttribute('text-anchor', 'middle');
+    var d = document.createElementNS(NS, 'text');
+    d.setAttribute('class', 'lim-d halo'); d.setAttribute('text-anchor', 'middle');
+    root.appendChild(zone); root.appendChild(line);
+    root.appendChild(a1); root.appendChild(a2);
+    root.appendChild(lab); root.appendChild(d);
+    layer.appendChild(root);
+    g = LIM_G[s.key] = {root:root, zone:zone, line:line, a1:a1, a2:a2,
+                        lab:lab, d:d, labw:0, labt:null, dt:null, hid:false, s:s};
+    return g;
+  }
+
+  /** 摘掉一条界线（连同 LIM_S 那一位判定：留下旧判定，重建出来的同一个 key 会少切
+   *  一次 class，停在"没越界"的外观上——这是 0.49.0 那个起点 bug 的另一副面孔）。 */
+  function removeLimit(key){
+    var g = LIM_G[key];
+    if (g){
+      if (g.root.parentNode) g.root.parentNode.removeChild(g.root);
+      delete LIM_G[key];
+    }
+    delete LIM_S[key];
+  }
+
+  /** 一位小数就够小、整数才够稳（差值读数每帧都在动，用整数量，文字才不每帧重排）。 */
+  function limNum(v){
+    if (!isFinite(v)) return '0';
+    var a = Math.abs(v);
+    var r = a >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
+    return String(r);
+  }
+
+  /** 把这一拍的几何与判定写进这条界线。几何四个数一次写齐（无补间）；**补间只有颜色**
+   *  （越界切 class，CSS 用 --dur-lim 过去）。读数：
+   *    · 界线读数在端头外（x 轴在上方、y 轴在右端外），整签压回本步取景窗——与 range
+   *      同一档：读数在这条原语里是主角，宁可往里缩也不能被裁掉；
+   *    · 差值签只跟着界线读数走一行（不与"量在哪"抢位置）：越界时它才是被读的那句
+   *      "超 18ms"；
+   *    · 宽度只在文字变了时量一次，且 num:false 时整族不量（藏起来量出 0，与
+   *      laneLabW / rangeWrite 同一个坑，这里干脆绕开它）。 */
+  function limitWrite(s){
+    var g = limitBuild(s);
+    if (!g) return;
+    var o = limitGeom(s);
+    if (!o){ removeLimit(s.key); return; }
+    var T = limitTokens(), A = s.__win || FULL, ofb = o.ofb;
+    limitSet(g.zone, 'x', f1(o.zone.x)); limitSet(g.zone, 'y', f1(o.zone.y));
+    limitSet(g.zone, 'width', f1(o.zone.w)); limitSet(g.zone, 'height', f1(o.zone.h));
+    limitSet(g.line, 'x', f1(o.line.x)); limitSet(g.line, 'y', f1(o.line.y));
+    limitSet(g.line, 'width', f1(o.line.w)); limitSet(g.line, 'height', f1(o.line.h));
+    limitSet(g.a1, 'x', f1(o.caps[0].x)); limitSet(g.a1, 'y', f1(o.caps[0].y));
+    limitSet(g.a1, 'width', f1(o.caps[0].w)); limitSet(g.a1, 'height', f1(o.caps[0].h));
+    limitSet(g.a2, 'x', f1(o.caps[1].x)); limitSet(g.a2, 'y', f1(o.caps[1].y));
+    limitSet(g.a2, 'width', f1(o.caps[1].w)); limitSet(g.a2, 'height', f1(o.caps[1].h));
+    /* 判定 → class，只在变了时切一次（同值不重写在颜色这一侧落成"切一次档位"）。 */
+    var st = o.over ? 1 : 0;
+    if (LIM_S[s.key] !== st){
+      LIM_S[s.key] = st;
+      if (o.over) g.root.classList.add('over'); else g.root.classList.remove('over');
+    }
+    if (g.hid !== (s.num === false)){
+      g.hid = s.num === false;
+      if (g.hid){ g.root.classList.add('hid'); }
+      else { g.root.classList.remove('hid'); g.labw = 0; }   // 请回来之后必须重量一次
+    }
+    if (!s.num) return;
+    var fs = T.fs, cap = T.cap, ax = s.axis === 'y' ? 'y' : 'x';
+    var bt = s.lab || (limNum(s.at * s.scale) + s.unit);
+    if (g.labt !== bt){
+      g.lab.textContent = bt; g.labt = bt;
+      g.labw = g.lab.getComputedTextLength ? g.lab.getComputedTextLength() : 0;
+    }
+    var dt = (s.dir === 'max' ? '超 ' : '差 ') + Math.round(o.dv) + s.unit;
+    if (g.dt !== dt){ g.d.textContent = dt; g.dt = dt; }
+    if (ax === 'x'){
+      /* 两行读数**占位恒定**（差值签藏起来时那一行空着）：界值不能因为"越界了"就往
+         上跳一截——那会让同一句里两次读到它停在不同高度。上方两行放不下就一起落到
+         带子下方（宁可探出去，也不压住量本身）。 */
+      var ty2, ty1 = ofb.y - cap - 4;
+      if (ty1 - fs - 2 >= A[1] + 1){ ty2 = ty1; ty1 = ty2 - fs - 2; }
+      else { ty1 = ofb.y + ofb.h + cap + fs + 2; ty2 = ty1 + fs + 2; }
+      ty1 = Math.max(A[1] + fs, ty1);
+      ty2 = ty1 + fs + 4;
+      var w = g.labw || 0, cx = o.line.x;
+      if (w && A[2] > w + 4) cx = Math.max(A[0] + w / 2 + 2, Math.min(A[0] + A[2] - w / 2 - 2, cx));
+      else if (A[2] <= w + 4) cx = A[0] + A[2] / 2;
+      limitSet(g.lab, 'text-anchor', 'middle'); limitSet(g.d, 'text-anchor', 'middle');
+      limitSet(g.lab, 'x', f1(cx)); limitSet(g.lab, 'y', f1(ty1));
+      limitSet(g.d, 'x', f1(cx)); limitSet(g.d, 'y', f1(ty2));
+    } else {
+      var rightOK = (ofb.x + ofb.w + cap + 6 + (g.labw || 0)) <= A[0] + A[2] - 2;
+      var tx = rightOK ? ofb.x + ofb.w + cap + 6 : ofb.x - cap - 6;
+      limitSet(g.lab, 'text-anchor', rightOK ? 'start' : 'end');
+      limitSet(g.d, 'text-anchor', rightOK ? 'start' : 'end');
+      var by = o.line.y + fs * .35;
+      by = Math.max(A[1] + fs, Math.min(A[1] + A[3] - 2, by));
+      limitSet(g.lab, 'x', f1(tx)); limitSet(g.lab, 'y', f1(by));
+      limitSet(g.d, 'x', f1(tx)); limitSet(g.d, 'y', f1(by + fs + 2));
+    }
+  }
+
+  /** 排这一句的界线（layoutRanges 之后、camSet 之前，与其余 layout 同批）。
+   *  只做两件事：收孤儿（参照物或量被 sweep() 摘走 → 整条摘，连判定一起清）、
+   *  每步现画一次（这一句的取景窗成了读数的安全区）。 */
+  function layoutLimits(stepId, index){
+    var live = {}, k, g;
+    var win = (CAM[stepId] || [])[index] || FULL;
+    for (k in LIM_G){
+      g = LIM_G[k];
+      if (!g.s || !g.s.of.isConnected || (g.s.probe && !g.s.probe.isConnected)){
+        removeLimit(k); continue;
+      }
+    }
+    LIM.forEach(function(s){
+      live[s.key] = 1; s.__win = win;
+      limitWrite(s);
+    });
+    for (k in LIM_G) if (!live[k]) removeLimit(k);       // 不登记即摘（无跨步账本）
+  }
+
+  /** 逐拍（与 rangeTock / lanesTock 同批）。**这一族不吃时间**：界线位置与判定都是
+   *  现量的函数，所以没有起点、没有补间、没有"追上之后改直写"那一套。它每拍重量的
+   *  理由只有一个——量在长（meter 的 scale、对象入场、卡片被挪位），界线要跟着那颗量
+   *  的当前位置判"到没到"。见旗（导出 / 减动效 / 擦洗）时 meter 会落满，判定自然落
+   *  "越界"，定格里读到的就是那一格。 */
+  function limitTock(){
+    for (var i = 0; i < LIM.length; i++) limitWrite(LIM[i]);
+  }
 
   /** 一条注记的全部几何。文字宽度用**探针**量（detached text 挂进同一组、量完就摘）：
    *  药丸宽必须一次写对——先落占位再改宽会让 .nt 把框从占位宽补向真宽，而字已经是
@@ -7724,6 +8030,7 @@
         layoutLoops(hit.scene.step_id, hit.index); // 0.47.0：圈数，世界层落位之后现算落点与每圈时长
         layoutLanes(hit.scene.step_id, hit.index); // 0.48.0：时序带，世界层落位之后现量各 item 并集
         layoutRanges(hit.scene.step_id, hit.index); // 0.49.0：区间窗，世界层落位之后现量那几件的并集
+        layoutLimits(hit.scene.step_id, hit.index); // 0.50.0：界线，世界层落位之后量尺子与那颗量
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -7838,6 +8145,14 @@
     // 它记的是注记的位置而不是对象的状态）。导出截图页每帧只跑一次 tick()：见旗直接
     // 落作者声明的那一格（定格里读到"取的是这几件"，不是一段没滑完的中间态）。
     rangeTock(t);
+    // 界线（0.50.0）：与上面几个逐拍读数同一个位置，但**它不吃时间**——界线位置是尺子
+    // 的盒与 at 的纯函数，判定是"那颗量现在长到哪儿"的比较，两样都是现量。它每拍重量
+    // 的理由只有一个：量在长（meter 的 scale、对象入场、卡片被挪位），界线要跟着那颗量
+    // 的当前位置判"到没到"。没有起点、没有补间、没有跨步账本，见旗时 meter 落满、判定
+    // 自然落"越界"。它不随 begin() 清空**判定**：LIM_S 只是"上一拍是界内还是越界"，
+    // 用来避免每帧重写 class；节点被摘时连它一起清（否则重建出来的同一个 key 会停在
+    // 旧档的颜色上）。
+    limitTock();
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到

@@ -381,6 +381,13 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
   每一格都是 `rangeBox()` 的现量结果，与直播同格。`RANGE` 随 `begin()` 清空、不登记即摘
   （没有 `gone`）；`RANGE_P` 只记**屏幕上现在那一块**（注记位置，不是对象状态），节点被
   `sweep()` 摘走时连它一起清。
+- 界线（`limit()` / `layoutLimits()` / `limitTock()`）：见旗**不需要另写兜底**——判定是
+  "量的边 vs 界线"的现量比较，不是时间决定；同屏的 `meter` 在见旗下直接落满，判定自然
+  落"越界"，定格里读到的就是"这一句念完，超了 / 没超"。补间只有颜色（`--dur-lim`），
+  被 `transition:none` 切掉即终态，不进 reduced-motion 清单；几何一次也不补间。这条界线
+  自己**不画量**，所以逐帧冷启动的每一格都是"那一刻量的真实位置 vs 界"，与直播同格。
+  `LIM` 随 `begin()` 清空、不登记即摘（没有 `gone`）；`LIM_S` 只记上一拍的判定，节点被
+  `sweep()` 摘走时连它一起清（留着旧判定，重建出来的同一个 key 会停在上一次的颜色上）。
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -429,6 +436,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | JS 逐拍写 `transform` 属性（落点由落点梯现算） | 圈数（`loopTo()` / `layoutLoops()` / `loopTock()` 写落点，游标与落点痕在 `#loops` 现摆） | 落作者声明的那一圈 `at`（`base + stops[at]`），游标、`k/n`、痕同批摆回原处；`LOOP_RUN` 收账、`gone` 落回基位并清账；`.lp` 的 `transition:none` 防双重缓动，`.lp-pop` 的 `@keyframes` 静止态即终态、不进兜底清单 |
 | JS 逐拍写 width / `d`（无 transition、无账本） | 时序带（`lanes()` / `layoutLanes()` / `lanesTock()` 写实心段宽与"现在"针，注记在 `#lanes` 现摆） | 见旗把 `at` 直接取 1 → 几条实心段一起满、针停在带右缘；宽与针都是 `(t − stepT0) ÷ dur` 的纯函数，逐帧冷启动天然同一格，所以既不需要兜底清单也没有 `gone`（不登记即摘） |
 | JS 逐拍写几何（只在直播里追，见旗直落） | 区间窗（`range()` / `layoutRanges()` / `rangeTock()` 写带子、两道切口、读数签，注记在 `#ranges` 现摆） | 见旗直接写 `from` / `to` 算出来的那一块；`RANGE_P` 记的是屏幕位置不是对象状态，逐帧冷启动每一格都是 `rangeBox()` 的现量结果，与直播同格；没有 `gone`（不登记即摘） |
+| JS 逐拍现量，只有颜色补间 | 界线（`limit()` / `layoutLimits()` / `limitTock()` 现量 `probe` 的边与界线，注记在 `#limits` 现摆） | 不写兜底：判定是现量的比较而不是时间，同屏 `meter` 见旗落满 → 判定自然落"越界"；`--dur-lim` 切掉即终态；没有跨步账本、没有 `gone`（不登记即摘） |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |
