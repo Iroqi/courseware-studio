@@ -455,6 +455,30 @@
     --dur-lim:.24s; --lim-cap:7; --lim-fs:10;
     --lim-ink:#8d95a8; --lim-alert:#ef5b4b;
     --lim-zone:rgba(141,149,168,.12); --lim-hot:rgba(239,91,75,.14);
+    /* 岔路（0.51.0）：词表此前说得出"谁跟谁有关系"（connect 一条双边线）、"这几件算
+       一组"（.brace）、"取的是哪几件"（range 一段序号）、"两个版本差在哪"（compare
+       同窗对照）。说不出的是**从一个岔口出发有几条去路、走了哪条、没走的那条通向
+       哪儿**——"返回负数走这支、返回正数走那支""本来可以这么化简，被排除了""四种
+       物态里此刻在这一态、按这条规则才会跳走"。此前这些只能靠旁白念：画面上既没有
+       一张数得出条数的候选清单，也没有"没走的那条仍然在场"这个读法。
+       读法：一枚岔口点（钉在出发对象的边界上，几条支在这里汇成"从这里分出去"）+
+       几条扇出去的支（末端各一枚箭头，指向它的去向）+ 选中那一支换档成实线与强调橙、
+       其余**保持淡虚线在场** + 岔口外侧一条 `n 条 · →第 k 条` 读数。
+       八枚读数：
+         · --dur-fork .24s：只有颜色与不透明度在补间（选中档切换），与 --dur-lim 同
+           档——读作"选定了哪一条"，不是又画了一条线；几何一次也不补间（每拍现量）。
+         · --fork-node 2.6：岔口圆点半径。扇面的汇聚点要有实物，否则几条线只是碰巧
+           指向同一处，读不出"从这儿分出去"；--fork-head 7：箭头长，终点按 §5 的口径
+           从去向盒外沿再退这一个数（不退就插进盒里，或与盒线叠成一坨）。
+         · --fork-gap 2：两端各留的呼吸缝（§5 连线纪律的"2 单位"，写成令牌不留魔法
+           数）；--fork-fs 10：支上短签与读数的字号；--fork-pad 6：短签离线出去的法向
+           净空——压在支上就读不出它说的是哪一支。
+         · --fork-ink #f5a623 是**选中**那一支的档（这一拍的话头），--fork-idle 是未选
+           支的中性淡档。未选支**不压暗、也不收走**：它画的是"本来可以去哪儿"，那是
+           内容不是干扰；"不用看了"是 [data-dim] 的活，不归这一族。 */
+    --dur-fork:.24s; --fork-node:2.6; --fork-head:7; --fork-gap:2;
+    --fork-fs:10; --fork-pad:6;
+    --fork-ink:#f5a623; --fork-idle:rgba(141,149,168,.55);
     /* 词拍（0.39.0）：旁白念到哪个词，画面上那件东西就套上四角括号。0.19.0 的
        `--lit` 把"跟着嘴"落在**字幕的字**上，0.26.0 的逐字解码把它落在**画面里的
        词**上——这一版落在词**所指的那件东西**上：听见"十和九"，不用自己在六张卡
@@ -1070,6 +1094,37 @@
   .lim.over .lim-l,.lim.over .lim-a{fill:var(--lim-alert)}   /* 界值本身不换色：换的是判定，不是刻度 */
   .lim.over .lim-z{fill:var(--lim-hot)}
   .lim.over .lim-d{display:inline}
+  /* 岔路（0.51.0）：一枚岔口点 + 几条支 + 每支末端一枚箭头 + 支上短签 + 岔口读数，
+     说的是**从一个岔口出发有几条去路、走了哪条**。几何每拍由 forkWrite() 现量现写
+     （与 .lim 同一口径），补间**只有颜色**（选中那一支换档，--dur-fork）。五条边界：
+       · `.fork` 是纯注解层：`pointer-events:none`，`data-helper="fork"` 让 QA / 探针
+         认得出它（prune() 只收带 data-key 且 _g≠GEN 的节点，注记不进那张账——由
+         layoutForks() 自己按 key 建与摘）；
+       · 支是 `<line>`：`x1/y1/x2/y2` 本来就不在 .nt 的可补间清单里（§3.4.3 (2)），
+         这里也不需要——它每帧重算，CSS 再补一遍就是双重缓动（与 .meter / .seg 同课），
+         所以 `.fk-a` 的 transition 只列 stroke / opacity，一条简写、不带 all；
+       · **未选支常驻淡虚线**，不是"没选就消失"：这条原语的全部内容就是"本来可以
+         去哪儿"。`stroke-dasharray` 的切换是瞬的（只有颜色在补间），选中支把它摘掉
+         读成"这条路走通了"；
+       · 箭头是自己算的三角形 `<path>`、填色不描边，**不用 marker-end**：marker 的
+         fill 跟着 marker 自己走，切不到 `.pick` 档上（镜头推近时 1px 描边还会糊，
+         与 .rg-e / .lim-l 同一课）；
+       · 短签与读数都带 `.halo`：支压在卡片上也读得出字；短签沿法向离线 --fork-pad，
+         免得读成"这几支合起来说这一句"。
+     `prefers-reduced-motion` 清单里没有它：补间只有颜色，见旗（导出 / 减动效 / 擦洗）
+     切掉 transition 就是终态，选中档由当步 `at` 声明。 */
+  .fork{pointer-events:none}
+  .fk-a{fill:none;stroke:var(--fork-idle);stroke-width:1.4;stroke-dasharray:5 5}
+  .fk-h{fill:var(--fork-idle)}
+  .fk-n{fill:var(--fork-ink)}
+  .fk-lab{font-size:var(--fork-fs);font-weight:600;fill:var(--fork-idle)}
+  .fk-r{font-size:var(--fork-fs);font-weight:600;fill:var(--lim-ink)}
+  .fk-a,.fk-h,.fk-lab{transition:stroke var(--dur-fork),fill var(--dur-fork),opacity var(--dur-fork)}
+  .fk.pick .fk-a{stroke:var(--fork-ink);stroke-dasharray:none}
+  .fk.pick .fk-h{fill:var(--fork-ink)}
+  .fk.pick .fk-lab{fill:var(--fork-ink)}
+  .fork.nolab .fk-lab{display:none}
+  .fork.norep .fk-r{display:none}
   /* 拆解视图（0.41.0）：**一条 transition 简写顶掉 .nt**，与 .tuck / .settle 同款
      接线——同特异度、写在 .nt 之后，所以这里列出的属性就是这一层全部会补间的属性。
      四条边界（写错过任何一条，拆解都会静默失效）：
@@ -3240,6 +3295,16 @@
             <g id="callouts"></g>
             <g id="connects"></g>
 
+            <!-- 岔路层（0.51.0）：岔口点 / 支 / 箭头 / 短签 / 读数不进任何一幕的子树
+                 ——它数的是"这一步从这一处出发有几条去路、走了哪条"，而出发对象与
+                 去向可能住在世界层（跨幕常驻）。放在关系连线之上、细节镜之下：扇面
+                 要能压住单条连线（同一步两者并存时读得出的应是"这一张清单"），又不
+                 该挡住镜圈与词拍这些真正的注意力装置。几何一律映到 #cam 的孩子空间
+                 （与 #limits / #ranges 同一条口径），镜头推拉时扇面跟着内容一起缩放、
+                 不脱开对象。每步由 layoutForks() 按 key 建与摘、forkTock() 逐拍现量
+                 现写并按 `at` 切选中档；指针一律穿透（CSS .fork）。 -->
+            <g id="forks"></g>
+
             <!-- 细节镜层（0.44.0）：镜圈 / 茎 / 放大副本不进任何一幕的子树——它量的
                  是"这一步要看清的那一小块"，而目标可能住在世界层（跨幕常驻）。
                  放在连线之上、词拍之下：压住内容，不挡灯；每步由 layoutLoupes()
@@ -3647,7 +3712,15 @@
      冷启动 / 导出读同一格。LIM_S 存的不是历史，是**上一拍的判定结果**，唯一用途是
      "只在判定变了时切一次 class"——没有它就得每帧写一遍 class，白白让浏览器重算样式。 */
   var LIM = [], LIM_G = {}, LIM_S = {}, LIM_T = null;
-  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; LANE = []; RANGE = []; LIM = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
+  /* 岔路（0.51.0）：FORK 是"这一步从这一处出发有几条去路、走了哪条"的登记表——与
+     CALL / CONN / SEG / LOOP / LANE / RANGE / LIM 同一张"每步清空、renderer 重挂"的
+     表。同样**没有跨步账本**：扇面是"岔口盒 × 各去向盒"的纯函数，`at` 是这一拍的
+     读数而不是"上一次走到哪儿"，所以擦洗 / 逐帧冷启动 / 导出读的都是同一格。
+     FORK_S 存的不是历史，是**上一拍选中的那一条**，唯一用途与 LIM_S 同：只在选中
+     档变了时切一次 class。节点被 sweep() 摘走 → 连它一起清（留着旧档，重建出来的
+     同一个 key 会停在上一次的颜色上）。 */
+  var FORK = [], FORK_G = {}, FORK_S = {}, FORK_T = null;
+  function begin(){ GEN++; spotOff(); DECODE = {}; COUNT = {}; METER = {}; CALL = []; CONN = []; LOUPE = []; CUE = []; CMP = []; EXPLODE = []; SEG = []; LOOP = []; LANE = []; RANGE = []; LIM = []; FORK = []; }   // 每一步开头调用：本步写过的活下来；灯默认灭
   function host(p){ return typeof p === 'string' ? el(p) : p; }
   /** 写一个常驻图元的目标状态。attrs 里值为 null 的属性被移除；`class` 只写动效
    *  档位（'in' / 'pop' / 'draw' / 'pulse'，可与 'nt' 叠加由本函数负责），传 null
@@ -5552,6 +5625,277 @@
    *  "越界"，定格里读到的就是那一格。 */
   function limitTock(){
     for (var i = 0; i < LIM.length; i++) limitWrite(LIM[i]);
+  }
+
+  /* ── 岔路（0.51.0）────────────────────────────────────────────────────────
+     词表此前说得出"谁跟谁有关系"（connect 一条双边线）、"这几件算一组"（.brace）、
+     "取的是哪几件"（range 一段序号）、"两个版本差在哪"（compare 同窗叠放）。说不出
+     的是**从一个岔口出发有几条去路、走了哪条、没走的那条通向哪儿**。"返回负数走这支、
+     返回零走那支""本来可以这么化简，被排除了""四种物态里此刻在这一态，按这条规则才
+     会跳走"——此前这些只能靠旁白念：画面上既没有一张**数得出条数**的候选清单，也没有
+     "没走的那条仍然在场"这个读法。
+     四条口径（写错过任何一条都会静默失效或读错）：
+       ① **未选支常驻在场**（淡虚线），不消失也不压暗——"本来可以去哪儿"就是这条原语
+          要说的内容，那是清单不是干扰；选中那一支只**换档**（实线 + 强调橙），既不
+          长出来也不收回，所以它不替代 connect()（一条关系的有无，有生长与收回）、
+          也不替代 drawTo()（一条路走到第几段）。
+       ② **条数是读数**：支数 = to 的长度，作者既不填坐标也不填条数；读数写
+          `n 条 · →第 k 条`，`at` 缺省（还没选）时写 `n 条 · 未选`，整张扇面停在中性档。
+       ③ **一切现量**：岔口点是 from 盒朝诸去向重心那条边界的出口，各支末端取去向盒
+          的边缘再退 --fork-gap（§5：不悬空留缝、不插进图形内部），箭头再占掉
+          --fork-head。对象还在入场、还在挪位时支跟着它落位，所以擦洗 / 逐帧冷启动 /
+          导出读的都是同一格。
+       ④ **任一件不在场，整张扇面不登记**（数错条数比不数更误导，与 lanes / range
+          同口径）；没有 gone，不登记即摘。FORK_S 只记上一拍选中的第几条，用来避免
+          每帧重写 class。 */
+
+  /** 令牌缓存（与 limitTokens 同一口径：设计期参数，读一次就缓存；改名删名落默认档）。 */
+  function forkTokens(){
+    if (FORK_T) return FORK_T;
+    FORK_T = {node:morphTok('--fork-node', 2.6), head:morphTok('--fork-head', 7),
+              gap:morphTok('--fork-gap', 2), pad:morphTok('--fork-pad', 6),
+              fs:morphTok('--fork-fs', 10)};
+    return FORK_T;
+  }
+
+  /** 登记一张候选清单。opt：
+   *    · from 必填：岔口——出发的那个图元（id 或节点），岔口点钉在它的边界上；
+   *    · to   必填：去向清单（数组，一项一条支）。**声明顺序 = "第几条路"的编号**
+   *            （旁白说"第二条"就数第二条），扇面上的左右先后由几何现量决定，两支
+   *            从同一点张开、天然不交叉，所以作者不用管排布；
+   *    · at   可选：走了哪一条（0 基，越界夹到 [0, n−1]）。不给或给负数 = 还没选 →
+   *            整张扇面停在中性档、读数写"未选"（"先摆出几种可能"那一拍就是这一档，
+   *            它是内容而不是没演完）；
+   *    · lab  可选：与 to 同长的短签数组，写在每条支上（触发条件 / 理由）；缺项留空；
+   *    · num  可选：false → 不写条数读数，支与箭头照常。
+   *  岔口不在台上、to 为空、或任一去向不在台上 → 整张静默不登记。 */
+  function fork(key, opt){
+    if (!opt) return;
+    var fm = host(opt.from);
+    if (!fm || !fm.isConnected) return;
+    var list = opt.to;
+    if (!list || !list.length) return;
+    var arms = [], i, a;
+    for (i = 0; i < list.length; i++){
+      a = host(list[i]);
+      if (!a || !a.isConnected) return;          // 缺一支整张不画：条数就是读数
+      arms.push(a);
+    }
+    var at = Math.round(+opt.at);
+    if (!isFinite(at)) at = -1;                  // 没给 / 不是数 = 还没选
+    else if (at >= 0) at = Math.min(arms.length - 1, Math.max(0, at));
+    var labs = opt.lab || [];
+    FORK.push({key:key, from:fm, to:arms, at:at, n:arms.length,
+               lab:arms.map(function(_, j){ return labs[j] == null ? '' : String(labs[j]); }),
+               num: opt.num !== false});
+  }
+
+  /** 同值不重写（与 limitSet / rangeSet 同一课：先 String() 再比）。 */
+  function forkSet(e, k, v){
+    v = String(v);
+    if (e.getAttribute(k) !== v) e.setAttribute(k, v);
+  }
+
+  /** 盒边界上朝"目标中心"的那个出口，外推 gap 个单位的呼吸缝。算法与 connEdge 同一条
+   *  （§5 连线纪律），只是缝宽从 --fork-gap 读而不是写死 2——同一族里两端各留多少
+   *  是设计档，不该散落成魔法数。tgt 传退化盒（w/h = 0）：这里只用它的中心。 */
+  function forkEdge(box, tgt, gap){
+    var cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    var dx = tgt.x - cx, dy = tgt.y - cy;
+    var ax = Math.abs(dx), ay = Math.abs(dy);
+    if (ax < .01 && ay < .01) return null;
+    var tx = ax > .01 ? (box.w / 2) / ax : Infinity;
+    var ty = ay > .01 ? (box.h / 2) / ay : Infinity;
+    var t = Math.min(tx, ty);
+    if (!isFinite(t) || t < .01) return null;
+    var L = Math.sqrt(dx * dx + dy * dy) || 1;
+    return {x: cx + dx * t + dx / L * gap, y: cy + dy * t + dy / L * gap};
+  }
+
+  /** 箭头三角：尖端在 tip、根在 tip − head·u、半宽 head×.55。自己画而不用 marker-end
+   *  （marker 的 fill 切不到 `.pick` 档上），填色不描边（镜头推近时 1px 描边会糊）。 */
+  function forkHeadD(tip, ux, uy, head){
+    var bx = tip.x - ux * head, by = tip.y - uy * head, hw = head * .55;
+    return 'M' + f1(tip.x) + ',' + f1(tip.y) +
+           ' L' + f1(bx - uy * hw) + ',' + f1(by + ux * hw) +
+           ' L' + f1(bx + uy * hw) + ',' + f1(by - ux * hw) + ' Z';
+  }
+
+  /** 这一拍的扇面，全现量。任一件量不到盒、或某一支短得放不下箭头（< 2×head）→
+   *  返回 null：半张清单、挤成一坨的扇面都比不画更误导。 */
+  function forkGeom(s){
+    var T = forkTokens(), n = s.n, i;
+    var fb = boxIn(s.from, el('cam'));
+    if (!fb || !fb.w || !fb.h) return null;
+    var bs = [], gx = 0, gy = 0;
+    for (i = 0; i < n; i++){
+      var b = boxIn(s.to[i], el('cam'));
+      if (!b || !b.w || !b.h) return null;
+      bs.push(b); gx += b.x + b.w / 2; gy += b.y + b.h / 2;
+    }
+    gx /= n; gy /= n;
+    var J = forkEdge(fb, {x:gx, y:gy, w:0, h:0}, T.gap);
+    if (!J) return null;
+    var arms = [];
+    for (i = 0; i < n; i++){
+      var tip = forkEdge(bs[i], {x:J.x, y:J.y, w:0, h:0}, T.gap);
+      if (!tip) return null;
+      var dx = tip.x - J.x, dy = tip.y - J.y, L = Math.sqrt(dx * dx + dy * dy);
+      if (!isFinite(L) || L < T.head * 2) return null;
+      var ux = dx / L, uy = dy / L;
+      arms.push({tip:tip, ux:ux, uy:uy, L:L,
+                 end:{x: tip.x - ux * T.head, y: tip.y - uy * T.head},
+                 mid:{x: J.x + dx * .72, y: J.y + dy * .72}});
+    }
+    return {J:J, arms:arms, head:T.head, pad:T.pad, fb:fb, c:{x:gx, y:gy}};
+  }
+
+  /** 按 key 建一张扇面（岔口点 + 每支一组〔线 / 箭头 / 短签〕+ 条数读数）。建过就
+   *  复用；**去向条数变了就重建**（支数组的长度是这一族的几何，补不出"多出来的一
+   *  支"，也收不掉"少掉的一支"）。全部 createElementNS、不进 put()：注记没有"上一
+   *  状态"要补间，每拍由 forkWrite() 写死。 */
+  function forkBuild(s){
+    var g = FORK_G[s.key];
+    if (g && g.n === s.n && g.root.parentNode) return g;
+    if (g) removeFork(s.key);                     // 条数变了：连 FORK_S 那一位一起清
+    var layer = el('forks');
+    if (!layer) return null;
+    var root = document.createElementNS(NS, 'g');
+    root.setAttribute('class', 'fork');
+    root.setAttribute('data-helper', 'fork');
+    var node = document.createElementNS(NS, 'circle');
+    node.setAttribute('class', 'fk-n');         // r 归 forkWrite()：尺寸是令牌，不是这里的魔法数
+    root.appendChild(node);
+    var arms = [], i;
+    for (i = 0; i < s.n; i++){
+      var q = document.createElementNS(NS, 'g'); q.setAttribute('class', 'fk');
+      var a = document.createElementNS(NS, 'line'); a.setAttribute('class', 'fk-a');
+      var h = document.createElementNS(NS, 'path'); h.setAttribute('class', 'fk-h');
+      var l = document.createElementNS(NS, 'text');
+      l.setAttribute('class', 'fk-lab halo'); l.setAttribute('text-anchor', 'middle');
+      q.appendChild(a); q.appendChild(h); q.appendChild(l);
+      root.appendChild(q);
+      arms.push({root:q, a:a, h:h, lab:l, dv:'', lt:null, lw:0});
+    }
+    var rep = document.createElementNS(NS, 'text');
+    rep.setAttribute('class', 'fk-r halo'); rep.setAttribute('text-anchor', 'middle');
+    root.appendChild(rep);
+    layer.appendChild(root);
+    return FORK_G[s.key] = {root:root, node:node, arms:arms, rep:rep,
+                            n:s.n, rt:null, rw:0, hid:false, s:s};
+  }
+
+  /** 摘掉一张扇面（连同上一拍的选中档：留着它，重建出来的同一个 key 会停在上一次
+   *  的颜色上——`at` 从 2 换回 1 时不再切档，画面读成"还是那一条"）。 */
+  function removeFork(key){
+    var g = FORK_G[key];
+    if (g){
+      if (g.root.parentNode) g.root.parentNode.removeChild(g.root);
+      delete FORK_G[key];
+    }
+    delete FORK_S[key];
+  }
+
+  /** 把这一拍的扇面写齐：几何一次写满（无补间），**补间只有颜色**（选中档切 class）。
+   *  短签放在 72% 那一格、沿法向推向"离诸支重心更远"的那一侧——放在支上会糊成一条，
+   *  推到在线之外才读得出"这一支说的是这个条件"；读数放在岔口的**背面**（扇面张开
+   *  的那一侧留给支），背面方向正对出发件，于是落点推到它沿该方向的盒沿之外——
+   *  压在出发件自己的正文上就不叫读数了。并与 limit / range 同一档：读数是主角，
+   *  整签压回本步取景窗，宁可往里缩也不能被裁掉。 */
+  function forkWrite(s){
+    var g = forkBuild(s);
+    if (!g) return;
+    var o = forkGeom(s);
+    if (!o){ removeFork(s.key); return; }
+    var A = s.__win || FULL, T = forkTokens(), i;
+    forkSet(g.node, 'cx', f1(o.J.x)); forkSet(g.node, 'cy', f1(o.J.y));
+    forkSet(g.node, 'r', f1(T.node));            // 岔口点的尺寸从令牌来，不在建镜时写死
+    /* 选中档：只在变了时切一次（与 LIM_S 同一件事）。整张一次切，逐支 diff 反而
+       会让"换了一条路"读成"一支熄一支亮两拍"。 */
+    if (FORK_S[s.key] !== s.at){
+      FORK_S[s.key] = s.at;
+      for (i = 0; i < g.arms.length; i++){
+        if (i === s.at) g.arms[i].root.classList.add('pick');
+        else g.arms[i].root.classList.remove('pick');
+      }
+    }
+    for (i = 0; i < o.arms.length; i++){
+      var a = o.arms[i], q = g.arms[i];
+      forkSet(q.a, 'x1', f1(o.J.x)); forkSet(q.a, 'y1', f1(o.J.y));
+      forkSet(q.a, 'x2', f1(a.end.x)); forkSet(q.a, 'y2', f1(a.end.y));
+      var hd = forkHeadD(a.tip, a.ux, a.uy, o.head);
+      if (q.dv !== hd){ q.h.setAttribute('d', hd); q.dv = hd; }
+      var lt = s.lab[i];
+      if (q.lt !== lt){
+        q.lab.textContent = lt; q.lt = lt;
+        q.lw = lt && q.lab.getComputedTextLength ? q.lab.getComputedTextLength() : 0;
+      }
+      if (!lt) continue;
+      /* 法向：垂直于这一支，挑"离线心"那一侧。两支几乎重叠时法向也分得开两侧。 */
+      var px = -a.uy, py = a.ux;
+      var ox = a.mid.x - o.c.x, oy = a.mid.y - o.c.y;
+      if (px * ox + py * oy < 0){ px = -px; py = -py; }
+      var lx = a.mid.x + px * (o.pad + T.fs * .55);
+      var ly = a.mid.y + py * (o.pad + T.fs * .55) + T.fs * .35;
+      var w2 = (q.lw || 0) / 2;
+      if (A[2] > w2 * 2 + 4) lx = Math.max(A[0] + w2 + 2, Math.min(A[0] + A[2] - w2 - 2, lx));
+      ly = Math.max(A[1] + T.fs, Math.min(A[1] + A[3] - 3, ly));
+      forkSet(q.lab, 'x', f1(lx)); forkSet(q.lab, 'y', f1(ly));
+    }
+    /* 条数读数：`n 条 · →第 k 条` / `n 条 · 未选`。放在岔口背面。 */
+    if (!s.num){
+      if (!g.hid){ g.hid = true; g.root.classList.add('norep'); }
+      return;
+    }
+    if (g.hid){ g.hid = false; g.root.classList.remove('norep'); g.rw = 0; }  // 请回来之后重量一次
+    var rt = s.n + ' 条 · ' + (s.at >= 0 ? '→第 ' + (s.at + 1) + ' 条' : '未选');
+    if (g.rt !== rt){
+      g.rep.textContent = rt; g.rt = rt;
+      g.rw = g.rep.getComputedTextLength ? g.rep.getComputedTextLength() : 0;
+    }
+    var bx = o.J.x - o.c.x, by = o.J.y - o.c.y;
+    var L = Math.sqrt(bx * bx + by * by) || 1;
+    /* 岔口的**背面正对着出发件自己**：岔口点就在那只盒的边上，照旧往回退几步会扎进
+       盒里、压在出发件的正文上（目测时读数与顶栏的 `< 0` 叠成一片）。方向不变，
+       落点改成推到**出发件沿背面那一侧的盒沿之外**：读数读作"从这个件出发有几条路"，
+       而不是"盖在这个件上的一行字"。 */
+    bx /= L; by /= L;
+    var sx = o.fb.x + o.fb.w / 2, sy = o.fb.y + o.fb.h / 2;
+    var tx = Math.abs(bx) > .01 ? (o.fb.w / 2) / Math.abs(bx) : Infinity;
+    var ty = Math.abs(by) > .01 ? (o.fb.h / 2) / Math.abs(by) : Infinity;
+    var bd = Math.min(tx, ty) + T.pad + T.fs * .55;      // 盒沿 + 净空 + 半个字高
+    var rx = sx + bx * bd;
+    var ry = sy + by * bd + T.fs * .35;
+    var w = g.rw || 0;
+    if (w && A[2] > w + 4) rx = Math.max(A[0] + w / 2 + 2, Math.min(A[0] + A[2] - w / 2 - 2, rx));
+    else if (A[2] <= w + 4) rx = A[0] + A[2] / 2;
+    ry = Math.max(A[1] + T.fs, Math.min(A[1] + A[3] - 3, ry));
+    forkSet(g.rep, 'x', f1(rx)); forkSet(g.rep, 'y', f1(ry));
+  }
+
+  /** 排这一句的扇面（layoutLimits 之后、camSet 之前，与其余 layout 同批）。
+   *  两件事：收孤儿（岔口或任一去向被 sweep() 摘走 → 整张摘、连选中档一起清）、
+   *  每步现画一次（这一句的取景窗成了条数读数的安全区）。 */
+  function layoutForks(stepId, index){
+    var live = {}, k, g;
+    var win = (CAM[stepId] || [])[index] || FULL;
+    for (k in FORK_G){
+      g = FORK_G[k];
+      var dead = !g.s || !g.s.from.isConnected;
+      if (!dead) for (var i = 0; i < g.s.to.length; i++) if (!g.s.to[i].isConnected) dead = true;
+      if (dead) removeFork(k);                    // 不登记即摘（无跨步账本）
+    }
+    FORK.forEach(function(s){ live[s.key] = 1; s.__win = win; forkWrite(s); });
+    for (k in FORK_G) if (!live[k]) removeFork(k);
+  }
+
+  /** 逐拍（与 limitTock 同批）。**这一族不吃时间**：岔口、支、箭头、短签全是
+   *  "from 盒 × 各 to 盒 × at"的现量函数，没有起点、没有补间。它每拍重算的理由只有
+   *  一个——对象还在入场、还在挪位（世界层逐句对账、量条还在长），扇面要跟着落位，
+   *  而不是钉在换句那一瞬的旧盒上。见旗（导出 / 减动效 / 擦洗）不需要另写兜底：
+   *  几何本来就是现量的，选中档由当步 `at` 声明，落的就是"清单摆着、走的是这条"。 */
+  function forkTock(){
+    for (var i = 0; i < FORK.length; i++) forkWrite(FORK[i]);
   }
 
   /** 一条注记的全部几何。文字宽度用**探针**量（detached text 挂进同一组、量完就摘）：
@@ -8031,6 +8375,7 @@
         layoutLanes(hit.scene.step_id, hit.index); // 0.48.0：时序带，世界层落位之后现量各 item 并集
         layoutRanges(hit.scene.step_id, hit.index); // 0.49.0：区间窗，世界层落位之后现量那几件的并集
         layoutLimits(hit.scene.step_id, hit.index); // 0.50.0：界线，世界层落位之后量尺子与那颗量
+        layoutForks(hit.scene.step_id, hit.index);  // 0.51.0：岔路，世界层落位之后量岔口与各去向盒
         camSet(hit.scene.step_id, hit.index);     // 落镜头：声明过取景窗就推 / 拉 / 摇
         window.__coursewareRenderTrace.push(key);
         capShow(hit.sentence);              // 字幕跟画面同一条命令驱动，不会错位
@@ -8153,6 +8498,14 @@
     // 用来避免每帧重写 class；节点被摘时连它一起清（否则重建出来的同一个 key 会停在
     // 旧档的颜色上）。
     limitTock();
+    // 岔路（0.51.0）：与界线同一个位置、同一个理由——**它不吃时间**。岔口点是 from 盒
+    // 朝诸去向重心的边界出口，各支末端取去向盒的边缘再退 gap + head，全是"from 盒 ×
+    // 各 to 盒 × at"的现量函数；每拍重算只是因为对象还在入场、还在挪位（世界层逐句对账），
+    // 扇面要跟着落位而不是钉在换句那一瞬的旧盒上。没有起点、没有补间、没有跨步账本，
+    // 见旗（导出 / 减动效 / 擦洗）不另写兜底：落的就是"清单摆着、走的是声明的那一条"。
+    // FORK_S 只是"上一拍选中第几条"，用来避免每帧重写 class；节点被摘连它一起清
+    // （否则重建出来的同一 key 会停在上一次的选中档上，读成"还是这条路"）。
+    forkTock();
     // 词拍（0.39.0）：与上面几个逐拍读数同一个位置——换句分支里 renderer 才重挂
     // CUE、capShow 才写 capSent，写在前面会拿上一句的登记表算这一句的词窗。
     // 它不是动效：没有动画、没有计时，只把"念到没念到"写成一个 class；几何在词到

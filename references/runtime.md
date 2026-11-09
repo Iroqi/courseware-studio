@@ -388,6 +388,13 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
   自己**不画量**，所以逐帧冷启动的每一格都是"那一刻量的真实位置 vs 界"，与直播同格。
   `LIM` 随 `begin()` 清空、不登记即摘（没有 `gone`）；`LIM_S` 只记上一拍的判定，节点被
   `sweep()` 摘走时连它一起清（留着旧判定，重建出来的同一个 key 会停在上一次的颜色上）。
+- 岔路（`fork()` / `layoutForks()` / `forkTock()`）：见旗同样**不需要另写兜底**——支与
+  箭头每拍按当步 `from` / `to` 现算，选中档是 `at` 决定的 class，见旗直接落"走了第 k
+  条"那一格，定格里读到的是"这句念完选的是哪条去路"，不是一段没切完的中间色。补间只有
+  颜色（`--dur-fork`），`transition:none` 切掉即终态，不进 reduced-motion 清单；虚线 /
+  实线的切换本来就不补间。`FORK` 随 `begin()` 清空、不登记即摘（没有 `gone`）；`FORK_S`
+  只记上一拍的选中档，去向被 `sweep()` 摘走时整张摘掉并连它一起清（留着旧档，重建出的
+  同一个 key 会停在上一次的颜色上）。
 - `.bloom`、`.gather`、`.settle`：走 animation 但静止态自己就是终态；
 - `.crisp` / `.halo` / `.stag` / `text-spacing-trim`：静态口径，切掉动画什么都不变；
 - 折叠面板、侧栏滚动入场、擦洗态变厚：侧栏与播放器行整列在截图模式被藏掉，且冷启动
@@ -437,6 +444,7 @@ runtime 不应重新实现其中任何一层。门禁控制器（`openGate` / `c
 | JS 逐拍写 width / `d`（无 transition、无账本） | 时序带（`lanes()` / `layoutLanes()` / `lanesTock()` 写实心段宽与"现在"针，注记在 `#lanes` 现摆） | 见旗把 `at` 直接取 1 → 几条实心段一起满、针停在带右缘；宽与针都是 `(t − stepT0) ÷ dur` 的纯函数，逐帧冷启动天然同一格，所以既不需要兜底清单也没有 `gone`（不登记即摘） |
 | JS 逐拍写几何（只在直播里追，见旗直落） | 区间窗（`range()` / `layoutRanges()` / `rangeTock()` 写带子、两道切口、读数签，注记在 `#ranges` 现摆） | 见旗直接写 `from` / `to` 算出来的那一块；`RANGE_P` 记的是屏幕位置不是对象状态，逐帧冷启动每一格都是 `rangeBox()` 的现量结果，与直播同格；没有 `gone`（不登记即摘） |
 | JS 逐拍现量，只有颜色补间 | 界线（`limit()` / `layoutLimits()` / `limitTock()` 现量 `probe` 的边与界线，注记在 `#limits` 现摆） | 不写兜底：判定是现量的比较而不是时间，同屏 `meter` 见旗落满 → 判定自然落"越界"；`--dur-lim` 切掉即终态；没有跨步账本、没有 `gone`（不登记即摘） |
+| JS 逐拍现量，只有颜色补间（class 切档） | 岔路（`fork()` / `layoutForks()` / `forkTock()` 现算岔口点、各支与箭头、短签与读数，注记在 `#forks` 现摆） | 不写兜底：支的端点由当步 `from` / `to` 现算、选中档由当步 `at` 决定，见旗直接落"走了第 k 条"那一格；`--dur-fork` 切掉即终态，虚线切换本来就不补间；没有跨步账本、没有 `gone`（不登记即摘） |
 | 事件不是状态 | `.flow`、`.opt.rip`、`#ffwd`、`.wind` 蓄力层 | 静止态与终态都不可见 / 位移由呈现属性承载 |
 | 离散过渡 | `.pregate` | 截图模式被 `display:none!important` 摘掉，QA 读的 `hidden` 不受影响 |
 | 静态口径 | `.crisp` / `.halo` / `.stag` / `text-spacing-trim` | 不改任何计算值 |
